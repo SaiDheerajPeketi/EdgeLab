@@ -66,7 +66,7 @@ export async function productSetup(page: Page, options: { target?: "/app/replay"
   await options.beforeNavigate?.();
   await gotoStable(page, options.target ?? "/app/replay", { waitForNetworkIdle: false });
   await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
-  return { storage, workerReceipts };
+  return { storage, workerReceipts, receipts };
 }
 export async function editor(page: Page) {
   const trigger = page.getByRole("button", { name: "Editor", exact: true });

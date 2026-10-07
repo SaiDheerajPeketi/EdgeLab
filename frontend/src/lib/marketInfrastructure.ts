@@ -1,4 +1,4 @@
-import { apiRequest, type Candle } from "./api";
+import { apiRequest, deleteOwnedMarketSubscription, type Candle } from "./api";
 
 export type MarketInstrument = {
   id: number;
@@ -134,7 +134,10 @@ export function listMarketAlertEvents(acknowledged?: boolean) { const query = ac
 export function acknowledgeMarketAlertEvent(eventId: number) { return apiRequest<MarketAlertEvent>(`/market-data/alert-events/${eventId}/acknowledge`, { method: "POST" }); }
 
 export function createMarketSubscription(payload: { pane_id: string; instrument_id: number; channels: Array<"CANDLES" | "TRADES" | "DEPTH" | "FOOTPRINT" | "DIAGNOSTICS"> }) { return apiRequest<MarketSubscription>("/market-data/subscriptions", { method: "POST", body: JSON.stringify(payload) }); }
-export function deleteMarketSubscription(subscriptionId: string) { return apiRequest<{ ok: boolean }>(`/market-data/subscriptions/${encodeURIComponent(subscriptionId)}`, { method: "DELETE" }); }
+export function deleteMarketSubscription(subscriptionId: string, owner?: { token: string | null }) {
+  if (owner) return deleteOwnedMarketSubscription(subscriptionId, owner.token ?? "");
+  return apiRequest<{ ok: boolean }>(`/market-data/subscriptions/${encodeURIComponent(subscriptionId)}`, { method: "DELETE" });
+}
 
 export async function loadNormalizedCandles(instrumentId: number, intervalSeconds: number, options: { from?: Date; to?: Date; limit?: number } = {}) {
   const to = options.to ?? new Date();

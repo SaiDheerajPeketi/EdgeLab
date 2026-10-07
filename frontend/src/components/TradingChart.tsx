@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useMemo,
   useRef,
@@ -11,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { chartRuntimeOwnerMatches, type ChartRuntimeOwner } from "../lib/chartRuntimeOwnership";
 import { PointOverlaySurface } from "./overlays/OverlaySurface";
 import {
   ArrowDownToLine,
@@ -246,6 +248,7 @@ type Props = {
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
   indicatorRuntimeMode?: "historical" | "live";
+  runtimeContextKey?: string;
   pineLiveFeed?: PineLiveFeed;
   keepDrawingAfterPlacement?: boolean;
   magnetMode: MagnetMode;
@@ -305,6 +308,15 @@ type CustomRuntimeStudy = {
     symbol?: string; timeframe: ChartTimeframe; token?: string;
   };
 };
+
+type SnapshotRuntimeResults = {
+  owner: ChartRuntimeOwner | null;
+  studies: CustomRuntimeStudy[];
+  warnings: Record<string, Omit<PineChartNoticeStudy, "id" | "name">>;
+  markers: Record<string, SeriesMarker<UTCTimestamp>[]>;
+};
+
+const EMPTY_SNAPSHOT_RESULTS: SnapshotRuntimeResults = { owner: null, studies: [], warnings: {}, markers: {} };
 
 type DraftDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
@@ -489,6 +501,7 @@ export function TradingChart({
   executions,
   indicatorInstances,
   indicatorRuntimeMode = "historical",
+  runtimeContextKey = "",
   pineLiveFeed,
   keepDrawingAfterPlacement = false,
   magnetMode,
@@ -557,9 +570,7 @@ export function TradingChart({
     candleSnapshotStoreRef.current = createChartCandleSnapshotStore();
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
-  const [snapshotRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
-  const [snapshotRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, Omit<PineChartNoticeStudy, "id" | "name">>>({});
-  const [pineStrategyMarkers, setPineStrategyMarkers] = useState<Record<string, SeriesMarker<UTCTimestamp>[]>>({});
+  const [snapshotRuntimeResults, setSnapshotRuntimeResults] = useState<SnapshotRuntimeResults>(EMPTY_SNAPSHOT_RESULTS);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
@@ -677,6 +688,16 @@ export function TradingChart({
   const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
   const persistentPineFeed = indicatorRuntimeMode === "live" && chartSettings.tradingHoursMode === "extended"
     && ["crypto-24x7", "always-open"].includes(sessionTemplate.id) ? pineLiveFeed : undefined;
+  const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, indicators: indicatorInstances,
+    mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, feed: pineLiveFeed,
+    feedEpoch: pineLiveFeed?.getSnapshot().epoch, userId: authSession?.user.id, token: authSession?.token };
+  // Filter during render: an effect cleanup is too late to prevent old values
+  // and notices from being attributed to the newly selected chart/account.
+  const ownedSnapshot = chartRuntimeOwnerMatches(snapshotRuntimeResults.owner, runtimeOwner)
+    ? snapshotRuntimeResults : EMPTY_SNAPSHOT_RESULTS;
+  const snapshotRuntimeStudies = ownedSnapshot.studies;
+  const snapshotRuntimeWarnings = ownedSnapshot.warnings;
+  const pineStrategyMarkers = ownedSnapshot.markers;
   const livePine = useLivePineRuntime({ feed: persistentPineFeed,
     timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token,
     onRuntimeState: onIndicatorRuntimeState });
@@ -773,8 +794,8 @@ export function TradingChart({
     }),
     [displayBars, indicatorInstances, sessionBars, sessionTemplate, timeframe],
   );
-  const runtimeContextRef = useRef({ displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession });
-  runtimeContextRef.current = { displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession };
+  const runtimeContextRef = useRef(runtimeOwner);
+  runtimeContextRef.current = runtimeOwner;
   const indicatorDefinitions = useMemo<IndicatorDefinition[]>(
     () => [
       ...nativeIndicatorDefinitions,
@@ -817,30 +838,34 @@ export function TradingChart({
         && !(persistentPineFeed && isPersistentPineIndicator(indicator)),
     );
     if (customInstances.length === 0) {
-      setCustomRuntimeStudies([]);
-      setCustomRuntimeWarnings({});
-      setPineStrategyMarkers({});
+      setSnapshotRuntimeResults(EMPTY_SNAPSHOT_RESULTS);
       return;
     }
     let active = true;
     const capturedContext = runtimeContextRef.current;
     const ownsResult = () => {
-      const current = runtimeContextRef.current;
-      return active && current.displayBars === capturedContext.displayBars
-        && current.indicatorInstances === capturedContext.indicatorInstances
-        && current.indicatorRuntimeMode === capturedContext.indicatorRuntimeMode
-        && current.symbol === capturedContext.symbol && current.timeframe === capturedContext.timeframe
-        && current.authSession?.token === capturedContext.authSession?.token
-        && getStoredAuthSession()?.token === capturedContext.authSession?.token;
+      const storedAuth = getStoredAuthSession();
+      return active && chartRuntimeOwnerMatches(capturedContext, runtimeContextRef.current)
+        && storedAuth?.token === capturedContext.token && storedAuth?.user.id === capturedContext.userId
+        && capturedContext.feedEpoch === pineLiveFeed?.getSnapshot().epoch;
     };
     const jobs: ReturnType<typeof createCustomScriptRuntimeJob>[] = [];
-    setCustomRuntimeStudies([]);
-    setCustomRuntimeWarnings({});
-    setPineStrategyMarkers({});
+    setSnapshotRuntimeResults({ ...EMPTY_SNAPSHOT_RESULTS, owner: capturedContext });
+    const publish = (id: string, studies: CustomRuntimeStudy[], warning?: SnapshotRuntimeResults["warnings"][string], markers?: SeriesMarker<UTCTimestamp>[]) => {
+      if (!ownsResult()) return;
+      setSnapshotRuntimeResults((previous) => {
+        if (!ownsResult()) return previous;
+        const current = chartRuntimeOwnerMatches(previous.owner, capturedContext) ? previous : EMPTY_SNAPSHOT_RESULTS;
+        return { owner: capturedContext,
+          studies: [...current.studies.filter((study) => study.sourceId !== id), ...studies],
+          warnings: { ...current.warnings, ...(warning ? { [id]: warning } : {}) },
+          markers: { ...current.markers, ...(markers ? { [id]: markers } : {}) } };
+      });
+    };
     customInstances.forEach((indicator) => {
       if (!indicator.customScriptSource) {
         const error = "This custom indicator has no saved script source.";
-        setCustomRuntimeStudies((current) => [...current, emptyCustomRuntimeStudy(indicator, error)]);
+        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
         if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
         return;
       }
@@ -848,6 +873,9 @@ export function TradingChart({
       const snapshot = nativePine && indicatorRuntimeMode === "live"
         ? displayBars.filter((bar) => bar.time < bucketTime(Math.floor(Date.now() / 1000), timeframe)).slice(-20_000)
         : displayBars.slice(-20_000);
+      // A source transition can legitimately have no owned candles yet. Its
+      // loading/unavailable state belongs to the feed, not to the saved script.
+      if (!snapshot.length) return;
       let job: ReturnType<typeof createCustomScriptRuntimeJob>;
       try {
         job = createCustomScriptRuntimeJob({
@@ -859,7 +887,7 @@ export function TradingChart({
         });
       } catch (failure) {
         const error = failure instanceof Error ? failure.message : "Invalid chart script context.";
-        setCustomRuntimeStudies((current) => [...current, emptyCustomRuntimeStudy(indicator, error)]);
+        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
         if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
         return;
       }
@@ -875,31 +903,21 @@ export function TradingChart({
             error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
             overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
             ...(plot.kind === "barcolor" ? { barcolorOwner: {
-              bars: capturedContext.displayBars, indicators: capturedContext.indicatorInstances,
-              mode: capturedContext.indicatorRuntimeMode, symbol: capturedContext.symbol,
-              timeframe: capturedContext.timeframe, token: capturedContext.authSession?.token,
+              bars: displayBars, indicators: indicatorInstances,
+              mode: capturedContext.mode, symbol: capturedContext.symbol,
+              timeframe, token: capturedContext.token,
             } } : {}),
           };
         }) : customStudiesFromResult(indicator, result as EdgeIndicatorExecutionResult);
-        setCustomRuntimeStudies((current) => [
-          ...current.filter((study) => study.sourceId !== indicator.id),
-          ...studies,
-        ]);
-        if (adapted) {
-          setCustomRuntimeWarnings((current) => ({ ...current, [indicator.id]: {
+        publish(indicator.id, studies, adapted ? {
             diagnostics: nativeResult!.diagnostics,
             adapterWarnings: adapted.adapterWarnings,
-          } }));
-          setPineStrategyMarkers((current) => ({ ...current, [indicator.id]: adapted.strategyMarkers }));
-        }
+          } : undefined, adapted?.strategyMarkers);
         if (indicator.runtimeError) onIndicatorRuntimeState?.(indicator.id, null);
       }).catch((failure) => {
         if (!ownsResult() || (failure instanceof Error && "code" in failure && failure.code === "CANCELLED")) return;
         const error = failure instanceof Error ? failure.message : "Indicator execution failed.";
-        setCustomRuntimeStudies((current) => [
-          ...current.filter((study) => study.sourceId !== indicator.id),
-          emptyCustomRuntimeStudy(indicator, error),
-        ]);
+        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
         if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
       });
     });
@@ -907,7 +925,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, symbol, timeframe]);
+  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe]);
 
   useEffect(() => {
     if (!drawingControlsActive) {
@@ -1346,7 +1364,7 @@ export function TradingChart({
     chartStyle === "tpo" ||
     (showOrderOverlays && (activePosition != null || orders.length > 0));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     barsRef.current = displayBars;
     barsByTimeRef.current = new Map(displayBars.map((bar) => [bar.time, bar]));
     const activeTime = candleSnapshotStore.getSnapshot()?.time;
@@ -1494,7 +1512,7 @@ export function TradingChart({
     return () => document.removeEventListener("pointerdown", closePositionActions);
   }, [positionActionsOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!chartContainerRef.current) {
       return;
     }
@@ -1613,7 +1631,7 @@ export function TradingChart({
     };
   }, [candleSnapshotStore, paneId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
@@ -1697,7 +1715,7 @@ export function TradingChart({
     };
   }, [paneId, primarySeriesKind]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart || !chartSettings.volume || !hasVolumeData) {
       return;
@@ -1815,7 +1833,7 @@ export function TradingChart({
     });
   }, [paneId, syncedVisibleRange]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const timeframeChanged = previousTimeframeRef.current !== timeframe;
     const replaySeekChanged = previousReplaySeekVersionRef.current !== replaySeekVersion;
     const styleChanged = previousChartStyleRef.current !== chartStyle;
@@ -1987,7 +2005,7 @@ export function TradingChart({
     setPlotVersion((value) => value + 1);
   }, [chartSettings, effectiveCrosshairVisible, hasVolumeData, symbol]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
@@ -2042,7 +2060,7 @@ export function TradingChart({
     renderedSelectedIndicatorId,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const plots = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot ? [study.pinePlot] : []);
@@ -2109,7 +2127,7 @@ export function TradingChart({
     sessionTemplate,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     primarySeriesRef.current?.setMarkers(
       [...(showOrderOverlays
         ? [
@@ -5524,7 +5542,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
       autoSize: false, width: Math.max(1, container.current.clientWidth), height: Math.max(1, container.current.clientHeight),

@@ -936,6 +936,19 @@ async function requestWithAuthorization<T>(
   });
 }
 
+// Release-only cleanup for an ephemeral lease acquired by an earlier account.
+// The fixed route still authenticates the captured bearer and checks ownership.
+export async function deleteOwnedMarketSubscription(subscriptionId: string, token: string) {
+  if (typeof subscriptionId !== "string" || !subscriptionId.trim() || typeof token !== "string" || !token.trim()) {
+    throw new Error("A subscription ID and its original account token are required.");
+  }
+  const response = await fetch(`${API_BASE_URL}/market-data/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new ApiError(response.status, `Could not release market subscription (${response.status}).`, null);
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
 export function getApiBearerToken() {
   return readStoredAuthToken() || API_BEARER_TOKEN || null;
 }

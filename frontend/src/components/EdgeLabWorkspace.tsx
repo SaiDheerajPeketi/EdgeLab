@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -196,7 +196,7 @@ import {
   normalizeCurrencyCode,
 } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
-import { getStoredAuthSession } from "../lib/authSession";
+import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import { createPineLiveFeed, type PineLiveFeed } from "../lib/pineLiveFeed";
 import { FIRST_PARTY_EDGE_INDICATORS, createCustomIndicatorInstance, hydrateCustomIndicators, loadCachedCustomIndicators,
   persistCustomIndicators, sanitizePinePrepared, sanitizeQuantSemantics, subscribeCustomIndicators, type CustomIndicatorScript } from "../lib/customIndicators";
@@ -1343,6 +1343,9 @@ const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
   },
 ];
 
+const EMPTY_LIVE_BARS: Candle[] = [];
+const EMPTY_LIVE_CACHE: Record<string, Candle[]> = {};
+
 function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalChartFocusRequest | null }) {
   const { confirm, confirmDialog } = useThemedConfirm();
   const { catalog } = useLiveMarketCatalog();
@@ -1361,14 +1364,79 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
   const [angelOneSearch, setAngelOneSearch] = useState("");
   const [isRenamingWatchlist, setIsRenamingWatchlist] = useState(false);
   const [watchlistNameDraft, setWatchlistNameDraft] = useState("");
-  const [angelOneCredentials, setAngelOneCredentials] = useState<AngelOneCredentials>(() => defaultAngelOneCredentials());
-  const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
-  const [cachedBarsBySymbol, setCachedBarsBySymbol] = useState<Record<string, Candle[]>>({});
-  const [liveBars, setLiveBars] = useState<Candle[]>([]);
+  const authSession = useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, () => null);
+  const owner = JSON.stringify([authSession?.user.id ?? null, getApiBearerToken()]);
+  const emptyCredentials = useMemo(defaultAngelOneCredentials, [owner]);
+  const [credentialSource, setCredentialSource] = useState(() => ({ owner, value: emptyCredentials }));
+  const angelOneCredentials = credentialSource.owner === owner ? credentialSource.value : emptyCredentials;
+  const setAngelOneCredentials = useCallback((action: SetStateAction<AngelOneCredentials>) => {
+    if (JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken()]) !== owner) return;
+    setCredentialSource(current => {
+      if (JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken()]) !== owner) return current;
+      const previous = current.owner === owner ? current.value : emptyCredentials;
+      const next = typeof action === "function" ? action(previous) : action;
+      return current.owner === owner && Object.is(previous, next) ? current : { owner, value: next };
+    });
+  }, [owner, emptyCredentials]);
+  const sourceKey = selectedLiveSymbol ? liveSymbolKey(selectedLiveSymbol) : "";
+  const [cachedSource, setCachedSource] = useState<{ owner: string; barsBySymbol: Record<string, Candle[]> }>(
+    () => ({ owner, barsBySymbol: {} }),
+  );
+  const cachedBarsBySymbol = cachedSource.owner === owner ? cachedSource.barsBySymbol : EMPTY_LIVE_CACHE;
+  const liveBars = cachedBarsBySymbol[sourceKey] ?? EMPTY_LIVE_BARS;
+  const sourceOwnerRef = useRef({ owner, sourceKey, generation: 0 });
+  if (sourceOwnerRef.current.owner !== owner || sourceOwnerRef.current.sourceKey !== sourceKey) {
+    sourceOwnerRef.current = { owner, sourceKey, generation: sourceOwnerRef.current.generation + 1 };
+  }
+  const sourceGeneration = sourceOwnerRef.current.generation;
+  const ownsLiveSource = useCallback(() => sourceOwnerRef.current.owner === owner && sourceOwnerRef.current.sourceKey === sourceKey
+    && sourceOwnerRef.current.generation === sourceGeneration
+    && JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken()]) === owner,
+  [owner, sourceKey, sourceGeneration]);
+  const setLiveBars = useCallback((action: SetStateAction<Candle[]>) => {
+    if (!ownsLiveSource() || !sourceKey) return;
+    setCachedSource(current => {
+      if (!ownsLiveSource()) return current;
+      const cache = current.owner === owner ? current.barsBySymbol : {};
+      const previous = cache[sourceKey] ?? [];
+      const next = typeof action === "function" ? action(previous) : action;
+      return next === previous && current.owner === owner ? current
+        : { owner, barsBySymbol: { ...cache, [sourceKey]: next } };
+    });
+  }, [owner, sourceKey, ownsLiveSource]);
+  const [tickerSource, setTickerSource] = useState<{ owner: string; values: Record<string, LiveTicker> }>(() => ({ owner, values: {} }));
+  const tickers = tickerSource.owner === owner ? tickerSource.values : {};
+  const setTickers = useCallback((action: SetStateAction<Record<string, LiveTicker>>) => {
+    const ownsAccount = () => sourceOwnerRef.current.owner === owner
+      && JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken()]) === owner;
+    if (!ownsAccount()) return;
+    setTickerSource(current => {
+      if (!ownsAccount()) return current;
+      const values = current.owner === owner ? current.values : {};
+      const next = typeof action === "function" ? action(values) : action;
+      return current.owner === owner && Object.is(values, next) ? current : { owner, values: next };
+    });
+  }, [owner]);
   const [activeJournalFocus, setActiveJournalFocus] = useState<JournalChartFocusRequest | null>(journalChartFocus ?? null);
-  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
-  const [feedError, setFeedError] = useState<string | null>(null);
-  const [feedIssue, setFeedIssue] = useState<LiveFeedIssue>(null);
+  const [feedState, setFeedState] = useState<{ owner: string; sourceKey: string; generation: number; status: LiveConnectionStatus; error: string | null; issue: LiveFeedIssue }>(
+    () => ({ owner, sourceKey, generation: sourceGeneration, status: "idle", error: null, issue: null }),
+  );
+  const currentFeedState = feedState.owner === owner && feedState.sourceKey === sourceKey && feedState.generation === sourceGeneration ? feedState
+    : { owner, sourceKey, generation: sourceGeneration, status: "idle" as const, error: null, issue: null };
+  const { status: connectionStatus, error: feedError, issue: feedIssue } = currentFeedState;
+  const updateFeedState = useCallback(<K extends "status" | "error" | "issue",>(key: K, action: SetStateAction<typeof feedState[K]>) => {
+    if (!ownsLiveSource()) return;
+    setFeedState(current => {
+      if (!ownsLiveSource()) return current;
+      const previous = current.owner === owner && current.sourceKey === sourceKey && current.generation === sourceGeneration ? current
+        : { owner, sourceKey, generation: sourceGeneration, status: "idle" as LiveConnectionStatus, error: null, issue: null };
+      const next = typeof action === "function" ? action(previous[key]) : action;
+      return previous === current && Object.is(previous[key], next) ? current : { ...previous, [key]: next };
+    });
+  }, [owner, sourceKey, sourceGeneration, ownsLiveSource]);
+  const setConnectionStatus = useCallback((value: SetStateAction<LiveConnectionStatus>) => updateFeedState("status", value), [updateFeedState]);
+  const setFeedError = useCallback((value: SetStateAction<string | null>) => updateFeedState("error", value), [updateFeedState]);
+  const setFeedIssue = useCallback((value: SetStateAction<LiveFeedIssue>) => updateFeedState("issue", value), [updateFeedState]);
   const watchlistNameInputRef = useRef<HTMLInputElement | null>(null);
   const cachedBarsBySymbolRef = useRef(cachedBarsBySymbol);
   const selectedTicker = selectedLiveSymbol ? tickers[liveSymbolKey(selectedLiveSymbol)] ?? null : null;
@@ -1386,7 +1454,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
   );
   const selectedSourceLabel = liveSourceLabel(selectedFeed);
   const pineLiveFeed = useMemo(() => selectedLiveSymbol?.feed === "binance" ? createPineLiveFeed(selectedLiveSymbol.symbol) : undefined,
-    [selectedLiveSymbol, symbols]);
+    [selectedLiveSymbol, symbols, owner]);
   const angelOneReady = hasAngelOneCredentials(angelOneCredentials);
 
   const focusJournalTrade = useCallback((request: JournalChartFocusRequest) => {
@@ -1432,9 +1500,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
     }
   }, [selectedWatchlistId, watchlists]);
 
-  useEffect(() => {
-    cachedBarsBySymbolRef.current = cachedBarsBySymbol;
-  }, [cachedBarsBySymbol]);
+  cachedBarsBySymbolRef.current = cachedBarsBySymbol;
 
   useEffect(() => {
     setIsRenamingWatchlist(false);
@@ -1460,12 +1526,8 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
   }, [isRenamingWatchlist]);
 
   useEffect(() => {
-    if (!selectedLiveSymbol) {
-      setLiveBars([]);
-      return;
-    }
+    if (!selectedLiveSymbol) return;
     const cachedBars = cachedBarsBySymbol[liveSymbolKey(selectedLiveSymbol)] ?? [];
-    setLiveBars(cachedBars);
     if (cachedBars.length === 0 || selectedLiveSymbol.feed === "angelone") {
       return;
     }
@@ -1500,26 +1562,20 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
   }, [symbols]);
 
   useEffect(() => {
-    if (!selectedLiveSymbol) {
-      setLiveBars([]);
-      return;
-    }
+    if (!selectedLiveSymbol) return;
     const symbolKey = liveSymbolKey(selectedLiveSymbol);
     const cachedBars = cachedBarsBySymbolRef.current[symbolKey] ?? [];
-    if (selectedLiveSymbol.feed === "angelone") {
-      setLiveBars(cachedBars);
-      return;
-    }
+    if (selectedLiveSymbol.feed === "angelone") return;
     const controller = new AbortController();
     const candleRequest = selectedLiveSymbol.feed === "binance"
       ? fetchBinanceHistoricalCandles(selectedLiveSymbol.symbol, "1m", controller.signal)
       : fetchDukascopyHistoricalCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
       .then((nextBars) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !ownsLiveSource()) return;
         pineLiveFeed?.seed(nextBars);
         setLiveBars((current) => {
-          if (controller.signal.aborted) return current;
+          if (controller.signal.aborted || !ownsLiveSource()) return current;
           const preservedBars = mergeLiveCandles(
             cachedBarsBySymbolRef.current[symbolKey] ?? [],
             current,
@@ -1528,10 +1584,6 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
           const authoritative = pineLiveFeed?.getSnapshot().bars;
           const mergedBars = authoritative?.length ? [...authoritative].slice(-LIVE_HISTORY_CACHE_BARS)
             : mergeLiveCandles(preservedBars, nextBars, LIVE_HISTORY_CACHE_BARS);
-          setCachedBarsBySymbol((cache) => ({
-            ...cache,
-            [symbolKey]: mergedBars,
-          }));
           if (selectedLiveSymbol.feed === "dukascopy") {
             const ticker = liveTickerFromCandles(selectedLiveSymbol, mergedBars);
             if (ticker) {
@@ -1543,13 +1595,13 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
         setFeedError(null);
       })
       .catch((error) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && ownsLiveSource()) {
           setFeedError(liveFeedErrorMessage(error, cachedBars.length > 0));
           pineLiveFeed?.fail("Live indicator history could not be loaded. Retry the feed to restart.");
         }
       });
     return () => controller.abort();
-  }, [selectedLiveSymbol, pineLiveFeed]);
+  }, [selectedLiveSymbol, pineLiveFeed, owner]);
 
   useEffect(() => {
     const streamSymbols = uniqueLiveSymbols(symbols.filter((item) => item.feed === "binance").map((item) => item.symbol));
@@ -1568,24 +1620,24 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
     let closedByEffect = false;
     setConnectionStatus("connecting");
     socket.onopen = () => {
-      if (closedByEffect) return;
+      if (closedByEffect || !ownsLiveSource()) return;
       setConnectionStatus("live");
       setFeedError(null);
     };
     socket.onerror = () => {
-      if (closedByEffect) return;
+      if (closedByEffect || !ownsLiveSource()) return;
       setConnectionStatus("error");
       setFeedError("Live feed connection failed");
       pineLiveFeed?.fail("Live candle updates disconnected. Retry the feed to restart indicators.");
     };
     socket.onclose = () => {
-      if (!closedByEffect) {
+      if (!closedByEffect && ownsLiveSource()) {
         setConnectionStatus("error");
         pineLiveFeed?.fail("Live candle updates disconnected. Retry the feed to restart indicators.");
       }
     };
     socket.onmessage = (event) => {
-      if (closedByEffect) return;
+      if (closedByEffect || !ownsLiveSource()) return;
       const payload = parseBinanceCombinedPayload(event.data);
       if (!payload) {
         return;
@@ -1606,15 +1658,9 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
             return;
           }
           pineLiveFeed?.receive(candle, payload.k.x, payload.E!, payload.k.T!);
-          const symbolKey = liveSymbolStorageKey("binance", payload.s);
           setLiveBars((current) => {
-            if (closedByEffect) return current;
-            const nextBars = upsertLiveCandle(current, candle);
-            setCachedBarsBySymbol((cache) => ({
-              ...cache,
-              [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
-            }));
-            return nextBars;
+            if (closedByEffect || !ownsLiveSource()) return current;
+            return upsertLiveCandle(current, candle).slice(-LIVE_HISTORY_CACHE_BARS);
           });
         }
       }
@@ -1623,7 +1669,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       closedByEffect = true;
       socket.close();
     };
-  }, [selectedLiveSymbol, symbols, pineLiveFeed]);
+  }, [selectedLiveSymbol, symbols, pineLiveFeed, owner]);
 
   useEffect(() => {
     const streamSymbols = symbols.filter(isAngelOneLiveSymbol).slice(0, LIVE_MAX_WATCHLIST_SYMBOLS);
@@ -1645,6 +1691,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
     setConnectionStatus("connecting");
 
     socket.onopen = () => {
+      if (closedByEffect || !ownsLiveSource()) return;
       socket.send(JSON.stringify({
         apiToken: getApiBearerToken(),
         credentials: angelOneCredentials,
@@ -1655,15 +1702,17 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       }));
     };
     socket.onerror = () => {
+      if (closedByEffect || !ownsLiveSource()) return;
       setConnectionStatus("error");
       setFeedError("Angel One live feed connection failed");
     };
     socket.onclose = () => {
-      if (!closedByEffect) {
+      if (!closedByEffect && ownsLiveSource()) {
         setConnectionStatus("error");
       }
     };
     socket.onmessage = (event) => {
+      if (closedByEffect || !ownsLiveSource()) return;
       const message = parseAngelOneStreamMessage(event.data);
       if (!message) {
         return;
@@ -1692,14 +1741,8 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       if (selectedLiveSymbol && liveSymbolKey(selectedLiveSymbol) === liveSymbolKey(tickSymbol)) {
         const candle = liveCandleFromAngelOneTick(message.tick);
         if (candle) {
-          const symbolKey = liveSymbolKey(tickSymbol);
           setLiveBars((current) => {
-            const nextBars = upsertLiveTickCandle(current, candle);
-            setCachedBarsBySymbol((cache) => ({
-              ...cache,
-              [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
-            }));
-            return nextBars;
+            return upsertLiveTickCandle(current, candle).slice(-LIVE_HISTORY_CACHE_BARS);
           });
         }
       }
@@ -1709,7 +1752,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       closedByEffect = true;
       socket.close();
     };
-  }, [angelOneCredentials, angelOneReady, selectedFeed, selectedLiveSymbol, symbols]);
+  }, [angelOneCredentials, angelOneReady, selectedFeed, selectedLiveSymbol, symbols, owner]);
 
   useEffect(() => {
     if (selectedFeed !== "dukascopy" || !selectedLiveSymbol) {
@@ -1728,16 +1771,12 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
         LIVE_PROVIDER_PAGE_BARS,
       )
         .then((nextBars) => {
-          if (!isActive || controller.signal.aborted) {
+          if (!isActive || controller.signal.aborted || !ownsLiveSource()) {
             return;
           }
           const symbolKey = liveSymbolKey(selectedLiveSymbol);
           setLiveBars((current) => {
             const mergedBars = mergeLiveCandles(current, nextBars);
-            setCachedBarsBySymbol((cache) => ({
-              ...cache,
-              [symbolKey]: mergedBars,
-            }));
             const ticker = liveTickerFromCandles(selectedLiveSymbol, mergedBars);
             if (ticker) {
               setTickers((currentTickers) => ({ ...currentTickers, [symbolKey]: ticker }));
@@ -1748,7 +1787,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
           setFeedError(null);
         })
         .catch(() => {
-          if (!isActive || controller.signal.aborted) {
+          if (!isActive || controller.signal.aborted || !ownsLiveSource()) {
             return;
           }
           setConnectionStatus("error");
@@ -1761,7 +1800,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       window.clearInterval(interval);
       activeController?.abort();
     };
-  }, [selectedFeed, selectedLiveSymbol]);
+  }, [selectedFeed, selectedLiveSymbol, owner]);
 
   function persistWatchlist(nextWatchlist: LiveWatchlist) {
     setWatchlists((current) =>
@@ -2403,6 +2442,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
             </div>
             <LiveChartStudio
               bars={liveBars}
+              runtimeContextKey={JSON.stringify(["live", authSession?.user.id ?? null, selectedFeed, sourceKey])}
               pineLiveFeed={pineLiveFeed}
               connectionStatus={connectionStatus}
               feedIssue={feedIssue}
@@ -4081,6 +4121,7 @@ function useProgressiveChartEngines(paneIds: string[], activePaneId: string) {
 
 const LiveChartStudio = memo(function LiveChartStudio({
   bars,
+  runtimeContextKey,
   pineLiveFeed,
   connectionStatus,
   feedIssue,
@@ -4091,6 +4132,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   tickerChangeLabel,
 }: {
   bars: Candle[];
+  runtimeContextKey: string;
   pineLiveFeed?: PineLiveFeed;
   connectionStatus: LiveConnectionStatus;
   feedIssue: LiveFeedIssue;
@@ -4862,6 +4904,10 @@ const LiveChartStudio = memo(function LiveChartStudio({
                   )}
                   {mountedPaneIds.has(pane.id) ? <TradingChart
                     bars={paneBars}
+                    runtimeContextKey={paneUsesPrimaryFeed ? runtimeContextKey
+                      : JSON.stringify(["live-normalized", getStoredAuthSession()?.user.id ?? null, pane.symbol || symbolCode || symbol,
+                        pane.timeframe, paneHasHistoricalFocus ? journalChartFocus?.startAt : null,
+                        paneHasHistoricalFocus ? journalChartFocus?.endAt : null])}
                     canUndoDrawingChange={paneActive && drawingUndoStack.length > 0}
                     chartSettings={pane.chartSettings}
                     chartStyle={pane.chartStyle}

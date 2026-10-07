@@ -3367,6 +3367,7 @@ export function WorkspaceApp() {
                             )}
                             <TradingChart
                               bars={paneBars}
+                              runtimeContextKey={`replay:${state?.session.id ?? "none"}`}
                               canUndoDrawingChange={paneActive && drawingUndoDepth > 0}
                               captureMode={chartCaptureMode}
                               chartSettings={pane.chartSettings}
