@@ -322,7 +322,7 @@ export function IndicatorEditorPanel({
         // Preparation must stay small; packed runtime output belongs only to execution.
         setPrepared({ kind: "prepare", source: result.source, language: result.language,
           pineVersion: result.pineVersion, declaration: result.declaration, name: result.name,
-          overlay: result.overlay, inputDefinitions: result.inputDefinitions, diagnostics: result.diagnostics });
+          overlay: result.overlay, behindChart: result.behindChart, inputDefinitions: result.inputDefinitions, diagnostics: result.diagnostics });
         setExecution(result);
         setInputs(result.inputs);
         setRunState({ detail: `${result.plots.length} plots · ${result.audit.bars.toLocaleString()} bars · PineTS ${result.audit.engineVersion}.`, status: "success" });

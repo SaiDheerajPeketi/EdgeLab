@@ -101,7 +101,7 @@ function paint(installed,width=200,height=128) {
     fillRect(x,y,w,h){commands.push({kind:"rect",color:canonical(this.fillStyle),x,y,w,h});},fill(){commands.push({kind:"fill",color:canonical(this.fillStyle),path:[...path]});},stroke(){commands.push({kind:"stroke",color:canonical(this.strokeStyle),path:[...path]});},setLineDash(){},arc(){},fillText(){},
   };
   const target={useMediaCoordinateSpace(fn){fn({context:ctx,mediaSize:{width,height},horizontalPixelRatio:1,verticalPixelRatio:1});}};
-  for(const view of installed.primitive.paneViews())view.renderer()?.draw(target);
+  for(const view of installed.primitive.paneViews())view.renderer()?.drawBackground?.(target);for(const view of installed.primitive.paneViews())view.renderer()?.draw(target);
   return commands;
 }
 // Compare covered intervals, allowing an equivalent contiguous rectangle run.
@@ -130,7 +130,7 @@ test("background draws full-height logical half-slot bands through session gaps 
   assert.equal(f.installed.primitive.rangeForVisible(),null); assert.equal(pine.latestPineChartPoint(f.adapted.plots[0]),null);
   const commands=paint(f.installed).filter(command=>command.kind==="rect");
   assert.deepEqual(coverage(commands),coverage([0,2,3,5].map(index=>({x:14+index*12,y:0,w:12,h:128,color:canonical("#ff000080")}))));
-  assert.equal(f.installed.primitive.paneViews()[0].zOrder(),"bottom"); f.installed.dispose();assert.equal(f.listeners.size,0);
+  assert.equal(f.installed.primitive.paneViews()[0].zOrder(),"normal"); f.installed.dispose();assert.equal(f.listeners.size,0);
 });
 
 test("background na transparent hidden false show_last and unsupported offsets never paint fallback bands",async()=>{
@@ -147,7 +147,7 @@ test("background na transparent hidden false show_last and unsupported offsets n
   const inactive=installation(empty);assert.equal(paint(inactive.installed).length,0);assert.equal(inactive.installed.primitive.rangeForVisible(),null);inactive.installed.dispose();
 });
 
-test("background bottom layer paints before fills and cannot expand visible numeric autoscale",async()=>{
+test("background internal layer paints before fills and cannot expand visible numeric autoscale",async()=>{
   const result=await native(program('a=plot(10,"Lower",display=display.none)\nb=plot(90,"Upper",display=display.none)\nfill(a,b,color=#00ff0080,title="Fill")\nhline(50,"Visible",color=#0000ff)\nbgcolor(#ff000080,title="Background")'));
   const f=installation(result,bars,120,125);
   const commands=paint(f.installed), red=commands.findIndex(command=>command.color===canonical("#ff000080")),green=commands.findIndex(command=>command.color===canonical("#00ff0080")),blue=commands.findIndex(command=>command.color===canonical("#0000ff"));

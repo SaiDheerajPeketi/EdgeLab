@@ -218,7 +218,10 @@ test("packed transport distinguishes absent, null, false, true, numeric and OHLC
     const expected = raw.plots[plot.id].data;
     expected.forEach((point, index) => {
       const value = Array.isArray(point.value) ? point.value.some((cell) => cell == null || Number.isNaN(cell)) ? null : point.value : point.value == null || typeof point.value === "number" && !Number.isFinite(point.value) ? null : point.value;
-      assert.deepEqual(pine.pointAtBar(plot, index), { time: point.time / 1000, value, options: scalarOptions(point.options) });
+      const rawOptions = plot.style === "candle"
+        ? Object.fromEntries(Object.entries(point.options).filter(([, option]) => option !== undefined))
+        : point.options;
+      assert.deepEqual(pine.pointAtBar(plot, index), { time: point.time / 1000, value, options: scalarOptions(rawOptions) });
     });
   }
   const wire = pine.toPineWireResponse(input.id, native, snapshot);

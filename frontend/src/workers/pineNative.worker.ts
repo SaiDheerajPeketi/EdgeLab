@@ -149,12 +149,12 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     // HlineHelper forwards omitted parameters as own undefined fields. Preserve absence
     // separately from explicit na (NaN), so a missing color does not hide a fixed level.
-    const plotFields = (value: object) => fields(style === "hline" ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
+    const plotFields = (value: object) => fields(["hline", "candle", "candles", "plotcandle"].includes(style) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
     const points = function* (): Generator<PinePlotPoint> {
       for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: plotFields(point.options ?? {}) };
     };
     const name = plot.title ?? (style === "background" ? `Background ${(plot._edgelabBackgroundOrder ?? 0) + 1}` : style === "barcolor" ? `Bar color ${(plot._edgelabBarColorOrder ?? 0) + 1}` : id);
-    return [{ id, name, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: plotFields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
+    return [{ id, name, style, overlay: plot.options?.force_overlay === true || overlay || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : false), options: plotFields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
   });
   return packed ? encodePinePackedPlots(plots, bars) : { plots: plots as PinePlot[] };
 }
@@ -484,6 +484,25 @@ function bindGradientFillOptions(context: Context) {
   } });
 }
 
+/** Validate the resolved declaration on this context alone, before its plots or orders. */
+function bindDeclarationLayer(context: Context, strategy: boolean) {
+  const owner = strategy ? context.pine.strategy : context.pine;
+  const key = strategy ? "any" : "indicator";
+  const descriptor = Object.getOwnPropertyDescriptor(owner, key);
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve declaration layers.");
+  const original = descriptor.value;
+  let previous: boolean | undefined;
+  Object.defineProperty(owner, key, { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    const config = Reflect.apply(original, this, args) as Record<string, unknown>;
+    const resolved = resolvedSetting(config.behind_chart);
+    const value = resolved === undefined ? true : resolved;
+    if (typeof value !== "boolean") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
+    if (previous !== undefined && previous !== value) error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must remain constant throughout the snapshot.");
+    previous = value; config.behind_chart = value;
+    return config;
+  } });
+}
+
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
 function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>) {
   const original = prepared.fn;
@@ -492,6 +511,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   const barcolors = new WeakMap<Context, ReturnType<typeof bindBarColorOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
+      bindDeclarationLayer(context, strategyDeclaration);
       bindPlotOptions(context);
       bindGradientFillOptions(context);
       backgrounds.set(context, bindBackgroundOptions(context));
@@ -570,7 +590,13 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
   const inputDefinitions = definitions(indicator);
   const inputs = runtimeInputs(request, inputDefinitions);
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, inputDefinitions, diagnostics: [
+  const parsedLayer = indicator.prop.behind_chart;
+  if (parsedLayer !== undefined && typeof parsedLayer !== "boolean" && typeof parsedLayer !== "string") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
+  if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
+  // Omitted declarations have the public schema default true; expressions can remain unresolved.
+  const pendingLayer = typeof parsedLayer !== "boolean";
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
+    ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     warning("CLOSED_BAR_SNAPSHOT", "Supplied bars are treated as closed historical snapshots, including the final bar. Live mode reloads snapshots; intrabar updates, realtime rollback and varip tick persistence are unavailable."),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategy tick, fill and historical-tick recalculation are unavailable. Enabled calc_on_every_tick, calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
   ] };
@@ -588,7 +614,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();
-  const diagnostics = [...descriptor.diagnostics, warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
+  const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"), warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
   if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));
   if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
   for (const item of context.warnings ?? []) {
@@ -598,7 +624,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const properties = context.strategy?.config ?? context.indicator;
   const overlay = properties?.overlay === true;
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request);
 }
 

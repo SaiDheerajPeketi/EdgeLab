@@ -51,7 +51,7 @@ const bridge = `(() => {
       return [];
     }
     if (Object.keys(payload).some(key => !['id','status','encoding','result','buffers'].includes(key)) || payload.status !== 'completed') throw new Error('Invalid packed envelope fields');
-    if (!payload.result || Object.keys(payload.result).some(key => !['kind','source','language','pineVersion','declaration','name','overlay','inputDefinitions','diagnostics','inputs','plots','strategy','audit'].includes(key))) throw new Error('Invalid packed result fields');
+    if (!payload.result || Object.keys(payload.result).some(key => !['kind','source','language','pineVersion','declaration','name','overlay','behindChart','inputDefinitions','diagnostics','inputs','plots','strategy','audit'].includes(key))) throw new Error('Invalid packed result fields');
     const plots = payload.result?.plots, buffers = payload.buffers;
     if (!Array.isArray(plots) || plots.length > 64 || !Array.isArray(buffers) || Object.getPrototypeOf(buffers) !== Array.prototype || Reflect.ownKeys(buffers).some(key => typeof key !== 'string' || (key !== 'length' && (!/^(0|[1-9]\\d*)$/.test(key) || Number(key) >= buffers.length))) || buffers.length !== plots.length * 3) throw new Error('Invalid packed envelope');
     let bytes = 0;

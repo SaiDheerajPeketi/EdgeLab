@@ -19,7 +19,7 @@ export type PineRequest = {
 };
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
-  declaration: "indicator" | "strategy"; name: string; overlay: boolean;
+  declaration: "indicator" | "strategy"; name: string; overlay: boolean; behindChart?: boolean;
   inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[];
 };
 export type PinePlot = {
@@ -185,7 +185,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "inputDefinitions", "diagnostics", "inputs", "plots", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -194,7 +194,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), inputDefinitions, diagnostics };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics };
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);
   for (const [key, val] of Object.entries(inputs)) if (val === null || !inputDefinitions.some((item) => item.id === key)) fail("Invalid runtime input ID or value.");

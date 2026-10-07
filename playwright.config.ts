@@ -153,7 +153,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/],
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -162,7 +162,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/],
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -172,7 +172,7 @@ export default defineConfig({
     },
     {
       name: "mobile",
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/],
       use: {
         ...commonUse,
         deviceScaleFactor: 1,

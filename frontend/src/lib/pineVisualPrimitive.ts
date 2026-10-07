@@ -84,6 +84,14 @@ function numeric(plot: PineChartPlot, index: number, source = plot.visual!.sourc
   const value = pineVisualSample(plot, index, source)?.value;
   return typeof value === "number" ? value : undefined;
 }
+function candleValues(plot: PineChartPlot, index: number): readonly number[] | Float64Array | undefined {
+  if (index < plot.visual!.showFrom || index < 0 || index >= plot.visual!.bars.length) return undefined;
+  const source = plot.visual!.source, packed = getPackedPinePlot(source);
+  if (packed) return packed.kinds[index] === 5 ? packed.values.subarray(index * packed.arity, index * packed.arity + 4) : undefined;
+  const value = pineVisualSample(plot, index)?.value;
+  return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite) ? value : undefined;
+}
+
 function anchor(plot: PineChartPlot, index: number, sample: Sample | undefined): number | undefined {
   if (!sample || sample.value === null || sample.value === false) return undefined;
   if (plot.kind !== "markers") return typeof sample.value === "number" ? sample.value : undefined;
@@ -197,11 +205,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private readonly views: readonly ISeriesPrimitivePaneView[];
   constructor(plots: readonly PineChartPlot[], scalePeers: readonly PineChartPlot[] = [], options: { allowFillOnlyScale?: boolean } = {}) {
     this.plots = plots; this.scalePeers = scalePeers; this.allowFillOnlyScale = options.allowFillOnlyScale !== false;
-    this.views = [
-      { zOrder: () => "bottom", renderer: () => ({ draw: (target) => { this.draw(target, "background"); this.draw(target, "fill"); } }) },
-      { zOrder: () => "normal", renderer: () => ({ draw: (target) => this.draw(target, "line") }) },
-      { zOrder: () => "top", renderer: () => ({ draw: (target) => this.draw(target, "shape") }) },
-    ];
+    // LWC draws every normal background before primary series, then normal foregrounds.
+    // The owner adds this host after the primary series, keeping front output below crosshair.
+    const pass = (target: CanvasRenderingTarget2D, behind: boolean) => {
+      for (const layer of ["background", "fill", "line", "shape"] as const) this.draw(target, layer, behind);
+    };
+    this.views = [{ zOrder: () => "normal", renderer: () => ({ drawBackground: (target) => pass(target, true), draw: (target) => pass(target, false) }) }];
   }
   get debugStats() { return { decodedSamples: this.decoded, visibleFrom: this.from, visibleTo: this.to, cacheEntries: this.cacheSize, rangeScans: this.scans }; }
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter) {
@@ -221,7 +230,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
-    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.visual.plotOffset) {
+    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.kind === "candles" || plot.visual.plotOffset) {
       const range = scale.getVisibleLogicalRange();
       if (!range) return [0, -1];
       const offset = plot.visual.plotOffset ?? plot.visual.backgroundOffset ?? 0;
@@ -238,7 +247,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return lo;
       };
-      let margin = plot.kind === "background" || plot.kind === "histogram" ? 1 : 0;
+      let margin = plot.kind === "background" || plot.kind === "histogram" || plot.kind === "candles" ? 1 : 0;
       if (plot.kind === "histogram" && plot.visual.histogramWidth) {
         const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
         if (center !== null && next !== null && next !== center) margin = Math.ceil(plot.visual.histogramWidth / Math.abs(next - center) / 2) + 1;
@@ -306,7 +315,10 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       let bounds: Bounds | null = null;
       for (let index = lo; index <= hi; index++) {
         this.scans++;
-        bounds = extend(bounds, numeric(plot, index));
+        if (plot.kind === "candles") {
+          const values = candleValues(plot, index);
+          if (values) { bounds = extend(bounds, Math.min(...values)); bounds = extend(bounds, Math.max(...values)); }
+        } else bounds = extend(bounds, numeric(plot, index));
       }
       return bounds;
     };
@@ -409,6 +421,16 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         return;
       }
       const [from, to] = ranges[p];
+      if (plot.kind === "candles") {
+        // Neighbor samples are retained only when their actual candle body reaches the pane.
+        if (to >= from) for (let index = from; index <= to; index++) {
+          const body = this.candleBody(plot, index, this.pixelRatio);
+          if (!body || body.right <= 0 || body.left >= paneWidth) continue;
+          const values = candleValues(plot, index);
+          if (values) { bounds = extend(bounds, Math.min(...values)); bounds = extend(bounds, Math.max(...values)); }
+        }
+        return;
+      }
       if (plot.kind === "histogram") {
         // Documented numeric columns/histogram policy: histbase always belongs to the scale.
         bounds = extend(bounds, plot.base);
@@ -487,11 +509,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     return this.interpolated(plot, index, source);
   }
 
-  private draw(target: CanvasRenderingTarget2D, layer: "background" | "fill" | "line" | "shape") {
+  private draw(target: CanvasRenderingTarget2D, layer: "background" | "fill" | "line" | "shape", behind: boolean) {
     if (!this.chart || !this.series) return;
     target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, mediaSize.width, mediaSize.height); ctx.clip();
       for (const plot of this.plots) {
+        if ((plot.behindChart !== false) !== behind) continue;
         if (plot.kind === "area" ? layer !== "fill" && layer !== "line" : (plot.kind === "background" ? "background" : plot.kind === "fill" ? "fill" : plot.kind === "markers" ? "shape" : "line") !== layer) continue;
         const level = plot.visual?.level;
         if (level) {
@@ -573,6 +596,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           }
           continue;
         }
+        if (plot.kind === "candles") { this.drawCandles(ctx, plot, from, to, mediaSize.width, mediaSize.height); continue; }
         if (plot.kind === "area" || plot.kind === "histogram") {
           this.drawNumericPlot(ctx, plot, from, to, x, layer, mediaSize.width, mediaSize.height);
           continue;
@@ -602,6 +626,55 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       ctx.restore();
     });
   }
+  /** Pinned LWC candlestick cadence, using actual adjacent shared chart slots and physical pixels. */
+  private candleBody(plot: PineChartPlot, index: number, ratio: number) {
+    const scale = this.chart!.timeScale(), logical = this.logicalPosition(plot, index);
+    if (logical === undefined) return null;
+    const x = scale.logicalToCoordinate(logical as Logical), next = scale.logicalToCoordinate((logical + 1) as Logical);
+    if (x === null || next === null || !Number.isFinite(x) || !Number.isFinite(next)) return null;
+    const spacing = Math.abs(next - x), coefficient = 1 - .2 * Math.atan(Math.max(4, spacing) - 4) / (Math.PI * .5);
+    let pixels = spacing >= 2.5 && spacing <= 4 ? Math.floor(3 * ratio) : Math.max(Math.floor(ratio), Math.min(Math.floor(spacing * coefficient * ratio), Math.floor(spacing * ratio)));
+    const wick = Math.max(1, Math.floor(ratio));
+    if (pixels >= 2 && wick % 2 !== pixels % 2) pixels--;
+    const center = Math.round(x * ratio), left = center - Math.floor(pixels / 2);
+    return { left: left / ratio, right: (left + pixels) / ratio, center: center / ratio, pixels, wick };
+  }
+  private drawCandles(ctx: CanvasRenderingContext2D, plot: PineChartPlot, from: number, to: number, width: number, height: number) {
+    const transform = ctx.getTransform?.();
+    const ratio = Math.abs(transform?.a ?? 1) || 1, verticalRatio = Math.abs(transform?.d ?? ratio) || 1;
+    if (ratio !== this.pixelRatio) { this.pixelRatio = ratio; this.rangeKey = ""; this.requestUpdate?.(); }
+    const rect = (shade: string, left: number, top: number, right: number, bottom: number) => {
+      if (![left, top, right, bottom].every(Number.isFinite) || !painted(shade)) return;
+      left = Math.max(0, left); right = Math.min(width, right); top = Math.max(0, top); bottom = Math.min(height, bottom);
+      if (right > left && bottom > top) { ctx.fillStyle = shade; ctx.fillRect(left, top, right - left, bottom - top); }
+    };
+    for (let index = from; index <= to; index++) {
+      const values = candleValues(plot, index), body = this.candleBody(plot, index, ratio);
+      if (!values || !body || body.right <= 0 || body.left >= width) continue;
+      const sample = this.sample(plot, index), source = plot.visual!.source;
+      const ys = [values[0], Math.max(...values), Math.min(...values), values[3]].map((value) => this.series!.priceToCoordinate(value));
+      if (ys.some((value) => value === null || !Number.isFinite(value))) continue;
+      const [open, high, low, close] = ys as number[];
+      const rounded = (value: number) => Math.round(value * verticalRatio) / verticalRatio;
+      const top = rounded(Math.min(open, close)), bottom = rounded(Math.max(open, close));
+      const bodyShade = pineVisualColor(option(source, sample, "color"), plot.color);
+      const wickShade = pineVisualColor(option(source, sample, "wickcolor"), bodyShade);
+      const borderShade = pineVisualColor(option(source, sample, "bordercolor"), bodyShade);
+      const wickLeft = body.center - Math.floor(body.wick / 2) / ratio, wickRight = wickLeft + body.wick / ratio;
+      const highY = rounded(Math.min(high, low)), lowY = rounded(Math.max(high, low));
+      rect(wickShade, wickLeft, highY, wickRight, top);
+      rect(wickShade, wickLeft, bottom + 1 / verticalRatio, wickRight, lowY + 1 / verticalRatio);
+      const border = Math.max(Math.floor(ratio), body.pixels <= 2 * Math.floor(ratio) ? Math.floor((body.pixels - 1) / 2) : Math.floor(ratio)) / ratio;
+      const verticalBorder = border * ratio / verticalRatio;
+      // Disjoint border strips preserve alpha without painting the body twice.
+      rect(borderShade, body.left, top, body.right, Math.min(bottom + 1 / verticalRatio, top + verticalBorder));
+      if (bottom + 1 / verticalRatio > top + verticalBorder) rect(borderShade, body.left, Math.max(top + verticalBorder, bottom + 1 / verticalRatio - verticalBorder), body.right, bottom + 1 / verticalRatio);
+      rect(borderShade, body.left, top + verticalBorder, Math.min(body.right, body.left + border), bottom + 1 / verticalRatio - verticalBorder);
+      rect(borderShade, Math.max(body.left + border, body.right - border), top + verticalBorder, body.right, bottom + 1 / verticalRatio - verticalBorder);
+      if (body.pixels > border * ratio * 2) rect(bodyShade, body.left + border, top + verticalBorder, body.right - border, bottom + 1 / verticalRatio - verticalBorder);
+    }
+  }
+
   private logicalPosition(plot: PineChartPlot, index: number): number | undefined {
     const scale = this.chart?.timeScale(), bar = plot.visual!.bars[index];
     if (!scale || !bar) return undefined;

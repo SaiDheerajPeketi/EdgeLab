@@ -62,6 +62,9 @@ jobs:
       - name: Run production pricing and checkout gate
         run: npx playwright test --config=e2e/public-checkout48.config.ts
 
+      - name: Run native Pine candle layering gate
+        run: npx playwright test --config=e2e/pine-layering.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash
