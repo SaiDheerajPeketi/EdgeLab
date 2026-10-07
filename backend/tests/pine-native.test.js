@@ -161,8 +161,8 @@ test("historical persistent variables and committed history retain native v5/v6 
   }
 });
 
-test("strategy recalculation settings reject true literals, constants and resolved inputs before the body runs", async () => {
-  for (const version of [5, 6]) for (const setting of ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"]) {
+test("unsupported historical strategy recalculation rejects true literals, constants and resolved inputs before the body runs", async () => {
+  for (const version of [5, 6]) for (const setting of ["calc_on_order_fills", "calc_on_every_history_tick"]) {
     for (const [prefix, expression, inputs] of [["", "true", {}], ["const bool enabled = true\n", "enabled", {}], ['enabled = input.bool(false,"Recalculate")\n', "enabled", { in_0: true }]]) {
       const native = `//@version=${version}\n${prefix}strategy("Recalculate",${setting}=${expression})\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
       await assert.rejects(pine.executePineRequest(request({ source: native, inputs })), (error) => {

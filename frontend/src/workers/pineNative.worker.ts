@@ -640,9 +640,15 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
           const config = Reflect.apply(declare, this, settings) as Record<string, unknown>;
           for (const key of RECALCULATION_SETTINGS) {
             const resolved = resolvedSetting(config[key]);
-            if (resolved === true) error("UNSUPPORTED_EXECUTION_SETTING", `${key}=true requires tick or fill recalculation, which closed-snapshot execution does not support.`);
-            if (resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to false for closed-snapshot execution.`);
-            if (resolved === false) config[key] = false;
+            // This setting changes open realtime bars only. Historical runs still
+            // calculate once per closed bar; keep the author's resolved setting.
+            if (key === "calc_on_every_tick") {
+              if (resolved !== true && resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to a boolean.`);
+            } else {
+              if (resolved === true) error("UNSUPPORTED_EXECUTION_SETTING", `${key}=true requires fill or historical-tick recalculation, which closed-snapshot execution does not support.`);
+              if (resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to false for closed-snapshot execution.`);
+            }
+            if (typeof resolved === "boolean") config[key] = resolved;
           }
           return config;
         } });
@@ -687,8 +693,8 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const pendingLayer = typeof parsedLayer !== "boolean";
   const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
-    ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "Supplied bars are treated as closed historical snapshots, including the final bar. Live mode reloads snapshots; intrabar updates, realtime rollback and varip tick persistence are unavailable.")] : []),
-    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategy tick, fill and historical-tick recalculation are unavailable. Enabled calc_on_every_tick, calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
+    ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate intrabar updates, realtime rollback or varip tick persistence.")] : []),
+    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate once per closed historical bar. calc_on_every_tick is preserved for historical testing; live strategy tick scheduling is unavailable. Enabled calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
   ] };
   return { indicator, prepared, descriptor, inputs, declaration };
 }

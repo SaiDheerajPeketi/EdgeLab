@@ -336,7 +336,7 @@ test("production worker treats past and future snapshots as closed historical ba
   expect(harness.endpointRequests).toEqual([]);
 });
 
-test("production worker guards resolved strategy flags before orders and keeps false-alias next-open fills", async ({ page, harness }) => {
+test("production worker runs historical tick-enabled strategies and guards unsupported recalculation before orders", async ({ page, harness }) => {
   test.setTimeout(60_000);
   const flags = ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"];
   const snapshot = Array.from({ length: 6 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
@@ -344,7 +344,7 @@ test("production worker guards resolved strategy flags before orders and keeps f
     { prefix: "const bool enabled = true", inputs: {} },
     { prefix: 'enabled = input.bool(false,"Recalculate")', inputs: { in_0: true } },
   ];
-  for (const version of [5, 6]) for (const flag of flags) for (const alias of aliases) {
+  for (const version of [5, 6]) for (const flag of flags.filter((flag) => flag !== "calc_on_every_tick")) for (const alias of aliases) {
     const source = `//@version=${version}\n${alias.prefix}\nstrategy("Resolved flag",${flag}=enabled)\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
     const output = await run(page, { ...runtimeRequest(source), bars: snapshot, inputs: alias.inputs });
     expect(output).toMatchObject({ ok: false, error: { code: "UNSUPPORTED_EXECUTION_SETTING" } });
@@ -366,6 +366,27 @@ test("production worker guards resolved strategy flags before orders and keeps f
     expect(output.value.strategy.metrics.netprofit).toBe(4);
     expect(output.value.strategy.openTrades).toEqual([]);
     expect(output.value.strategy.pendingOrders).toEqual([]);
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  for (const version of [5, 6]) for (const alias of [
+    { prefix: "", expression: "true", inputs: {} },
+    { prefix: "const bool enabled = true", expression: "enabled", inputs: {} },
+    { prefix: 'enabled = input.bool(false,"Realtime ticks")', expression: "enabled", inputs: { in_0: true } },
+  ]) {
+    const source = `//@version=${version}\n${alias.prefix}\nstrategy("Historical tick declaration",initial_capital=1000,calc_on_every_tick=${alias.expression})\nvar int calculations = 0\ncalculations += 1\nif bar_index == 1\n    strategy.entry("L",strategy.long,qty=2)\nif bar_index == 3\n    strategy.close("L")\nplot(calculations,"Calculations")\nplot(barstate.ishistory,"Historical")\nplot(barstate.isrealtime,"Realtime")\nplot(barstate.isconfirmed,"Confirmed")\nplot(strategy.position_size,"Position")`;
+    const output = await run(page, { ...runtimeRequest(source), bars: snapshot, inputs: alias.inputs });
+    expect(output.ok, JSON.stringify(output.error)).toBe(true);
+    expect(output.value.source).toBe(source);
+    expect(output.value.strategy.config.calc_on_every_tick).toBe(true);
+    expect(output.value.strategy.closedTrades).toHaveLength(1);
+    expect(output.value.strategy.closedTrades[0]).toMatchObject({ entry_bar_index: 2, exit_bar_index: 4, entry_time: snapshot[2].time, exit_time: snapshot[4].time, entry_price: 3, exit_price: 5, profit: 4 });
+    expect(output.value.strategy.metrics.netprofit).toBe(4);
+    const values = (name: string) => output.value.plots.find((plot: any) => plot.name === name).points.map((point: any) => point.value);
+    expect(values("Calculations")).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(values("Historical")).toEqual(Array(6).fill(true));
+    expect(values("Realtime")).toEqual(Array(6).fill(false));
+    expect(values("Confirmed")).toEqual(Array(6).fill(true));
+    expect(values("Position")).toEqual([0, 0, 2, 2, 0, 0]);
     await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
   }
   expect(harness.endpointRequests).toEqual([]);
