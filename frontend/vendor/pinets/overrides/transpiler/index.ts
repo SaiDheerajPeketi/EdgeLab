@@ -199,6 +199,78 @@ export function transpile(source: string | Function, options: { debug: boolean; 
         delete call._udtName;
     }
 
+    // Identify Pine object-history receivers on the clean, typed AST. Only these
+    // field chains need the value-receiver traversal; JavaScript array indexing
+    // and unrelated built-in receivers retain the upstream argument traversal.
+    // Pine v6 additionally rejects direct field history (`object.field[N]`),
+    // while v5 retains that compatibility path.
+    if (pineVersion !== null) {
+        const receiverType = (node: any, parameters: Map<string, string | undefined>): string | undefined => {
+            if (node?.type === 'Identifier') {
+                return parameters.has(node.name) ? parameters.get(node.name) : scopeManager.getVariableUdtType(node.name);
+            }
+            if (node?.type === 'MemberExpression') {
+                if (node.computed) return receiverType(node.object, parameters);
+                const type = receiverType(node.object, parameters);
+                return type && node.property?.type === 'Identifier'
+                    ? scopeManager.getUdtTypeFields(type)?.[node.property.name] : undefined;
+            }
+            if (node?.type === 'CallExpression') {
+                const callee = node.callee;
+                if (callee?.type === 'Identifier') return scopeManager.getFunctionReturnType(callee.name);
+                if (callee?.type === 'MemberExpression' && !callee.computed && callee.object?.type === 'Identifier' &&
+                    scopeManager.isUdtTypeName(callee.object.name) && ['new', 'copy'].includes(callee.property?.name)) {
+                    return callee.object.name;
+                }
+                if (callee?.type === 'MemberExpression' && !callee.computed && callee.property?.name === 'copy') {
+                    const type = receiverType(callee.object, parameters);
+                    if (type && scopeManager.isUdtTypeName(type)) return type;
+                }
+            }
+            return undefined;
+        };
+        const inspectObjectHistory = (node: any, parameters = new Map<string, string | undefined>()) => {
+            if (!node || typeof node !== 'object') return;
+            if (node.type === 'FunctionDeclaration') {
+                parameters = new Map(parameters);
+                const name = node.id?.name?.replace(/^\$M_/, '');
+                const typed = scopeManager.getFunctionParamUdtTypes(name) || {};
+                const receiver = scopeManager.getMethodReceiverType(name);
+                for (const [index, parameter] of (node.params || []).entries()) {
+                    if (parameter.type === 'Identifier') {
+                        const type = typed[parameter.name] || (index === 0 && receiver && scopeManager.isUdtTypeName(receiver) ? receiver : undefined);
+                        parameters.set(parameter.name, type);
+                    }
+                }
+            }
+            if (node.type === 'MemberExpression' && !node.computed) {
+                let receiver = node.object;
+                while (receiver?.type === 'MemberExpression') {
+                    const type = receiver.computed && receiverType(receiver.object, parameters);
+                    if (type && scopeManager.isUdtTypeName(type)) {
+                        node._pineObjectHistory = true;
+                        break;
+                    }
+                    receiver = receiver.object;
+                }
+            }
+            if (pineVersion >= 6 && node.type === 'MemberExpression' && node.computed && node.object?.type === 'MemberExpression' &&
+                !node.object.computed && node.object.property?.type === 'Identifier') {
+                const type = receiverType(node.object.object, parameters);
+                const fields = type && scopeManager.getUdtTypeFields(type);
+                if (fields && Object.prototype.hasOwnProperty.call(fields, node.object.property.name)) {
+                    throw new Error('Pine v6 cannot reference UDT field history directly; use (object[offset]).field.');
+                }
+            }
+            for (const [key, child] of Object.entries(node)) {
+                if (key === 'parent') continue;
+                if (Array.isArray(child)) child.forEach(value => inspectObjectHistory(value, parameters));
+                else if (child && typeof child === 'object') inspectObjectHistory(child, parameters);
+            }
+        };
+        inspectObjectHistory(ast);
+    }
+
     // First pass: register all function declarations and their parameters
     // Returns the original parameter name of the root function if any
     const originalParamName = runAnalysisPass(ast, scopeManager) || '';

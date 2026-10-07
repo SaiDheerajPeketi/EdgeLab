@@ -39,8 +39,9 @@ test("reviewed sources and pristine reference resolve independently without pack
   const f = fixture();
   const patched = readPineEngineSources(f);
   const original = readPineEngineSources({ ...f, patched: false });
-  assert.equal(f.manifest.overrides.length, 9);
+  assert.equal(f.manifest.overrides.length, 10);
   assert.notEqual(patched.get("src/PineTS.class.ts"), original.get("src/PineTS.class.ts"));
+  assert.notEqual(patched.get("src/transpiler/transformers/ExpressionTransformer.ts"), original.get("src/transpiler/transformers/ExpressionTransformer.ts"));
   assert.equal(patched.get("src/Series.ts"), original.get("src/Series.ts"));
   assert.ok(patched.has("node_modules/acorn/dist/acorn.mjs"));
   assert.deepEqual(fs.readFileSync(path.join(f.packageRoot, "dist/pinets.min.browser.es.js.map")), f.map);

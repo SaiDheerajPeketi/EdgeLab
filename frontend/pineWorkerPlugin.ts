@@ -22,7 +22,7 @@ export function pineWorkerPlugin(): Plugin {
       minify: true,
       plugins: [createPineEnginePlugin()],
       legalComments: "inline",
-      banner: { js: "/*! PineTS 0.11.0 + EdgeLab realtime-55 source patches | Copyright (C) 2026-present LuxAlgo | AGPL-3.0-only | See /THIRD_PARTY_NOTICES.txt and /LICENSE.txt */" },
+      banner: { js: "/*! PineTS 0.11.0 + EdgeLab realtime-56 source patches | Copyright (C) 2026-present LuxAlgo | AGPL-3.0-only | See /THIRD_PARTY_NOTICES.txt and /LICENSE.txt */" },
       write: false,
     });
     return result.outputFiles[0].text;

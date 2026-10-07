@@ -1312,6 +1312,12 @@ export function transformReturnStatement(node: any, scopeManager: ScopeManager):
             ) {
                 transformIdentifier(node.argument.object, scopeManager);
             }
+            // Historical receivers in direct field returns are values too:
+            // `return (object[N]).field` must unwrap the object Series before
+            // precision wrapping, just like a field used as a call argument.
+            else if (node.argument._pineObjectHistory && !node.argument.computed && node.argument.object.type === 'MemberExpression') {
+                transformMemberExpression(node.argument, '', scopeManager);
+            }
             // UDT-field subscript on a function parameter: `return b.field[N]`
             // where `b` is a UDT-typed parameter. The chain's leaf must be a
             // registered UDT instance for the rewrite to fire — see
