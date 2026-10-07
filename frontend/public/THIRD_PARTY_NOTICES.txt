@@ -2,6 +2,10 @@
 
 The native Pine runtime includes PineTS 0.11.0, copyright (C) 2026-present
 LuxAlgo, licensed under GNU Affero General Public License version 3 only.
+EdgeLab's reviewed local engine modifications are identified in
+frontend/vendor/pinets/overrides and sealed by its manifest.json. The matching
+build uses scripts/pine-engine.mjs to reconstruct the pinned dependency sources;
+these changes and build inputs are part of the corresponding source offer.
 Project and upstream source: https://github.com/LuxAlgo/PineTS
 Licence text: LICENSE and the distributed /LICENSE.txt.
 

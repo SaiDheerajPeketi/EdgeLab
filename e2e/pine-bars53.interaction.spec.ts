@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { test as base, expect, type Page } from "@playwright/test";
 import { productSetup, editor, checkedRun, observed } from "./pine-layering.product-support";
 
-const artifacts = path.resolve(".artifacts/pine-bars53");
+const artifacts = path.resolve(process.env.EDGELAB_PINE_BARS_ARTIFACTS ?? ".artifacts/pine-bars53");
 const original = fs.readFileSync("e2e/pine-visuals.bars.json");
 expect(createHash("sha256").update(original).digest("hex")).toBe("fc9a28c87aed819daae602ea45422d0d40979bd42f86097607310b0300645ea1");
 const bars = JSON.parse(original.toString()).map((bar: any) => ({ ...bar, open: 90, high: 115, low: 85, close: 110 }));

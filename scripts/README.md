@@ -7,6 +7,7 @@ The scripts in this directory fall into three groups.
 - `dev.js` starts FastAPI, Vite, and the compatibility Node API, reusing healthy services that are already running.
 - `purge-vite-cache.js` removes stale generated Vite configuration and cache files after builds.
 - `audit-dependencies.sh` runs the Python and npm dependency audits.
+- `pine-engine.mjs` verifies the pinned PineTS source map and reviewed local source overrides, then resolves them into the isolated worker without modifying the installed package. `npm --prefix frontend run check:pine-engine` runs the integrity check; the frontend build runs it automatically. See [engine source notes](../frontend/vendor/pinets/README.md).
 
 ## UI contracts
 

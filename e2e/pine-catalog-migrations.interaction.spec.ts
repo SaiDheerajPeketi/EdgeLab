@@ -10,7 +10,7 @@ import type { CustomIndicatorScript } from "../frontend/src/lib/customIndicators
 import type { PineExecutionResult, PineResponse } from "../frontend/src/lib/pineProtocol";
 
 const overlay = '//@version=5\nindicator("Native editor EMA", overlay=true)\nlength=input.int(3,"Length",minval=1,maxval=20)\nplot(ta.ema(close,length),"Native EMA",color=#ff00ff)';
-const artifacts = path.resolve(".artifacts/catalog37/browser");
+const artifacts = path.resolve(process.env.EDGELAB_PINE_MIGRATIONS_ARTIFACTS ?? ".artifacts/catalog37/browser");
 type Receipt = { operation_id: string; method: string; path: string; status: "reserved" | "completed"; http_status: number | null; result: null; created_at: string; completed_at: string | null };
 
 declare global {

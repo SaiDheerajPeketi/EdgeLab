@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
+import { createPineEnginePlugin } from "../scripts/pine-engine.mjs";
 
 const virtualId = "virtual:pine-worker-url";
 const resolvedId = `\0${virtualId}`;
@@ -19,8 +20,9 @@ export function pineWorkerPlugin(): Plugin {
       conditions: ["browser"],
       target: "es2020",
       minify: true,
+      plugins: [createPineEnginePlugin()],
       legalComments: "inline",
-      banner: { js: "/*! PineTS 0.11.0 | Copyright (C) 2026-present LuxAlgo | AGPL-3.0-only | See /THIRD_PARTY_NOTICES.txt and /LICENSE.txt */" },
+      banner: { js: "/*! PineTS 0.11.0 + EdgeLab realtime-54 source patches | Copyright (C) 2026-present LuxAlgo | AGPL-3.0-only | See /THIRD_PARTY_NOTICES.txt and /LICENSE.txt */" },
       write: false,
     });
     return result.outputFiles[0].text;

@@ -1,0 +1,68 @@
+{
+  "version": "0.11.0",
+  "patch": "edgelab-realtime-54",
+  "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
+  "barrels": [
+    {
+      "source": "src/Indicator.ts",
+      "declaration": "Indicator.d.ts",
+      "sha256": "97333ffa6656e545547857007a4194e08b5c6c77c30278ff6114c86a994d9ae9"
+    }
+  ],
+  "overrides": [
+    {
+      "source": "src/transpiler/pineToJS/codegen.ts",
+      "file": "overrides/transpiler/pineToJS/codegen.ts",
+      "upstreamSha256": "cd2ed1f31979dece0df5420bde9af785a4eb2798e0b8985834430695ef83f3a5",
+      "sha256": "7755833b3571f06440b359e64be17219ccfbac975c3d780d39e2b3fd39fefd54"
+    },
+    {
+      "source": "src/transpiler/pineToJS/parser.ts",
+      "file": "overrides/transpiler/pineToJS/parser.ts",
+      "upstreamSha256": "e37745fab2be0436b06e3abbe1e9d41c01fd9bed9dcbaa3c7556d3dda95f0731",
+      "sha256": "12aef5e159f49ba09c1b669b47855532e3fa43105e7b2c3fdbbba37dedc84510"
+    },
+    {
+      "source": "src/transpiler/index.ts",
+      "file": "overrides/transpiler/index.ts",
+      "upstreamSha256": "f17badec7f474d68cbcedfc8fc2f769a5af47f04c8e4240872873d287cd4f9d0",
+      "sha256": "efac1b3603e6ebd468e3360ea58db59e3311d44c8a01dabb43a5a133ce327035"
+    },
+    {
+      "source": "src/transpiler/transformers/StatementTransformer.ts",
+      "file": "overrides/transpiler/transformers/StatementTransformer.ts",
+      "upstreamSha256": "aa23692aff1a4c5edd459fae57f5776a892811ade518fd2d5d1fc73134b460b8",
+      "sha256": "7cb1e65e1d3b204107a0afde4bd400b5960cdeb1ee13d113ebb905f86e9ab513"
+    },
+    {
+      "source": "src/Context.class.ts",
+      "file": "overrides/Context.class.ts",
+      "upstreamSha256": "c539cacd319115f06118c9249b4886dcfe1615c8a8e47490bdf139ce7e8fe721",
+      "sha256": "f53cf65e38f2d44ec63b13b008fe5c319f351a1cfca59e4274c8d3ab52fdb98f"
+    },
+    {
+      "source": "src/PineTS.class.ts",
+      "file": "overrides/PineTS.class.ts",
+      "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
+      "sha256": "f49543bb253fc2594877ab1fa77adfa83f1a08eda157363d67231cc57af6f225"
+    },
+    {
+      "source": "src/namespaces/Barstate.ts",
+      "file": "overrides/namespaces/Barstate.ts",
+      "upstreamSha256": "6f9f82b9bcccba7304c63370c71973a42f6301331395423e39bb0b952b828cd8",
+      "sha256": "01482ff7880cf84b9fc74356d10ff0d367f933744d1bb35c8244e01e0fc919d1"
+    },
+    {
+      "source": "src/namespaces/array/sliceView.ts",
+      "file": "overrides/namespaces/array/sliceView.ts",
+      "upstreamSha256": "49b49c7ef7848050701bd17253150f0283079305deaec74c27f9904f4f4b5adc",
+      "sha256": "018346a815cf0afb4a72bfe2734b5e84d7e07fb2f646535d4c6e259b41ca6697"
+    },
+    {
+      "source": "src/namespaces/PineTypeObject.ts",
+      "file": "overrides/namespaces/PineTypeObject.ts",
+      "upstreamSha256": "54670cee7a7f62ad8977f3755b65dc161f5218a6662a4c91b2448c33c6d62b9f",
+      "sha256": "c9a5f6178f4d257a0157e053d3ea9bb1980b3a4a3884361bfced0531fef6664c"
+    }
+  ]
+}

@@ -32,6 +32,7 @@ WORKDIR /app/frontend
 
 COPY frontend ./
 COPY scripts /app/scripts
+# The build verifies the pinned Pine source map and copied source overrides.
 RUN npm run build \
     && find dist -type f \( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' -o -name '*.svg' \) \
         -exec gzip -9 -k {} \;
