@@ -95,6 +95,12 @@ jobs:
       - name: Run dimensional landing fallback gate
         run: npx playwright test --config=e2e/landing-sculpture60.config.ts
 
+      - name: Verify replay session ownership and write sequencing
+        run: node --test backend/tests/replay-session-ownership.test.js
+
+      - name: Run replay session continuity gate
+        run: npx playwright test --config=e2e/replay-session61.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash

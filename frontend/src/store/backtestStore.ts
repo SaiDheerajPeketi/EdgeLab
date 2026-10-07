@@ -1,5 +1,6 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { ResultTradesLoadLease } from "./resultTradesLoadLease.js";
+import { assertAppDataAccess, captureAppDataAccess, type AppDataAccess } from "../lib/appDataBarrier";
 import {
   ApiError,
   BacktestReplayUpdate,
@@ -30,6 +31,7 @@ import {
   deleteBacktestSession,
   deleteBacktestOrder,
   deletePlaybook as deletePlaybookApi,
+  getApiBearerToken,
   getBars,
   getBacktest,
   getBacktestSessionSummaries,
@@ -70,6 +72,7 @@ type BacktestStore = {
   bars: Candle[];
   barOffset: number;
   replaySeekVersion: number;
+  replayLoadAttempted: boolean;
   datasets: DatasetCatalog | null;
   meta: DatasetMeta | null;
   state: BacktestState | null;
@@ -103,6 +106,7 @@ type BacktestStore = {
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
   deletePlaybook: (playbookId: number) => Promise<void>;
+  invalidateReplaySelection: () => void;
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
   refreshDatasets: () => Promise<DatasetRefreshResponse>;
@@ -116,10 +120,11 @@ type BacktestStore = {
   refreshShellSnapshot: (targetCount?: number) => Promise<void>;
   refreshResults: () => Promise<void>;
   ensureResultTradesLoaded: () => Promise<void>;
-  ensureLatestReplayLoaded: () => Promise<void>;
+  ensureLatestReplayLoaded: () => Promise<boolean>;
+
   loadMoreSessions: () => Promise<void>;
-  loadSession: (sessionId: number) => Promise<void>;
-  newSession: (payload?: BacktestCreatePayload) => Promise<void>;
+  loadSession: (sessionId: number) => Promise<boolean>;
+  newSession: (payload?: BacktestCreatePayload) => Promise<boolean>;
   updateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<BacktestSession>;
   deleteSession: (sessionId: number) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
@@ -138,10 +143,11 @@ type BacktestStore = {
   updateTradeStrategy: (tradeId: number, payload: TradeStrategyPayload) => Promise<Trade>;
 };
 
-export const useBacktestStore = create<BacktestStore>((set, get) => ({
+export const useBacktestStore: UseBoundStore<StoreApi<BacktestStore>> = create<BacktestStore>((set, get) => ({
   bars: [],
   barOffset: 0,
   replaySeekVersion: 0,
+  replayLoadAttempted: false,
   datasets: null,
   meta: null,
   state: null,
@@ -234,9 +240,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
+  invalidateReplaySelection: () => invalidateReplaySelection(),
+
   loadInitial: async () => {
+    const owner = beginReplaySelection(null, false);
+    startResultTradesLoad();
     const hydrateShellData = () => {
       void Promise.allSettled([getDatasets()]).then(([datasetsResult]) => {
+        if (!isCurrentReplayOwner(owner)) return;
         set((current) => ({
           datasets: datasetsResult.status === "fulfilled" ? datasetsResult.value : current.datasets,
           error:
@@ -248,9 +259,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       });
     };
 
-    set({ isLoading: true, error: null, failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
     try {
       const shell = await getBootstrapShell();
+      if (!isCurrentReplayOwner(owner)) return;
       set({
         playbooks: shell.playbooks,
         resultSessions: uniqueSessions(shell.recent_sessions),
@@ -270,8 +281,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       hydrateShellData();
       return;
     } catch {
+      if (!isCurrentReplayOwner(owner)) return;
       try {
         const bootstrap = await getBootstrap();
+        if (!isCurrentReplayOwner(owner)) return;
         const tradeLoadVersion = startResultTradesLoad();
         set({
           datasets: bootstrap.datasets,
@@ -291,10 +304,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           isLoading: false,
         });
         if (bootstrap.recent_trades.length >= bootstrap.recent_trade_limit) {
-          void hydrateRemainingResultTrades(tradeLoadVersion);
+          void hydrateRemainingResultTrades(tradeLoadVersion, owner);
         }
         return;
       } catch {
+        if (!isCurrentReplayOwner(owner)) return;
         try {
           const tradeLoadVersion = startResultTradesLoad(true);
           const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
@@ -303,6 +317,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             getBacktests(),
             loadTradeSnapshot(),
           ]);
+          settleResultTradesLoading(tradeLoadVersion);
+          if (!isCurrentReplayOwner(owner)) return;
           const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
           const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
           const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
@@ -336,9 +352,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           });
           settleResultTradesLoading(tradeLoadVersion);
           if (tradeSnapshot.resultTradesHasMore) {
-            void hydrateRemainingResultTrades(tradeLoadVersion);
+            void hydrateRemainingResultTrades(tradeLoadVersion, owner);
           }
         } catch (error) {
+          if (!isCurrentReplayOwner(owner)) return;
           const message = toErrorMessage(error);
           set({ error: message, isLoading: false, isPlaying: false, resultSessionsLoadError: message });
         }
@@ -409,6 +426,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   refreshShellSnapshot: async (targetCount) => {
+    const operationVersion = get().replayOperationVersion;
     try {
       const shell = await loadShellSnapshot(
         targetCount ?? Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT),
@@ -422,14 +440,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsLoadError: null,
         strategySummaries: shell.strategySummaries,
         resultTradesLoaded: current.resultTradesLoaded,
-        error: null,
+        error: current.replayOperationVersion === operationVersion ? null : current.error,
       }));
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (get().replayOperationVersion === operationVersion) set({ error: toErrorMessage(error) });
     }
   },
 
   refreshResults: async () => {
+    const operationVersion = get().replayOperationVersion;
     try {
       const sessionTarget = Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT);
       const tradeTarget = Math.max(get().resultTrades.length, RESULT_TRADES_PAGE_LIMIT);
@@ -446,7 +465,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultTradesHasMore,
       } = await loadResultsData(sessionTarget, tradeTarget);
       const tradeLoadVersion = startResultTradesLoad();
-      set({
+      set((current) => ({
         playbooks,
         resultSessions,
         resultSessionsHasMore,
@@ -458,13 +477,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultTradesNextCursor,
         resultTradesHasMore,
         resultTradesLoaded: true,
-        error: null,
-      });
+        error: current.replayOperationVersion === operationVersion ? null : current.error,
+      }));
       if (resultTradesHasMore && isCurrentResultTradesLoad(tradeLoadVersion)) {
         void hydrateRemainingResultTrades(tradeLoadVersion);
       }
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (get().replayOperationVersion === operationVersion) set({ error: toErrorMessage(error) });
     }
   },
 
@@ -501,27 +520,33 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   ensureLatestReplayLoaded: async () => {
-    if (get().state != null || get().isLoading) {
-      return;
+    if (get().isLoading) return false;
+    if (get().state != null) {
+      return activeReplayOwner == null ||
+        (hydratedReplayGeneration === replayGeneration && isCurrentReplayOwner(activeReplayOwner));
     }
-
-    set({ isLoading: true, error: null });
+    const owner = beginReplaySelection(null);
     try {
-      const context = await loadLatestReplayContext();
-      if (!context) {
-        set({ isLoading: false });
-        return;
+      let state = await getLatestBacktest();
+      if (!isCurrentReplayOwner(owner)) return false;
+      owner.sessionId = state.session.id;
+      if (deletingReplaySessions.has(replayMutationKey(owner))) {
+        set({ error: "This replay session is being deleted.", isLoading: false });
+        return false;
       }
-      set((current) => ({
-        meta: context.meta,
-        state: context.state,
-        bars: context.window.bars,
-        barOffset: context.window.barOffset,
-        isLoading: false,
-        replaySeekVersion: current.replaySeekVersion + 1,
-      }));
+      const tail = replayMutationTails.get(replayMutationKey(owner));
+      if (tail) {
+        await tail;
+        if (!isCurrentReplayOwner(owner)) return false;
+        state = await getBacktest(owner.sessionId);
+        if (!isCurrentReplayOwner(owner)) return false;
+      }
+      return await publishReplaySelection(state, owner);
     } catch (error) {
-      set({ error: toErrorMessage(error), isLoading: false });
+      if (isCurrentReplayOwner(owner)) {
+        set({ error: error instanceof ApiError && error.status === 404 ? null : toErrorMessage(error), isLoading: false });
+      }
+      return false;
     }
   },
 
@@ -562,111 +587,100 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   loadSession: async (sessionId) => {
-    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
+    const owner = beginReplaySelection(sessionId);
+    const key = replayMutationKey(owner);
+    const tail = replayMutationTails.get(key);
+    if (deletingReplaySessions.has(key)) {
+      set({ error: "This replay session is being deleted.", isLoading: false });
+      return false;
+    }
     try {
-      const initialState = await getBacktest(sessionId);
-      const hydrationVersion = startReplayHydration();
-      set((current) => ({
-        meta: null,
-        state: initialState,
-        bars: [],
-        barOffset: initialState.session.start_offset,
-        pendingReplaySyncOffset: null,
-        resultSessions: upsertSession(current.resultSessions, initialState.session),
-        strategySummaries: current.strategySummaries,
-        isLoading: true,
-      }));
-      void hydrateReplaySession(initialState, hydrationVersion);
-      if (get().resultTradesLoaded) {
-        void get().refreshResults();
-      } else {
-        void get().refreshShellSnapshot();
+      if (tail) {
+        await tail;
+        if (!isCurrentReplayOwner(owner)) return false;
       }
+      if (!isCurrentReplayOwner(owner)) return false;
+      const state = await getBacktest(sessionId);
+      if (!isCurrentReplayOwner(owner)) return false;
+      return await publishReplaySelection(state, owner);
     } catch (error) {
-      set({ error: toErrorMessage(error), isLoading: false });
+      if (isCurrentReplayOwner(owner)) set({ error: toErrorMessage(error), isLoading: false });
+      return false;
     }
   },
 
   newSession: async (payload = {}) => {
-    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
+    const owner = beginReplaySelection(null);
     try {
-      const initialState = await createBacktest(payload);
-      const hydrationVersion = startReplayHydration();
-      set((current) => ({
-        meta: null,
-        state: initialState,
-        bars: [],
-        barOffset: initialState.session.start_offset,
-        pendingReplaySyncOffset: null,
-        resultSessions: upsertSession(current.resultSessions, initialState.session),
-        strategySummaries: current.strategySummaries,
-        isLoading: true,
-      }));
-      void hydrateReplaySession(initialState, hydrationVersion);
-      if (get().resultTradesLoaded) {
-        void get().refreshResults();
-      } else {
-        void get().refreshShellSnapshot();
-      }
+      const state = await createBacktest(payload);
+      if (!isCurrentReplayOwner(owner)) return false;
+      owner.sessionId = state.session.id;
+      return await publishReplaySelection(state, owner);
     } catch (error) {
-      set({ error: toErrorMessage(error), isLoading: false });
+      if (isCurrentReplayOwner(owner)) set({ error: toErrorMessage(error), isLoading: false });
+      return false;
     }
   },
 
   updateSession: async (sessionId, payload) => {
+    const owner: ReplayOwner = {
+      generation: replayGeneration, access: captureAppDataAccess(), token: getApiBearerToken(), sessionId,
+    };
+    const seekVersion = replaySeekRequestVersion;
+    const admitted = () => replayAccountIsCurrent(owner) && !deletingReplaySessions.has(replayMutationKey(owner));
     try {
-      const session = await updateBacktestSession(sessionId, payload);
-      set((current) => ({
-        resultSessions: upsertSession(current.resultSessions, session),
-        state:
-          current.state?.session.id === session.id
-            ? { ...current.state, session }
-            : current.state,
-        error: null,
-      }));
-      if (get().resultTradesLoaded) {
-        void get().refreshResults();
-      } else {
-        void get().refreshShellSnapshot();
-      }
+      const session = await runReplayMutation(owner, () => updateBacktestSession(sessionId, payload), () => true, admitted);
+      if (!session || !replayAccountIsCurrent(owner)) throw new DOMException("Account session changed", "AbortError");
+      const keys = ["name", "currency", "timezone", "pnl_multiplier", "strategy_name", "playbook_id", "status",
+        "initial_balance", "default_commission_mode", "default_commission_value", "default_fee_mode", "default_fee_value"] as const;
+      const metadata = Object.fromEntries(keys.filter((key) => payload[key] !== undefined &&
+        (key !== "status" || seekVersion === replaySeekRequestVersion)).map((key) => [key, session[key]]));
+      set((current) => {
+        const previous = current.resultSessions.find((item) => item.id === session.id);
+        return {
+          resultSessions: upsertSession(current.resultSessions, previous ? { ...previous, ...metadata } : session),
+          state: current.state && current.state.session.id === session.id
+            ? { ...current.state, session: { ...current.state.session, ...metadata } } : current.state,
+          error: isCurrentReplayOwner(owner) ? null : current.error,
+        };
+      });
+      if (get().resultTradesLoaded) void get().refreshResults();
+      else void get().refreshShellSnapshot();
       return session;
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (isCurrentReplayOwner(owner)) set({ error: toErrorMessage(error) });
       throw error;
     }
   },
 
   deleteSession: async (sessionId) => {
+    const owner: ReplayOwner = {
+      generation: replayGeneration, access: captureAppDataAccess(), token: getApiBearerToken(), sessionId,
+    };
+    const key = replayMutationKey(owner);
+    if (deletingReplaySessions.has(key)) return;
+    const tail = replayMutationTails.get(key);
+    deletingReplaySessions.add(key);
+    if (activeReplayOwner?.sessionId === sessionId || get().state?.session.id === sessionId) invalidateReplaySelection();
     try {
-      await deleteBacktestSession(sessionId);
-      set((current) => {
-        const deletingActiveSession = current.state?.session.id === sessionId;
-        return {
-          resultSessions: current.resultSessions.filter((session) => session.id !== sessionId),
-          resultTrades: current.resultTrades.filter((trade) => trade.session_id !== sessionId),
-          strategySummaries: current.strategySummaries,
-          resultTradesLoaded: current.resultTradesLoaded,
-          state: deletingActiveSession ? null : current.state,
-          meta: deletingActiveSession ? null : current.meta,
-          bars: deletingActiveSession ? [] : current.bars,
-          barOffset: deletingActiveSession ? 0 : current.barOffset,
-          pendingReplaySyncOffset: deletingActiveSession ? null : current.pendingReplaySyncOffset,
-          replaySeekVersion: deletingActiveSession
-            ? current.replaySeekVersion + 1
-            : current.replaySeekVersion,
-          isPlaying: deletingActiveSession ? false : current.isPlaying,
-          error: null,
-        };
-      });
-      if (get().resultTradesLoaded) {
-        void get().refreshResults();
-      } else {
-        void get().refreshShellSnapshot();
+      if (tail) {
+        await tail;
+        if (!replayAccountIsCurrent(owner)) return;
       }
+      if (!replayAccountIsCurrent(owner)) return;
+      await deleteBacktestSession(sessionId);
+      if (!replayAccountIsCurrent(owner)) return;
+      if (activeReplayOwner?.sessionId === sessionId || get().state?.session.id === sessionId) invalidateReplaySelection();
+      set((current) => ({
+        resultSessions: current.resultSessions.filter((session) => session.id !== sessionId),
+        resultTrades: current.resultTrades.filter((trade) => trade.session_id !== sessionId), error: null,
+      }));
+      if (get().resultTradesLoaded) void get().refreshResults();
+      else void get().refreshShellSnapshot();
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (replayAccountIsCurrent(owner)) set({ error: toErrorMessage(error) });
       throw error;
-    }
+    } finally { deletingReplaySessions.delete(key); }
   },
 
   stepForward: async (steps = 1) => {
@@ -676,6 +690,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
 
+    const owner = captureReplayOwner();
+    if (!owner) return;
+    const seekVersion = replaySeekRequestVersion;
+    const current = () => isCurrentReplayOwner(owner) && seekVersion === replaySeekRequestVersion;
     set({ isStepping: true, failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
     try {
       if (
@@ -694,6 +712,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           previousState.session.start_offset,
           previousState.session.end_offset,
         );
+        if (!current()) return;
         if (!canAdvanceLocally(previousState, bars.bars, bars.barOffset, targetOffset)) {
           throw new Error("server advance required");
         }
@@ -723,6 +742,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         return;
       }
     } catch (error) {
+      if (!current()) return;
       if (!(error instanceof Error) || error.message !== "server advance required") {
         set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
         return;
@@ -731,9 +751,12 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const replayBaseState = get().pendingReplaySyncOffset == null
         ? previousState
-        : await syncPendingReplayOffset();
-      const replaySessionId = replayBaseState?.session.id ?? sessionId;
-      const replay = await advanceBacktestCompact(replaySessionId, steps);
+        : await syncPendingReplayOffset(owner);
+      if (!current()) return;
+      if (!replayBaseState) { set({ isStepping: false }); return; }
+      const replay = await runReplayMutation(owner, () => advanceBacktestCompact(sessionId, steps), current);
+      if (!current()) return;
+      if (!replay) { set({ isStepping: false }); return; }
       const state = mergeReplayUpdate(replayBaseState ?? previousState, replay);
       const bars = await ensureBarsForOffset(
         get().bars,
@@ -743,6 +766,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.start_offset,
         state.session.end_offset,
       );
+      if (!current()) return;
       set({
         state,
         bars: bars.bars,
@@ -760,6 +784,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         }
       }
     } catch (error) {
+      if (!current()) return;
       set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
     }
   },
@@ -779,6 +804,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
 
+    const owner = captureReplayOwner();
+    if (!owner) return;
+    const seekVersion = replaySeekRequestVersion;
+    const current = () => isCurrentReplayOwner(owner) && seekVersion === replaySeekRequestVersion;
     set({ isStepping: true, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
     try {
       const bars = await ensureBarsForOffset(
@@ -789,6 +818,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         previousState.session.start_offset,
         previousState.session.end_offset,
       );
+      if (!current()) return;
       const currentCandle = bars.bars[targetOffset - bars.barOffset] ?? previousState.current_candle;
       set({
         state: {
@@ -809,6 +839,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isPlaying: false,
       });
     } catch (error) {
+      if (!current()) return;
       set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
     }
   },
@@ -838,18 +869,22 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     if (!sessionId) {
       return;
     }
+    const owner = captureReplayOwner();
+    if (!owner) return;
     const requestVersion = ++replaySeekRequestVersion;
     const operationVersion = ++replayOperationVersion;
-    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: operationVersion });
+    set({ isLoading: true, isStepping: false, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: operationVersion });
     try {
-      const state = await jumpBacktest(sessionId, { offset });
+      const state = await runReplayMutation(owner, () => jumpBacktest(sessionId, { offset }),
+        () => requestVersion === replaySeekRequestVersion);
+      if (!state || !isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) return;
       const { bars, barOffset } = await loadWindow(
         state.session.current_offset,
         state.session.id,
         state.session.start_offset,
         state.session.end_offset,
       );
-      if (requestVersion !== replaySeekRequestVersion) {
+      if (!isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) {
         return;
       }
       set((current) => ({
@@ -862,7 +897,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
-      if (requestVersion !== replaySeekRequestVersion) {
+      if (!isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) {
         return;
       }
       const message = toErrorMessage(error);
@@ -875,18 +910,22 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     if (!sessionId) {
       return;
     }
+    const owner = captureReplayOwner();
+    if (!owner) return;
     const requestVersion = ++replaySeekRequestVersion;
     const operationVersion = ++replayOperationVersion;
-    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: operationVersion });
+    set({ isLoading: true, isStepping: false, isPlaying: false, error: null, failedReplayAction: null, replayOperationVersion: operationVersion });
     try {
-      const state = await jumpBacktest(sessionId, { timestamp });
+      const state = await runReplayMutation(owner, () => jumpBacktest(sessionId, { timestamp }),
+        () => requestVersion === replaySeekRequestVersion);
+      if (!state || !isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) return;
       const { bars, barOffset } = await loadWindow(
         state.session.current_offset,
         state.session.id,
         state.session.start_offset,
         state.session.end_offset,
       );
-      if (requestVersion !== replaySeekRequestVersion) {
+      if (!isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) {
         return;
       }
       set((current) => ({
@@ -899,7 +938,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
-      if (requestVersion !== replaySeekRequestVersion) {
+      if (!isCurrentReplayOwner(owner) || requestVersion !== replaySeekRequestVersion) {
         return;
       }
       const message = toErrorMessage(error);
@@ -920,80 +959,29 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   setPlaying: (value) => {
+    const owner = captureReplayOwner();
+    if (!owner) return;
     set({ isPlaying: value });
     if (!value) {
-      void syncPendingReplayOffset();
+      void syncReplayOnPause(owner).catch((error) => {
+        if (isCurrentReplayOwner(owner)) set({ error: toErrorMessage(error) });
+      });
     }
   },
   setSpeed: (value) => set({ speedMs: value }),
 
-  placeOrder: async (payload) => {
-    set({ failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
-    try {
-      await syncPendingReplayOffset();
-      const sessionId = get().state?.session.id;
-      if (!sessionId) {
-        return false;
-      }
-      const state = await postBacktestOrder(sessionId, payload);
-      set({ state, pendingReplaySyncOffset: null, error: null });
-      if (state.trades.some((trade) => trade.status === "CLOSED")) {
-        if (get().resultTradesLoaded) {
-          void get().refreshResults();
-        } else {
-          void get().refreshShellSnapshot();
-        }
-      }
-      return true;
-    } catch (error) {
-      set({ error: toErrorMessage(error) });
-      return false;
-    }
-  },
+  placeOrder: async (payload) => mutateReplayOrder((sessionId) => postBacktestOrder(sessionId, payload), true),
 
   amendOrder: async (orderId, payload) => {
-    set({ failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
-    try {
-      await syncPendingReplayOffset();
-      const sessionId = get().state?.session.id;
-      if (!sessionId) {
-        return;
-      }
-      const state = await patchBacktestOrder(sessionId, orderId, payload);
-      set({ state, pendingReplaySyncOffset: null, error: null });
-    } catch (error) {
-      set({ error: toErrorMessage(error) });
-    }
+    await mutateReplayOrder((sessionId) => patchBacktestOrder(sessionId, orderId, payload));
   },
 
   updatePosition: async (payload) => {
-    set({ failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
-    try {
-      await syncPendingReplayOffset();
-      const sessionId = get().state?.session.id;
-      if (!sessionId) {
-        return;
-      }
-      const state = await patchBacktestPosition(sessionId, payload);
-      set({ state, pendingReplaySyncOffset: null, error: null });
-    } catch (error) {
-      set({ error: toErrorMessage(error) });
-    }
+    await mutateReplayOrder((sessionId) => patchBacktestPosition(sessionId, payload));
   },
 
   cancelOrder: async (orderId) => {
-    set({ failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
-    try {
-      await syncPendingReplayOffset();
-      const sessionId = get().state?.session.id;
-      if (!sessionId) {
-        return;
-      }
-      const state = await deleteBacktestOrder(sessionId, orderId);
-      set({ state, pendingReplaySyncOffset: null, error: null });
-    } catch (error) {
-      set({ error: toErrorMessage(error) });
-    }
+    await mutateReplayOrder((sessionId) => deleteBacktestOrder(sessionId, orderId));
   },
 
   updateJournal: async (tradeId, payload) => {
@@ -1160,26 +1148,6 @@ async function loadShellSnapshot(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
   };
 }
 
-async function loadLatestReplayContext() {
-  const latestState = await getLatestBacktest().catch((error) => {
-    if (error instanceof ApiError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  });
-  if (!latestState) {
-    return null;
-  }
-
-  const meta = await getMeta(latestState.session.id);
-  const window = await loadWindow(
-    latestState.session.current_offset,
-    latestState.session.id,
-    latestState.session.start_offset,
-    latestState.session.end_offset,
-  );
-  return { meta, state: latestState, window };
-}
 
 function mergeActiveTradeState(
   state: BacktestState | null,
@@ -1237,7 +1205,22 @@ type TradeSnapshot = {
 };
 
 const resultTradesLoadLease = new ResultTradesLoadLease();
-let replayHydrationVersion = 0;
+type ReplayOwner = {
+  generation: number;
+  access: AppDataAccess | null;
+  token: string | null;
+  sessionId: number | null;
+};
+let replayGeneration = 0;
+let hydratedReplayGeneration: number | null = null;
+let activeReplayOwner: ReplayOwner | null = null;
+let replayPauseSync: { generation: number; task: Promise<void> } | null = null;
+// Entries retain only unresolved local writes and release after settlement.
+const replayMutationTails = new Map<string, Promise<void>>();
+const replayMutationCounts = new Map<string, number>();
+const deletingReplaySessions = new Set<string>();
+const MAX_PENDING_REPLAY_SESSIONS = 64;
+const MAX_PENDING_REPLAY_WRITES_PER_SESSION = 32;
 let replaySeekRequestVersion = 0;
 let replayOperationVersion = 0;
 
@@ -1269,47 +1252,122 @@ function settleResultTradesLoading(version: number) {
   }
 }
 
-function startReplayHydration() {
-  replayHydrationVersion += 1;
-  return replayHydrationVersion;
+function replayAccountIsCurrent(owner: ReplayOwner) {
+  try {
+    assertAppDataAccess(owner.access);
+    const access = captureAppDataAccess();
+    return getApiBearerToken() === owner.token && access?.owner === owner.access?.owner &&
+      access?.token === owner.access?.token && access?.epoch === owner.access?.epoch;
+  } catch { return false; }
 }
 
-function isCurrentReplayHydration(version: number) {
-  return replayHydrationVersion === version;
+function replayMutationKey(owner: ReplayOwner) {
+  return JSON.stringify([owner.access?.owner ?? owner.token, owner.access?.epoch ?? null, owner.sessionId]);
 }
 
-async function hydrateReplaySession(state: BacktestState, version: number) {
+function isCurrentReplayOwner(owner: ReplayOwner) {
+  if (owner.generation !== replayGeneration || !replayAccountIsCurrent(owner)) return false;
+  if (owner.sessionId != null && deletingReplaySessions.has(replayMutationKey(owner))) return false;
+  const selected = useBacktestStore.getState().state?.session.id;
+  return owner.sessionId == null || selected == null || selected === owner.sessionId;
+}
+
+function captureReplayOwner(): ReplayOwner | null {
+  const sessionId = useBacktestStore.getState().state?.session.id;
+  if (!sessionId || (activeReplayOwner && !isCurrentReplayOwner(activeReplayOwner))) return null;
+  return { generation: replayGeneration, access: captureAppDataAccess(), token: getApiBearerToken(), sessionId };
+}
+
+function clearReplaySelection(loading: boolean, attempted: boolean) {
+  ++replaySeekRequestVersion;
+  hydratedReplayGeneration = null;
+  useBacktestStore.setState((current) => ({
+    state: null, meta: null, bars: [], barOffset: 0, pendingReplaySyncOffset: null,
+    isPlaying: false, isStepping: false, isLoading: loading,
+    error: null, failedReplayAction: null, replayLoadAttempted: attempted,
+    replaySeekVersion: current.replaySeekVersion + 1,
+    replayOperationVersion: ++replayOperationVersion,
+  }));
+}
+
+function invalidateReplaySelection() {
+  ++replayGeneration;
+  activeReplayOwner = null;
+  clearReplaySelection(false, true);
+}
+
+function beginReplaySelection(sessionId: number | null, attempted = true): ReplayOwner {
+  const owner: ReplayOwner = {
+    generation: ++replayGeneration, access: captureAppDataAccess(), token: getApiBearerToken(), sessionId,
+  };
+  activeReplayOwner = owner;
+  clearReplaySelection(true, attempted);
+  return owner;
+}
+
+async function runReplayMutation<T>(
+  owner: ReplayOwner, execute: () => Promise<T>, eligible = () => true,
+  admitted = () => isCurrentReplayOwner(owner),
+): Promise<T | null> {
+  if (owner.sessionId == null || !admitted() || !eligible()) return null;
+  const key = replayMutationKey(owner);
+  const previous = replayMutationTails.get(key);
+  const count = replayMutationCounts.get(key) ?? 0;
+  if ((!previous && replayMutationTails.size >= MAX_PENDING_REPLAY_SESSIONS) || count >= MAX_PENDING_REPLAY_WRITES_PER_SESSION) {
+    throw new Error("Too many replay changes are pending. Wait for them to finish.");
+  }
+  replayMutationCounts.set(key, count + 1);
+  const result = (async () => {
+    if (previous) await previous;
+    if (!admitted() || !eligible()) return null;
+    return execute();
+  })();
+  const tail = result.then(() => undefined, () => undefined);
+  replayMutationTails.set(key, tail);
+  void tail.then(() => {
+    const remaining = (replayMutationCounts.get(key) ?? 1) - 1;
+    if (remaining) replayMutationCounts.set(key, remaining);
+    else replayMutationCounts.delete(key);
+    if (replayMutationTails.get(key) === tail) replayMutationTails.delete(key);
+  });
+  return result;
+}
+
+async function publishReplaySelection(state: BacktestState, owner: ReplayOwner): Promise<boolean> {
+  if (!isCurrentReplayOwner(owner)) return false;
+  if (state.session.id !== owner.sessionId) throw new Error("The replay response belongs to a different session.");
+  useBacktestStore.setState((current) => ({
+    state, barOffset: state.session.start_offset,
+    resultSessions: upsertSession(current.resultSessions, state.session),
+  }));
+  const accepted = await hydrateReplaySession(state, owner);
+  if (!accepted || !isCurrentReplayOwner(owner)) return false;
+  const current = useBacktestStore.getState();
+  if (current.resultTradesLoaded) void current.refreshResults();
+  else void current.refreshShellSnapshot();
+  return true;
+}
+
+async function hydrateReplaySession(state: BacktestState, owner: ReplayOwner): Promise<boolean> {
   const session = state.session;
+  if (!isCurrentReplayOwner(owner)) return false;
   const [metaResult, windowResult] = await Promise.allSettled([
-    getMeta(session.id),
-    loadWindow(
-      session.current_offset,
-      session.id,
-      session.start_offset,
-      session.end_offset,
-    ),
+    getMeta(session.id), loadWindow(session.current_offset, session.id, session.start_offset, session.end_offset),
   ]);
-  if (!isCurrentReplayHydration(version)) {
-    return;
-  }
-
+  if (!isCurrentReplayOwner(owner)) return false;
   if (windowResult.status === "rejected") {
-    useBacktestStore.setState({
-      error: toErrorMessage(windowResult.reason),
-      isLoading: false,
-      isPlaying: false,
-    });
-    return;
+    useBacktestStore.setState({ error: toErrorMessage(windowResult.reason), isLoading: false, isPlaying: false });
+    return false;
   }
-
   useBacktestStore.setState((current) => ({
     meta: metaResult.status === "fulfilled" ? metaResult.value : current.meta,
-    bars: windowResult.value.bars,
-    barOffset: windowResult.value.barOffset,
+    bars: windowResult.value.bars, barOffset: windowResult.value.barOffset,
     error: metaResult.status === "rejected" ? toErrorMessage(metaResult.reason) : null,
-    isLoading: false,
-    replaySeekVersion: current.replaySeekVersion + 1,
+    isLoading: false, replaySeekVersion: current.replaySeekVersion + 1,
   }));
+  if (metaResult.status !== "fulfilled") return false;
+  hydratedReplayGeneration = owner.generation;
+  return true;
 }
 
 async function loadTradeSnapshot(targetCount = RESULT_TRADES_PAGE_LIMIT): Promise<TradeSnapshot> {
@@ -1341,9 +1399,9 @@ async function loadTradeSnapshot(targetCount = RESULT_TRADES_PAGE_LIMIT): Promis
   };
 }
 
-async function hydrateRemainingResultTrades(version: number) {
+async function hydrateRemainingResultTrades(version: number, owner?: ReplayOwner) {
   // Finish older pages after first paint so workspace gets fast initial trade payload.
-  while (isCurrentResultTradesLoad(version)) {
+  while (isCurrentResultTradesLoad(version) && (!owner || isCurrentReplayOwner(owner))) {
     const snapshot = useBacktestStore.getState();
     if (!snapshot.resultTradesHasMore) {
       return;
@@ -1353,7 +1411,7 @@ async function hydrateRemainingResultTrades(version: number) {
       offset: snapshot.resultTradesNextOffset,
       limit: RESULT_TRADES_PAGE_LIMIT,
     });
-    if (!isCurrentResultTradesLoad(version)) {
+    if (!isCurrentResultTradesLoad(version) || (owner && !isCurrentReplayOwner(owner))) {
       return;
     }
     useBacktestStore.setState((current) => ({
@@ -1432,38 +1490,84 @@ function mergeBarWindow(
   };
 }
 
-async function syncPendingReplayOffset() {
+async function syncReplayOnPause(owner: ReplayOwner) {
+  if (replayPauseSync?.generation === owner.generation) return replayPauseSync.task;
+  const task = (async () => {
+    if (useBacktestStore.getState().isStepping) {
+      await new Promise<void>((resolve) => {
+        const unsubscribe = useBacktestStore.subscribe((current) => {
+          if (!current.isStepping || !isCurrentReplayOwner(owner)) { unsubscribe(); resolve(); }
+        });
+      });
+    }
+    if (isCurrentReplayOwner(owner) && !useBacktestStore.getState().isLoading) await syncPendingReplayOffset(owner);
+  })();
+  replayPauseSync = { generation: owner.generation, task };
+  const clear = () => { if (replayPauseSync?.task === task) replayPauseSync = null; };
+  void task.then(clear, clear);
+  return task;
+}
+
+async function syncPendingReplayOffset(owner: ReplayOwner): Promise<BacktestState | null> {
+  if (!isCurrentReplayOwner(owner)) return null;
   const snapshot = useBacktestStore.getState();
   const pendingOffset = snapshot.pendingReplaySyncOffset;
   const sessionId = snapshot.state?.session.id;
-  if (pendingOffset == null || !sessionId) {
-    return snapshot.state;
-  }
-  const state = await jumpBacktest(sessionId, { offset: pendingOffset });
+  const seekVersion = replaySeekRequestVersion;
+  if (snapshot.isLoading || !sessionId || sessionId !== owner.sessionId) return null;
+  if (pendingOffset == null) return snapshot.state;
+  const unchanged = () => {
+    const current = useBacktestStore.getState();
+    return !current.isLoading && seekVersion === replaySeekRequestVersion && current.state === snapshot.state && current.pendingReplaySyncOffset === pendingOffset;
+  };
+  const state = await runReplayMutation(owner, () => jumpBacktest(sessionId, { offset: pendingOffset }), unchanged);
+  if (!state || !isCurrentReplayOwner(owner) || !unchanged()) return null;
   let bars = snapshot.bars;
   let barOffset = snapshot.barOffset;
-  const offsetLoaded =
-    bars.length > 0 &&
-    state.session.current_offset >= barOffset &&
-    state.session.current_offset < barOffset + bars.length;
-  if (!offsetLoaded) {
-    const loadedWindow = await loadWindow(
-      state.session.current_offset,
-      state.session.id,
-      state.session.start_offset,
-      state.session.end_offset,
-    );
-    bars = loadedWindow.bars;
-    barOffset = loadedWindow.barOffset;
+  const loaded = bars.length > 0 && state.session.current_offset >= barOffset && state.session.current_offset < barOffset + bars.length;
+  if (!loaded) {
+    const window = await loadWindow(state.session.current_offset, sessionId, state.session.start_offset, state.session.end_offset);
+    if (!isCurrentReplayOwner(owner) || !unchanged()) return null;
+    bars = window.bars; barOffset = window.barOffset;
   }
-  useBacktestStore.setState({
-    state,
-    bars,
-    barOffset,
-    pendingReplaySyncOffset: null,
-    error: null,
-  });
+  useBacktestStore.setState({ state, bars, barOffset, pendingReplaySyncOffset: null, error: null });
   return state;
+}
+
+async function mutateReplayOrder(
+  execute: (sessionId: number) => Promise<BacktestState>, refreshClosedTrades = false,
+): Promise<boolean> {
+  const owner = captureReplayOwner();
+  const snapshot = useBacktestStore.getState();
+  if (!owner || owner.sessionId == null || snapshot.isLoading || snapshot.isStepping) return false;
+  const sessionId = owner.sessionId;
+  const seekVersion = replaySeekRequestVersion;
+  const current = () => {
+    const state = useBacktestStore.getState();
+    return isCurrentReplayOwner(owner) && seekVersion === replaySeekRequestVersion && !state.isLoading && !state.isStepping;
+  };
+  useBacktestStore.setState({ failedReplayAction: null, replayOperationVersion: ++replayOperationVersion });
+  try {
+    const synced = await syncPendingReplayOffset(owner);
+    if (!synced || !current()) return false;
+    const offset = synced.session.current_offset;
+    const eligible = () => {
+      const state = useBacktestStore.getState();
+      return current() && state.pendingReplaySyncOffset == null && state.state?.session.current_offset === offset;
+    };
+    const state = await runReplayMutation(owner, () => execute(sessionId), eligible);
+    if (!state || !eligible()) return false;
+    useBacktestStore.setState({ state, pendingReplaySyncOffset: null, error: null });
+    if (refreshClosedTrades && state.trades.some((trade) => trade.status === "CLOSED")) {
+      const current = useBacktestStore.getState();
+      if (current.resultTradesLoaded) void current.refreshResults();
+      else void current.refreshShellSnapshot();
+    }
+    return true;
+  } catch (error) {
+    if (current()) useBacktestStore.setState({ error: toErrorMessage(error) });
+    return false;
+  }
 }
 
 function toErrorMessage(error: unknown) {

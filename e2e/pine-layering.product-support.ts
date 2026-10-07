@@ -3,7 +3,7 @@ import { expect, type Page, type Locator } from "@playwright/test";
 import { AUTH_SESSION_KEY, betaSessionResponse, FROZEN_TIME, gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
 import { prepare, fulfillReplayContext } from "./support/replay-context";
 
-export async function productSetup(page: Page, options: { target?: "/app/replay" | "/app/live"; keepBinanceWebSocket?: boolean; beforeNavigate?: () => Promise<void> } = {}) {
+export async function productSetup(page: Page, options: { target?: "/app/replay" | "/app/live"; keepBinanceWebSocket?: boolean; beforeNavigate?: (context: { receipts: Map<string, any> }) => Promise<void> } = {}) {
   if (options.keepBinanceWebSocket) {
     await installDeterminism(page, { keepBinanceWebSocket: true });
     await seedApprovedSession(page);
@@ -63,7 +63,7 @@ export async function productSetup(page: Page, options: { target?: "/app/replay"
     }
     return route.fallback();
   });
-  await options.beforeNavigate?.();
+  await options.beforeNavigate?.({ receipts });
   await gotoStable(page, options.target ?? "/app/replay", { waitForNetworkIdle: false });
   await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
   return { storage, workerReceipts, receipts };

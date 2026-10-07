@@ -48,7 +48,7 @@ import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
 import { usePaneMarketData } from "./components/chart/usePaneMarketData";
-import { getStoredAuthSession } from "./lib/authSession";
+import { getStoredAuthSession, subscribeAuthSession } from "./lib/authSession";
 import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
 import {
   getApiBearerToken,
@@ -343,6 +343,7 @@ export function WorkspaceApp() {
     meta,
     state,
     replaySeekVersion,
+    replayLoadAttempted,
     playbooks,
     resultSessions,
     resultSessionsHasMore,
@@ -390,6 +391,7 @@ export function WorkspaceApp() {
       meta: store.meta,
       state: store.state,
       replaySeekVersion: store.replaySeekVersion,
+      replayLoadAttempted: store.replayLoadAttempted,
       playbooks: store.playbooks,
       resultSessions: store.resultSessions,
       resultSessionsHasMore: store.resultSessionsHasMore,
@@ -771,6 +773,39 @@ export function WorkspaceApp() {
     chartSettings.tradingHoursMode, chartSettings.sessionTemplate, effectiveTimeframe]);
 
   useEffect(() => {
+    const invalidate = () => useBacktestStore.getState().invalidateReplaySelection();
+    const identity = () => JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken()]);
+    let owner = identity();
+    let dataBlocked = false;
+    const current = () => {
+      const next = identity();
+      if (next !== owner) {
+        owner = next;
+        dataBlocked = false;
+        invalidate();
+      }
+      try { assertAppDataAccess(captureAppDataAccess()); }
+      catch { if (!dataBlocked) { dataBlocked = true; invalidate(); } }
+    };
+    const unsubscribeAuth = subscribeAuthSession(current);
+    const unsubscribeData = registerAppDataParticipant({
+      settle: async () => {},
+      invalidate: (account) => {
+        if (captureAppDataAccess()?.owner === account) { dataBlocked = true; invalidate(); }
+      },
+    });
+    window.addEventListener("storage", current);
+    window.addEventListener("edgelab:app-data-state-change", current);
+    return () => {
+      unsubscribeAuth();
+      unsubscribeData();
+      window.removeEventListener("storage", current);
+      window.removeEventListener("edgelab:app-data-state-change", current);
+      invalidate();
+    };
+  }, []);
+
+  useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
 
@@ -836,11 +871,11 @@ export function WorkspaceApp() {
   }, [activeWorkspace, ensureResultTradesLoaded]);
 
   useEffect(() => {
-    if (activeWorkspace !== "backtest" || sessionGateOpen || state != null || isLoading) {
+    if (activeWorkspace !== "backtest" || sessionGateOpen || state != null || isLoading || replayLoadAttempted) {
       return;
     }
     void ensureLatestReplayLoaded();
-  }, [activeWorkspace, ensureLatestReplayLoaded, isLoading, sessionGateOpen, state]);
+  }, [activeWorkspace, ensureLatestReplayLoaded, isLoading, replayLoadAttempted, sessionGateOpen, state]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -2634,8 +2669,16 @@ export function WorkspaceApp() {
     window.requestAnimationFrame(() => void captureChartForQuant(region));
   }
 
+  async function awaitReplaySelection(selection: Promise<boolean>, sessionId?: number) {
+    const operationVersion = useBacktestStore.getState().replayOperationVersion;
+    if (!await selection) return false;
+    const current = useBacktestStore.getState();
+    return !current.isLoading && current.replayOperationVersion === operationVersion && current.state != null
+      && (sessionId == null || current.state.session.id === sessionId);
+  }
+
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
-    await newSession(payload);
+    if (!await awaitReplaySelection(newSession(payload))) return;
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);
@@ -2646,11 +2689,7 @@ export function WorkspaceApp() {
   }
 
   async function resumeSessionFromGateway(sessionId?: number) {
-    if (sessionId) {
-      await loadSession(sessionId);
-    } else {
-      await ensureLatestReplayLoaded();
-    }
+    if (!await awaitReplaySelection(sessionId ? loadSession(sessionId) : ensureLatestReplayLoaded(), sessionId)) return;
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);
@@ -2668,9 +2707,12 @@ export function WorkspaceApp() {
   }
 
   async function deleteSessionFromGateway(sessionId: number) {
-    const deletingActiveSession = state?.session.id === sessionId;
-    await deleteSession(sessionId);
-    if (deletingActiveSession) {
+    const deletingActiveSession = useBacktestStore.getState().state?.session.id === sessionId;
+    const deletion = deleteSession(sessionId);
+    const operationVersion = useBacktestStore.getState().replayOperationVersion;
+    await deletion;
+    const current = useBacktestStore.getState();
+    if (deletingActiveSession && current.state == null && current.replayOperationVersion === operationVersion) {
       setReplayFocusTrade(null);
       setActiveWorkspace("sessions");
       setSessionGateOpen(true);
@@ -2693,10 +2735,10 @@ export function WorkspaceApp() {
     setLayersPanelOpen(false);
     setWorkspacePanel("none");
 
-    await loadSession(trade.session_id);
-    const session = resultSessions.find((item) => item.id === trade.session_id);
+    if (!await awaitReplaySelection(loadSession(trade.session_id), trade.session_id)) return;
+    const session = useBacktestStore.getState().state!.session;
     const targetOffset = Math.max(
-      session?.start_offset ?? 0,
+      session.start_offset,
       trade.entry_offset - TRADE_REPLAY_CONTEXT_BARS,
     );
     await jumpToOffset(targetOffset);
