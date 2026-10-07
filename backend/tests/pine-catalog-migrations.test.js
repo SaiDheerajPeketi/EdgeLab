@@ -170,9 +170,19 @@ const at = (plot, i) => pine.getPackedPinePlot(plot) ? pine.pointAtBar(plot, i) 
 function rawCompare(result, oracle) {
   oracle.plots = Object.fromEntries(Object.entries(oracle.plots).filter(([,plot]) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style)));
   assert.equal(result.plots.length, Object.keys(oracle.plots).length);
+  const backgrounds = Object.values(oracle.plots).filter((plot) => plot.options?.style === "background");
+  assert.equal(result.plots.filter((plot) => plot.style === "background").length, backgrounds.length);
+  let backgroundIndex = 0;
   for (const plot of result.plots) {
-    const expected = oracle.plots[plot.id]; assert.ok(expected, plot.id);
-    assert.equal(plot.name, expected.title ?? plot.id); assert.deepEqual(plot.options, options(expected.options, plot.style === "hline"));
+    // The host repairs raw bgcolor identities/default flags; every actual color/value stays exact.
+    const expected = plot.style === "background" ? backgrounds[backgroundIndex++] : oracle.plots[plot.id]; assert.ok(expected, plot.id);
+    assert.equal(plot.name, expected.title ?? (plot.style === "background" ? `Background ${backgroundIndex}` : plot.id));
+    if (plot.style === "background") {
+      if (!expected.title) assert.match(plot.id, /^edgelab-background:\d+:*$/);
+      const flags = { offset: 0, editable: true, display: "all", force_overlay: false, ...options(expected.options, false) };
+      flags.overlay = result.overlay || flags.force_overlay === true;
+      assert.deepEqual(plot.options, flags);
+    } else assert.deepEqual(plot.options, options(expected.options, plot.style === "hline"));
     for (let i = 0; i < bars.length; i++) {
       const point = at(plot, i);
       assert.equal(point.time, bars[i].time);

@@ -42,7 +42,7 @@ The T3 derivative deliberately inlines the original three generalized-DEMA stage
 
 ## Remaining runtime limits
 
-- Stochastic, MFI and TRIX retain native `bgcolor` output. The current chart adapter visibly warns that background output is unsupported; the derivative does not omit it.
+- Stochastic, MFI and TRIX retain native `bgcolor` output, now rendered by the chart adapter with sampled colors and transparency. Their preserved derivatives remain unchanged; exact TradingView pixel parity is not established.
 - CCI retains its two `alertcondition` calls. This host does not deliver TradingView alerts.
 - CCI's original “price volume trend” source alias is intentionally unusual and may yield no finite CCI output. No close-based formula is silently substituted.
 - Empty/hidden channels remain part of the native result. Hline color/style defaults, dash/dot spacing, shape fonts/sizes and histogram column widths carry the existing local-renderer calibration disclosures. Hline-reference fill geometry in future whitespace is not extrapolated from the last known shade.

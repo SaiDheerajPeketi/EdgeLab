@@ -253,7 +253,7 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   else expect(await body.evaluate((node) => node.scrollTop)).toBe(0);
   await summary.focus(); await page.keyboard.press("Enter"); await expect(notice).not.toHaveAttribute("open", "");
   const stochWarning = page.getByRole("status").filter({ has: page.locator("strong").filter({ hasText: "Stochastic:" }) });
-  await expect(stochWarning).toContainText(/plot.*background/i);
+  await expect(stochWarning).not.toContainText(/background.*not rendered|unsupported.*background/i);
   await expect(stochWarning).toContainText(/local pixel metrics/i);
   await expect(stochWarning).not.toContainText("CLOSED_BAR_SNAPSHOT");
   await certifyCatalog(page, notice);
@@ -279,11 +279,13 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   // Visibility/removal filters must update provenance, including cached native results.
   await summary.focus(); await page.keyboard.press("Enter");
-  await page.locator(".chart-study-pill").filter({ hasText: names[0] }).first().click();
+  await page.locator(".chart-study-pill").filter({ hasText: names[0] }).first().focus();
+  await page.keyboard.press("Enter");
   await page.getByTitle("Hide indicator", { exact: true }).click();
   await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 6 scripts");
   await summary.focus(); await page.keyboard.press("Enter"); await expect(body).not.toContainText(names[0]); await page.keyboard.press("Enter");
-  await page.locator(".chart-study-pill").filter({ hasText: names[5] }).first().click();
+  await page.locator(".chart-study-pill").filter({ hasText: names[5] }).first().focus();
+  await page.keyboard.press("Enter");
   await page.getByTitle("Remove indicator", { exact: true }).click();
   await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 5 scripts");
   await summary.focus(); await page.keyboard.press("Enter"); await expect(body).not.toContainText(names[5]);

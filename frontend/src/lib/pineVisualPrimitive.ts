@@ -180,7 +180,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   constructor(plots: readonly PineChartPlot[], scalePeers: readonly PineChartPlot[] = [], options: { allowFillOnlyScale?: boolean } = {}) {
     this.plots = plots; this.scalePeers = scalePeers; this.allowFillOnlyScale = options.allowFillOnlyScale !== false;
     this.views = [
-      { zOrder: () => "bottom", renderer: () => ({ draw: (target) => this.draw(target, "fill") }) },
+      { zOrder: () => "bottom", renderer: () => ({ draw: (target) => { this.draw(target, "background"); this.draw(target, "fill"); } }) },
       { zOrder: () => "normal", renderer: () => ({ draw: (target) => this.draw(target, "line") }) },
       { zOrder: () => "top", renderer: () => ({ draw: (target) => this.draw(target, "shape") }) },
     ];
@@ -203,6 +203,26 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
+    if (plot.kind === "background") {
+      const range = scale.getVisibleLogicalRange();
+      if (!range) return [0, -1];
+      const offset = plot.visual.backgroundOffset ?? 0;
+      let valid = true;
+      // Source bars can be a subset of the shared chart timeline. Search actual chart positions,
+      // rather than subtracting an assumed contiguous snapshot index from the visible range.
+      const locate = (target: number, upper = false) => {
+        let lo = 0, hi = bars.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1, x = scale.timeToCoordinate(bars[mid].time as UTCTimestamp);
+          const logical = x === null ? null : scale.coordinateToLogical(x);
+          if (logical === null) { valid = false; return 0; }
+          if (Number(logical) < target || (upper && Number(logical) === target)) lo = mid + 1; else hi = mid;
+        }
+        return lo;
+      };
+      const from = locate(Number(range.from) - offset - 1), to = locate(Number(range.to) - offset + 1, true) - 1;
+      return valid ? [Math.max(plot.visual.showFrom, from), Math.min(bars.length - 1, to)] : [0, -1];
+    }
     const range = scale.getVisibleRange();
     let from = seconds(range?.from), to = seconds(range?.to);
     if (from === null || to === null) {
@@ -336,7 +356,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         return;
       }
       const [from, to] = ranges[p];
-      if (to < from || plot.kind === "fill") return;
+      if (to < from || plot.kind === "fill" || plot.kind === "background") return;
       const marker = plot.kind === "markers" ? this.markerBounds(plot, from, to) : undefined;
       const found = marker ? marker.bounds : this.bounds(plot, from, to);
       if (marker) { above = Math.max(above, marker.above); below = Math.max(below, marker.below); }
@@ -385,12 +405,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     return this.interpolated(plot, index, source);
   }
 
-  private draw(target: CanvasRenderingTarget2D, layer: "fill" | "line" | "shape") {
+  private draw(target: CanvasRenderingTarget2D, layer: "background" | "fill" | "line" | "shape") {
     if (!this.chart || !this.series) return;
     target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, mediaSize.width, mediaSize.height); ctx.clip();
       for (const plot of this.plots) {
-        if (plot.kind === "area" ? layer === "shape" : (plot.kind === "fill" ? "fill" : plot.kind === "markers" ? "shape" : "line") !== layer) continue;
+        if (plot.kind === "area" ? layer !== "fill" && layer !== "line" : (plot.kind === "background" ? "background" : plot.kind === "fill" ? "fill" : plot.kind === "markers" ? "shape" : "line") !== layer) continue;
         const level = plot.visual?.level;
         if (level) {
           if (level.price === null || !painted(level.color)) continue;
@@ -406,6 +426,36 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         this.from = from; this.to = to;
         if (to < from) continue;
         const x = (index: number) => this.chart!.timeScale().timeToCoordinate(plot.visual!.bars[index].time as UTCTimestamp);
+        if (plot.kind === "background") {
+          const scale = this.chart!.timeScale();
+          let band: { start: number; end: number; shade: string } | undefined;
+          const flush = () => {
+            if (band) { ctx.fillStyle = band.shade; ctx.fillRect(band.start, 0, band.end - band.start, mediaSize.height); band = undefined; }
+          };
+          for (let index = from; index <= to; index++) {
+            const sample = this.sample(plot, index);
+            if (!sample || sample.value === null || sample.value === false) continue;
+            const value = option(plot.visual!.source, sample, "color");
+            if (typeof value !== "string") continue;
+            const rgba = pineGradientColor(value);
+            if (!rgba || rgba[3] === 0) continue;
+            const shade = `rgba(${rgba.join(",")})`;
+            const center = x(index), logical = center === null ? null : scale.coordinateToLogical(center);
+            if (logical === null) continue;
+            const shifted = Number(logical) + (plot.visual!.backgroundOffset ?? 0);
+            // LWC 4.2 rejects fractional logical indexes. Derive half-slot edges from integer centers.
+            const middle = scale.logicalToCoordinate(shifted as Logical), before = scale.logicalToCoordinate((shifted - 1) as Logical), after = scale.logicalToCoordinate((shifted + 1) as Logical);
+            if (middle === null || before === null || after === null || !Number.isFinite(middle) || !Number.isFinite(before) || !Number.isFinite(after)) continue;
+            const left = (before + middle) / 2, right = (middle + after) / 2;
+            const start = Math.max(0, Math.min(left, right)), end = Math.min(mediaSize.width, Math.max(left, right));
+            if (end <= start) continue;
+            // One rectangle for a contiguous same-color run avoids alpha seams at fractional pixel edges.
+            if (band && band.shade === shade && band.end === start) band.end = end;
+            else { flush(); band = { start, end, shade }; }
+          }
+          flush();
+          continue;
+        }
         if (layer === "fill" && plot.kind === "fill") {
           for (let index = from + 1; index <= to; index++) {
             const polygon = this.fillPolygon(plot, index);

@@ -6,10 +6,10 @@ import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } fr
 
 export type PineChartPoint = { time: UTCTimestamp; value?: number; color?: string; open?: number; high?: number; low?: number; close?: number; wickColor?: string; borderColor?: string };
 export type PineChartPlot = {
-  id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill";
+  id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -25,7 +25,7 @@ function* shownPoints(plot: PinePlot, time: number) {
 
 /** Header values need one sample; chart geometry already owns the full rendered data. */
 export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp; value: number } | null {
-  if (plot.kind === "fill") return null;
+  if (plot.kind === "fill" || plot.kind === "background") return null;
   if (plot.visual?.level) {
     const price = plot.visual.level.price, time = plot.visual.bars.at(-1)?.time;
     return price === null || time === undefined ? null : { time: time as UTCTimestamp, value: price };
@@ -69,6 +69,16 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
     const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
+    if (style === "background") {
+      const offset = plot.options.offset == null ? 0 : plot.options.offset;
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset)) { warn("Background offsets require a constant safe integer."); return []; }
+      if (optionSets.some((options) => options.offset != null && options.offset !== offset)) { warn("Changing per-bar background offsets are not rendered."); return []; }
+      if (optionSets.some((options) => {
+        const shade = options.color !== undefined ? options.color : plot.options.color;
+        return shade != null && pineGradientColor(shade) === undefined;
+      })) warn("Unsupported background color formats are not painted.");
+      return [{ ...common, kind: "background", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, backgroundOffset: offset } }];
+    }
     if (style === "hline") {
       if (hasOffset(plot)) { warn("Horizontal level offsets are not supported."); return []; }
       const defaults = { color: FALLBACK_COLOR, linestyle: "solid", linewidth: 1, display: "all", editable: true };
