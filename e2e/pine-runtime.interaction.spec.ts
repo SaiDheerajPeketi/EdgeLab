@@ -344,7 +344,7 @@ test("production worker runs historical tick-enabled strategies and guards unsup
     { prefix: "const bool enabled = true", inputs: {} },
     { prefix: 'enabled = input.bool(false,"Recalculate")', inputs: { in_0: true } },
   ];
-  for (const version of [5, 6]) for (const flag of flags.filter((flag) => flag !== "calc_on_every_tick")) for (const alias of aliases) {
+  for (const version of [5, 6]) for (const flag of flags.filter((flag) => flag === "calc_on_every_history_tick")) for (const alias of aliases) {
     const source = `//@version=${version}\n${alias.prefix}\nstrategy("Resolved flag",${flag}=enabled)\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
     const output = await run(page, { ...runtimeRequest(source), bars: snapshot, inputs: alias.inputs });
     expect(output).toMatchObject({ ok: false, error: { code: "UNSUPPORTED_EXECUTION_SETTING" } });

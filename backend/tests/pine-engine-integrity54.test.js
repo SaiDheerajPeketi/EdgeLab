@@ -39,7 +39,11 @@ test("reviewed sources and pristine reference resolve independently without pack
   const f = fixture();
   const patched = readPineEngineSources(f);
   const original = readPineEngineSources({ ...f, patched: false });
-  assert.equal(f.manifest.overrides.length, 10);
+  assert.equal(f.manifest.overrides.length, 12);
+  for (const source of ["src/namespaces/strategy/utils.ts", "src/namespaces/strategy/methods/entry.ts"]) {
+    assert.ok(f.manifest.overrides.some((override) => override.source === source));
+    assert.notEqual(patched.get(source), original.get(source));
+  }
   assert.notEqual(patched.get("src/PineTS.class.ts"), original.get("src/PineTS.class.ts"));
   assert.notEqual(patched.get("src/transpiler/transformers/ExpressionTransformer.ts"), original.get("src/transpiler/transformers/ExpressionTransformer.ts"));
   assert.equal(patched.get("src/Series.ts"), original.get("src/Series.ts"));

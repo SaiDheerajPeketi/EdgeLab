@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-realtime-58",
+  "patch": "edgelab-strategy-fills-65",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "4490db116e3fcad4b6a3b3741f33757fe623955f08b426d2b5457b7b102aa054"
+      "sha256": "5702252304c591575f62268de8edd15ad34c39bea3fa8382e2675d8cd2e7e134"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -69,6 +69,18 @@
       "file": "overrides/transpiler/transformers/ExpressionTransformer.ts",
       "upstreamSha256": "372ab1fc56abb72cc2233bd3ee38558eb02f4a58783cdefb55a0c35c34d9f623",
       "sha256": "98a687f51a62c6f96863622a6fe1617ae2251b6319c00d471313601e6ca07b5f"
+    },
+    {
+      "source": "src/namespaces/strategy/utils.ts",
+      "file": "overrides/namespaces/strategy/utils.ts",
+      "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
+      "sha256": "f76b59c6a2f644dee28c83673797934ff5ba520c9ed3f104288a8db5ee1ad5a4"
+    },
+    {
+      "source": "src/namespaces/strategy/methods/entry.ts",
+      "file": "overrides/namespaces/strategy/methods/entry.ts",
+      "upstreamSha256": "dff14e8874150597eaca1522e2c15253592bfe72631980a922b141632660c666",
+      "sha256": "14d58b0d34eb362a85f83c174de791610da8db05defdc8289634ab49bc8da76f"
     }
   ]
 }

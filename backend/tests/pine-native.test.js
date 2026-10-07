@@ -162,7 +162,7 @@ test("historical persistent variables and committed history retain native v5/v6 
 });
 
 test("unsupported historical strategy recalculation rejects true literals, constants and resolved inputs before the body runs", async () => {
-  for (const version of [5, 6]) for (const setting of ["calc_on_order_fills", "calc_on_every_history_tick"]) {
+  for (const version of [5, 6]) for (const setting of ["calc_on_every_history_tick"]) {
     for (const [prefix, expression, inputs] of [["", "true", {}], ["const bool enabled = true\n", "enabled", {}], ['enabled = input.bool(false,"Recalculate")\n', "enabled", { in_0: true }]]) {
       const native = `//@version=${version}\n${prefix}strategy("Recalculate",${setting}=${expression})\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
       await assert.rejects(pine.executePineRequest(request({ source: native, inputs })), (error) => {
@@ -195,7 +195,9 @@ test("preparation and execution disclose closed snapshots and unsupported strate
     if (prepared.declaration === "strategy") {
       const schedulingNotice = prepared.diagnostics.find((item) => item.code === "UNSUPPORTED_EXECUTION_SETTINGS");
       assert.equal(schedulingNotice.severity, "warning"); assert.match(schedulingNotice.message, /calc_on_order_fills/);
-      await assert.rejects(pine.executePineRequest(request({ source: native })), fails("UNSUPPORTED_EXECUTION_SETTING"));
+      const result = await pine.executePineRequest(request({ source: native }));
+      assert.equal(result.strategy.config.calc_on_order_fills, true);
+      assert.deepEqual(result.plots[0].points.map((point) => point.value), request().bars.map((bar) => bar.close));
     } else {
       const result = await pine.executePineRequest(request({ source: native }));
       assert.ok(result.diagnostics.some((item) => item.code === "CLOSED_BAR_SNAPSHOT"));

@@ -182,7 +182,9 @@ function strategyResult(state: { config: object; closedtrades: object[]; opentra
     for (const key of ["entry_time", "exit_time"]) if (typeof trade[key] === "number") trade[key] = (trade[key] as number) / 1000;
     return trade;
   });
-  return { config: fields(state.config), metrics: fields(state, METRIC_FIELDS), closedTrades: trades(state.closedtrades), openTrades: trades(state.opentrades), pendingOrders: state.pending_orders.map((item) => { const order = fields(item, ORDER_FIELDS); if (typeof order.time === "number") order.time /= 1000; return order; }) };
+  // A consumed unscoped exit call may persist for future entries; its dormant
+  // template is not an executable pending order in the returned ledger.
+  return { config: fields(state.config), metrics: fields(state, METRIC_FIELDS), closedTrades: trades(state.closedtrades), openTrades: trades(state.opentrades), pendingOrders: state.pending_orders.filter((item) => !(item as { _historical_exit_dormant?: boolean })._historical_exit_dormant).map((item) => { const order = fields(item, ORDER_FIELDS); if (typeof order.time === "number") order.time /= 1000; return order; }) };
 }
 
 const RECALCULATION_SETTINGS = ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"] as const;
@@ -640,16 +642,17 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
           const config = Reflect.apply(declare, this, settings) as Record<string, unknown>;
           for (const key of RECALCULATION_SETTINGS) {
             const resolved = resolvedSetting(config[key]);
-            // This setting changes open realtime bars only. Historical runs still
-            // calculate once per closed bar; keep the author's resolved setting.
-            if (key === "calc_on_every_tick") {
+            // Historical fill callbacks are scheduled by the per-instance broker.
+            // calc_on_every_tick still affects only open realtime bars.
+            if (key === "calc_on_every_tick" || key === "calc_on_order_fills") {
               if (resolved !== true && resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to a boolean.`);
             } else {
-              if (resolved === true) error("UNSUPPORTED_EXECUTION_SETTING", `${key}=true requires fill or historical-tick recalculation, which closed-snapshot execution does not support.`);
+              if (resolved === true) error("UNSUPPORTED_EXECUTION_SETTING", `${key}=true requires historical-tick recalculation, which this execution does not support.`);
               if (resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to false for closed-snapshot execution.`);
             }
             if (typeof resolved === "boolean") config[key] = resolved;
           }
+          if (config.calc_on_order_fills === true && resolvedSetting(config.use_bar_magnifier) === true) error("UNSUPPORTED_EXECUTION_SETTING", "use_bar_magnifier=true requires lower-timeframe market data, which historical fill execution does not provide.");
           return config;
         } });
       }
@@ -696,8 +699,8 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const pendingLayer = typeof parsedLayer !== "boolean";
   const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
-    ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate intrabar updates, realtime rollback or varip tick persistence.")] : []),
-    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate once per closed historical bar. calc_on_every_tick is preserved for historical testing; live strategy tick scheduling is unavailable. Enabled calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
+    ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
+    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate at the candle close and can recalculate after historical order fills with calc_on_order_fills=true. Fills follow an assumed OHLC price path, which can differ from actual trades. Historical callbacks see final OHLCV values. Live strategy scheduling, calc_on_every_history_tick, trailing exits and intrabar margin-liquidation simulations with fill recalculation are unavailable.")] : []),
   ] };
   return { indicator, prepared, descriptor, inputs, declaration };
 }
@@ -718,6 +721,8 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   try { context = await engine.run(indicator); } catch (cause) {
     if (local.unavailable()) throw local.unavailable();
     if (cause instanceof PineProtocolError) throw cause;
+    const code = (cause as { code?: unknown } | null)?.code;
+    if (code === "UNSUPPORTED_ORDER_FILL_CONTEXT" || code === "STRATEGY_EXECUTION_LIMIT" || code === "REALTIME_STATE_LIMIT") error(code, cause instanceof Error ? cause.message.slice(0, 4_096) : "Strategy execution stopped.");
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();

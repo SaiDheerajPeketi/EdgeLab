@@ -168,8 +168,8 @@ function rejectsSetting(setting) {
     return true;
   };
 }
-test("fill/history recalculation true fails before script orders or runtime body, even with tick true", async () => {
-  for (const version of [5, 6]) for (const setting of ["calc_on_order_fills", "calc_on_every_history_tick"]) for (const form of forms) {
+test("historical-tick recalculation true fails before script orders or runtime body, even with tick true", async () => {
+  for (const version of [5, 6]) for (const setting of ["calc_on_every_history_tick"]) for (const form of forms) {
     const resolved = form.settings(true);
     const source = `//@version=${version}\n${resolved.prefix}strategy("Rejected scheduler",calc_on_every_tick=true,${setting}=${resolved.expression})\nstrategy.entry("L",strategy.long)\nruntime.error("BODY_RAN")`;
     await assert.rejects(execute(source, resolved.inputs), rejectsSetting(setting));

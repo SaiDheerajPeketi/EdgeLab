@@ -48,7 +48,7 @@ jobs:
         run: npm run check:ui-release && npm run build
 
       - name: Verify reviewed Pine engine semantics and integrity
-        run: node --test backend/tests/pine-engine-integrity54.test.js backend/tests/pine-realtime54.test.js backend/tests/pine-object-copy55.test.js backend/tests/pine-object-history56.test.js backend/tests/pine-realtime57.test.js backend/tests/pine-live58.test.js backend/tests/pine-live-feed58.test.js backend/tests/pine-strategy63.test.js backend/tests/pine-strategy64.test.js backend/tests/pine-chart-notices.test.js backend/tests/chart-runtime-ownership.test.js backend/tests/pane-market-ownership.test.js backend/tests/live-source-health-ownership.test.js
+        run: node --test backend/tests/pine-engine-integrity54.test.js backend/tests/pine-realtime54.test.js backend/tests/pine-object-copy55.test.js backend/tests/pine-object-history56.test.js backend/tests/pine-realtime57.test.js backend/tests/pine-live58.test.js backend/tests/pine-live-feed58.test.js backend/tests/pine-strategy63.test.js backend/tests/pine-strategy64.test.js backend/tests/pine-strategy65.test.js backend/tests/pine-chart-notices.test.js backend/tests/chart-runtime-ownership.test.js backend/tests/pane-market-ownership.test.js backend/tests/live-source-health-ownership.test.js
 
       - name: Validate UI surface inventory
         run: npm run check:ui-inventory && npm run test:ui-inventory && npm run check:ui-certification && npm run test:ui-certification
@@ -103,6 +103,9 @@ jobs:
 
       - name: Run trader strategy settings product gate
         run: npx playwright test --config=e2e/pine-strategy64.config.ts
+
+      - name: Verify historical strategy fills in the production worker
+        run: npx playwright test --config=e2e/pine-strategy65.config.ts
 
       - name: Verify replay session ownership and write sequencing
         run: node --test backend/tests/replay-session-ownership.test.js
