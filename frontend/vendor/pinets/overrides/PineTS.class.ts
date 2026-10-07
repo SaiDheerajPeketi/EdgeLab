@@ -23,123 +23,226 @@ function getTimeframeDurationMs(timeframe: string | undefined): number {
     return tf ? timeframeSeconds(tf) * 1000 : 86_400_000; // default to 1D when timeframe is unknown
 }
 
-/** A rollback graph stores Pine payloads in place, never engine/context closures. */
-function realtimeGraph(context: any) {
-    const nodes = new Map<any, () => void>();
-    const persistent = new Set<any>();
-    const userObjects = new Set<PineTypeObject>();
-    const newborns = new WeakSet<object>();
-    const fields = (value: any) => value instanceof PineTypeObject ? (value._udt?._definitionKeys ?? Object.keys(value.__def__)) : null;
-    const persistentFields = (value: any): Set<string> => value?._udt?.__pineVaripFields ?? new Set();
-    const payload = (value: any): any => {
-        if (value instanceof PineArrayObject) return value.array;
-        if (value instanceof PineMapObject) return value.map;
-        if (value instanceof PineMatrixObject) return value.matrix;
-        return value;
-    };
-    const mark = (value: any, seen = new Set<any>()) => {
-        if (!value || typeof value !== 'object' || seen.has(value)) return;
-        seen.add(value);
-        const udt = fields(value);
-        if (udt) {
-            for (const key of persistentFields(value)) mark(value[key], seen);
-            return; // A varip UDT reference does not exempt its ordinary fields.
+/** Realtime retained-state limits; these do not limit transient allocations in user code. */
+const REALTIME_LIMITS = Object.freeze({ nodes: 16_384, cells: 262_144, seriesSlots: 1_280_000 });
+type RealtimeLimits = { nodes: number; cells: number; seriesSlots: number };
+type RealtimeOptions = { initialTail?: 'open' | 'historical'; limits?: Partial<RealtimeLimits> };
+const REALTIME_SCOPES = ['const', 'var', 'let', 'params', 'varip'];
+function limitError(metric: string, counts: { nodes: number; mutableCells: number; seriesSlots?: number }) {
+    const error: any = new Error(`Realtime retained-state ${metric} limit exceeded.`);
+    error.code = 'REALTIME_STATE_LIMIT';
+    error.stats = { ...counts };
+    return error;
+}
+function* realtimeContainers(context: any): Generator<any> {
+    yield context;
+    if (context.lctx) yield* context.lctx.values();
+}
+function realtimeSlots(context: any, limits: RealtimeLimits): number {
+    let slots = 0;
+    for (const container of realtimeContainers(context)) for (const kind of REALTIME_SCOPES)
+        for (const key in container[kind] ?? {}) {
+            const item = container[kind][key];
+            if (item instanceof Series) {
+                // Each binding is counted: ordinary aliases make independent history copies.
+                slots += item.data.length;
+                if (slots > limits.seriesSlots) throw limitError('Series slots', { nodes: 0, mutableCells: 0, seriesSlots: slots });
+            }
         }
-        const target = payload(value);
-        persistent.add(target);
-        const view = getSliceView(target);
-        if (view) { mark(view.parent, seen); return; }
-        if (target instanceof Map) for (const [key, item] of target) { mark(key, seen); mark(item, seen); }
-        else if (Array.isArray(target)) for (const item of target) mark(item, seen);
-        else if (Object.getPrototypeOf(target) === Object.prototype || Object.getPrototypeOf(target) === null)
-            for (const item of Object.values(target)) mark(item, seen);
-    };
-    const discoverFields = (value: any, seen: Set<any>) => {
-        if (!value || typeof value !== 'object' || seen.has(value)) return;
-        seen.add(value);
-        const udt = fields(value);
-        if (udt) {
-            for (const key of persistentFields(value)) mark(value[key]);
-            for (const key of udt) discoverFields(value[key], seen);
-            return;
+    return slots;
+}
+function* realtimeRoots(context: any, varipOnly = false): Generator<any> {
+    for (const container of realtimeContainers(context)) for (const kind of varipOnly ? ['varip'] : REALTIME_SCOPES)
+        for (const key in container[kind] ?? {}) {
+            const item = container[kind][key];
+            if (item instanceof Series) yield* item.data;
         }
-        const target = payload(value);
-        const view = getSliceView(target);
-        if (view) discoverFields(view.parent, seen);
-        else if (target instanceof Map) for (const [key, item] of target) { discoverFields(key, seen); discoverFields(item, seen); }
-        else if (Array.isArray(target)) for (const item of target) discoverFields(item, seen);
-        else if (Object.getPrototypeOf(target) === Object.prototype || Object.getPrototypeOf(target) === null)
-            for (const item of Object.values(target)) discoverFields(item, seen);
-    };
-    const markRoots = () => {
-        persistent.clear();
-        const seen = new Set<any>();
-        for (const container of [context, ...context.lctx.values()]) {
-            for (const item of Object.values(container.varip ?? {}))
-                if (item instanceof Series) for (const value of item.data) mark(value);
-            // Field qualifiers remain authoritative through ordinary roots and aliases.
-            for (const kind of ['const', 'var', 'let', 'params', 'varip'])
-                for (const item of Object.values(container[kind] ?? {}))
-                    if (item instanceof Series) for (const value of item.data) discoverFields(value, seen);
-        }
-        for (const object of userObjects) discoverFields(object, seen);
-    };
-    const capture = (value: any, resolved = false) => {
-        if (!value || typeof value !== 'object') return;
-        const udt = fields(value);
-        const target = payload(value);
-        if (nodes.has(target)) {
-            if (!resolved || !udt) return;
-            nodes.delete(target); // Refresh only a newborn UDT after deferred defaults resolve.
-        }
-        if (udt) {
-            userObjects.add(value);
-            const keys = udt.filter(key => !persistentFields(value).has(key));
-            const entries = keys.map(key => [key, value[key], Object.prototype.hasOwnProperty.call(value, key)] as const);
-            nodes.set(target, () => {
-                for (const [key, item, present] of entries) {
-                    if (present) value[key] = item;
-                    else delete value[key];
-                }
-            });
-            for (const [, item] of entries) capture(item);
-            for (const key of persistentFields(value)) mark(value[key]);
-        } else if (getSliceView(target)) {
-            const view = getSliceView(target)!;
-            const length = view.target.length;
-            nodes.set(target, () => { view.target.length = length; });
-            capture(view.parent);
-        } else if (Array.isArray(target)) {
-            const entries = target.slice();
-            nodes.set(target, () => { target.length = entries.length; for (let i = 0; i < entries.length; i++) target[i] = entries[i]; });
-            for (const item of entries) capture(item);
-        } else if (target instanceof Map) {
-            const entries = [...target.entries()];
-            nodes.set(target, () => { target.clear(); for (const [key, item] of entries) target.set(key, item); });
-            for (const [key, item] of entries) { capture(key); capture(item); }
-        } else if (target instanceof ChartPointObject || Object.getPrototypeOf(target) === Object.prototype || Object.getPrototypeOf(target) === null) {
-            const entries = Object.entries(target);
-            nodes.set(target, () => {
-                for (const key of Object.keys(target)) delete target[key];
-                for (const [key, item] of entries) target[key] = item;
-            });
-            for (const [, item] of entries) capture(item);
-        }
-    };
-    markRoots();
-    for (const container of [context, ...context.lctx.values()]) {
-        for (const kind of ['const', 'var', 'let', 'params', 'varip'])
-            for (const item of Object.values(container[kind] ?? {}))
-                if (item instanceof Series) for (const value of item.data) capture(value);
+    if (!varipOnly) { yield context.taState; yield context.cache; }
+}
+const realtimePayload = (value: any): any => value instanceof PineArrayObject ? value.array
+    : value instanceof PineMapObject ? value.map : value instanceof PineMatrixObject ? value.matrix : value;
+function realtimeFields(value: any): readonly string[] | null {
+    if (!(value instanceof PineTypeObject)) return null;
+    return value._udt?._definitionKeys ?? Object.keys(value.__def__);
+}
+const realtimeVaripFields = (value: any): ReadonlySet<string> => value?._udt?.__pineVaripFields ?? new Set<string>();
+function realtimePlain(value: any): boolean {
+    const prototype = Object.getPrototypeOf(value);
+    return value instanceof ChartPointObject || prototype === Object.prototype || prototype === null;
+}
+function realtimeWeight(target: any, remaining: number): number | null {
+    const fields = realtimeFields(target);
+    if (fields) return fields.length;
+    const view = getSliceView(target);
+    if (view) return view.target.length;
+    if (Array.isArray(target)) return target.length; // Sparse length is also reserved mutable state.
+    if (target instanceof Map) return target.size * 2; // Both key and value graphs are owned.
+    if (!realtimePlain(target)) return null;
+    let count = 0;
+    // Do not allocate Object.entries/keys before establishing the budget.
+    for (const key in target) if (Object.prototype.hasOwnProperty.call(target, key)) {
+        if (++count > remaining) return count;
     }
-    capture(context.taState);
-    capture(context.cache);
+    return count;
+}
+function* realtimeChildren(target: any): Generator<any> {
+    const fields = realtimeFields(target);
+    if (fields) { for (const key of fields) yield target[key]; return; }
+    const view = getSliceView(target);
+    if (view) { yield view.parent; return; }
+    if (Array.isArray(target)) { for (let i = 0; i < target.length; i++) yield target[i]; return; }
+    if (target instanceof Map) { for (const [key, item] of target) { yield key; yield item; } return; }
+    if (realtimePlain(target)) for (const key in target)
+        if (Object.prototype.hasOwnProperty.call(target, key)) yield target[key];
+}
+type RealtimeNode = { weight: number; restore: () => void; children: () => Iterable<any> };
+/** A rollback graph stores Pine payloads in place, never engine/context closures. */
+function realtimeGraph(context: any, limits: RealtimeLimits) {
+    const nodes = new Map<any, RealtimeNode>();
+    const baseline = new Set<any>();
+    const newborns = new WeakSet<object>();
+    let prunedNodes = 0;
+    // Iterative traversal counts retained rollback references and current reachable payloads
+    // jointly. A changing payload reserves max(saved,current) cells, once per identity.
+    const measure = (extra?: any) => {
+        const seriesSlots = realtimeSlots(context, limits);
+        const weights = new Map<any, number>();
+        let mutableCells = 0;
+        const visit = (target: any, weight: number) => {
+            const previous = weights.get(target) ?? 0;
+            if (!weights.has(target) && weights.size >= limits.nodes)
+                throw limitError('nodes', { nodes: weights.size + 1, mutableCells, seriesSlots });
+            mutableCells += Math.max(previous, weight) - previous;
+            if (mutableCells > limits.cells)
+                throw limitError('mutable cells', { nodes: weights.size + (weights.has(target) ? 0 : 1), mutableCells, seriesSlots });
+            weights.set(target, Math.max(previous, weight));
+        };
+        for (const [target, record] of nodes) visit(target, record.weight);
+        const seen = new Set<any>();
+        const roots = function* () { yield* realtimeRoots(context); if (extra !== undefined) yield extra;
+            for (const record of nodes.values()) yield* record.children(); };
+        const stack: Iterator<any>[] = [roots()];
+        while (stack.length) {
+            const next = stack[stack.length - 1].next();
+            if (next.done) { stack.pop(); continue; }
+            const value = next.value;
+            if (!value || typeof value !== 'object') continue;
+            const target = realtimePayload(value);
+            if (seen.has(target)) continue;
+            const weight = realtimeWeight(target, limits.cells - mutableCells + (weights.get(target) ?? 0));
+            if (weight === null) continue;
+            visit(target, weight);
+            seen.add(target);
+            stack.push(realtimeChildren(target));
+        }
+        return { nodes: weights.size, mutableCells, seriesSlots, baselineNodes: baseline.size,
+            newbornNodes: nodes.size - baseline.size, prunedNodes };
+    };
+    const capture = (root: any, resolved = false, allRoots = false) => {
+        measure(allRoots ? undefined : root); // Bounds precede slice/spread/entry-copy allocations.
+        const seen = new Set<any>();
+        const stack: Iterator<any>[] = [allRoots ? root[Symbol.iterator]() : [root][Symbol.iterator]()];
+        while (stack.length) {
+            const next = stack[stack.length - 1].next();
+            if (next.done) { stack.pop(); continue; }
+            const value = next.value;
+            if (!value || typeof value !== 'object') continue;
+            const target = realtimePayload(value);
+            if (seen.has(target)) continue;
+            seen.add(target);
+            const fields = realtimeFields(target);
+            if (nodes.has(target) && !(resolved && target === root && fields)) continue;
+            const weight = realtimeWeight(target, limits.cells)!;
+            if (weight === null) continue;
+            let record: RealtimeNode;
+            if (fields) {
+                const entries = fields.filter(key => !realtimeVaripFields(value).has(key))
+                    .map(key => [key, value[key], Object.prototype.hasOwnProperty.call(value, key)] as const);
+                record = { weight, restore: () => { for (const [key, item, present] of entries)
+                    if (present) value[key] = item; else delete value[key]; },
+                    children: function* () { for (const [, item] of entries) yield item;
+                        for (const key of realtimeVaripFields(value)) yield value[key]; } };
+            } else if (getSliceView(target)) {
+                const view = getSliceView(target)!;
+                const length = view.target.length;
+                record = { weight, restore: () => { view.target.length = length; }, children: () => [view.parent] };
+            } else if (Array.isArray(target)) {
+                const entries = target.slice();
+                record = { weight, restore: () => { target.length = entries.length;
+                    for (let i = 0; i < entries.length; i++) if (i in entries) target[i] = entries[i]; else delete target[i]; },
+                    children: () => entries };
+            } else if (target instanceof Map) {
+                const entries = [...target.entries()];
+                record = { weight, restore: () => { target.clear(); for (const [key, item] of entries) target.set(key, item); },
+                    children: function* () { for (const [key, item] of entries) { yield key; yield item; } } };
+            } else {
+                const entries = Object.entries(target);
+                record = { weight, restore: () => {
+                    for (const key in target) if (Object.prototype.hasOwnProperty.call(target, key)) delete target[key];
+                    for (const [key, item] of entries) target[key] = item;
+                }, children: function* () { for (const [, item] of entries) yield item; } };
+            }
+            nodes.set(target, record);
+            stack.push(record.children()[Symbol.iterator]());
+        }
+    };
+    // Only committed objects and genuinely surviving varip roots may discover field
+    // exemptions. Dead newborns never exempt an aliased committed collection.
+    const projected = () => {
+        const persistent = new Set<any>();
+        const seenOrdinary = new Set<any>();
+        const seenPersistent = new Set<any>();
+        const reachable = new Set<any>();
+        const seeds = function* () {
+            for (const target of baseline) yield [target, false] as const;
+            for (const value of realtimeRoots(context, true)) yield [value, true] as const;
+        };
+        const stack: Iterator<readonly [any, boolean]>[] = [seeds()];
+        while (stack.length) {
+            const next = stack[stack.length - 1].next();
+            if (next.done) { stack.pop(); continue; }
+            const [value, retain] = next.value;
+            if (!value || typeof value !== 'object') continue;
+            const target = realtimePayload(value);
+            const seen = retain ? seenPersistent : seenOrdinary;
+            if (seen.has(target)) continue;
+            const weight = realtimeWeight(target, limits.cells);
+            if (weight === null) continue;
+            seen.add(target);
+            reachable.add(target);
+            const fields = realtimeFields(target);
+            const record = nodes.get(target);
+            if (fields) {
+                stack.push((function* () {
+                    for (const key of realtimeVaripFields(value)) yield [value[key], true] as const;
+                    // Birth/rollback references keep ordinary fields of surviving UDTs alive.
+                    for (const child of record ? record.children() : realtimeChildren(target)) yield [child, false] as const;
+                })());
+            } else {
+                if (retain) persistent.add(target);
+                const children = retain || !record ? realtimeChildren(target) : record.children();
+                stack.push((function* () { for (const child of children) yield [child, retain] as const; })());
+            }
+        }
+        return { persistent, reachable };
+    };
+    // One preflight and one iterative walk cover the complete initial graph.
+    capture(realtimeRoots(context), false, true);
+    for (const target of nodes.keys()) baseline.add(target);
     return {
         capture: (value: any, resolved = false) => {
+            if (!value || typeof value !== 'object') return;
             if (resolved) { if (newborns.has(value)) capture(value, true); }
             else { newborns.add(value); capture(value); }
         },
-        restore: () => { markRoots(); for (const [target, restore] of nodes) if (!persistent.has(target)) restore(); },
+        restore: () => { measure(); const { persistent } = projected();
+            for (const [target, record] of nodes) if (!persistent.has(target)) record.restore(); },
+        prune: () => { const { reachable } = projected();
+            for (const target of nodes.keys()) if (!baseline.has(target) && !reachable.has(target)) {
+                nodes.delete(target); newborns.delete(target); prunedNodes++;
+            }
+        },
+        measure,
     };
 }
 
@@ -175,10 +278,62 @@ export class PineTS {
     private _realtimeMode = false;
     private _realtimeContext: Context | null = null;
     private _realtimeUpdating = false;
+    private _realtimeInitialTail: 'open' | 'historical' = 'open';
+    private _realtimeLimits: RealtimeLimits = { ...REALTIME_LIMITS };
     /** Opt-in indicator tick execution; explicit events, never wall-clock inference. */
-    public setRealtimeMode(enabled: boolean) {
+    public setRealtimeMode(enabled: boolean, options: RealtimeOptions = {}) {
         if (typeof enabled !== 'boolean' || this._transpiledCode) throw new Error('Realtime mode must be selected before running.');
+        if (!options || Object.getPrototypeOf(options) !== Object.prototype)
+            throw new Error('Invalid realtime options.');
+        const selected: RealtimeOptions = {};
+        for (const key of Reflect.ownKeys(options)) {
+            if (key !== 'initialTail' && key !== 'limits') throw new Error('Invalid realtime options.');
+            const descriptor = Object.getOwnPropertyDescriptor(options, key);
+            if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value'))
+                throw new Error('Realtime options must contain only data fields.');
+            selected[key] = descriptor.value;
+        }
+        if (selected.initialTail !== undefined && selected.initialTail !== 'open' && selected.initialTail !== 'historical')
+            throw new Error('Invalid realtime initial tail.');
+        const limits = selected.limits === undefined ? {} : selected.limits;
+        if (!limits || Object.getPrototypeOf(limits) !== Object.prototype)
+            throw new Error('Invalid realtime limits.');
+        const configured: RealtimeLimits = { ...REALTIME_LIMITS };
+        for (const key of Reflect.ownKeys(limits)) {
+            if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(REALTIME_LIMITS, key))
+                throw new Error('Invalid realtime limits.');
+            const descriptor = Object.getOwnPropertyDescriptor(limits, key);
+            if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value'))
+                throw new Error('Realtime limits must contain only data fields.');
+            const value = descriptor.value;
+            const field = key as keyof RealtimeLimits;
+            if (!Number.isSafeInteger(value) || value <= 0 || value > REALTIME_LIMITS[field])
+                throw new Error('Realtime limits must be positive integers no larger than the hard caps.');
+            configured[field] = value;
+        }
         this._realtimeMode = enabled;
+        this._realtimeInitialTail = selected.initialTail ?? 'open';
+        this._realtimeLimits = configured;
+    }
+
+    /** A copied diagnostic snapshot, limited to this engine's owned realtime context. */
+    public getRealtimeStats(context: Context = this._realtimeContext): any {
+        if (!context || context !== this._realtimeContext) throw new Error('Realtime stats require the owning context.');
+        return { ...((context as any)._realtimeMetrics ?? { nodes: 0, mutableCells: 0, seriesSlots: 0,
+            baselineNodes: 0, newbornNodes: 0, prunedNodes: 0 }),
+            failed: !!(context as any)._realtimeLifecycle?.failed, limits: { ...this._realtimeLimits } };
+    }
+
+    private _measureRealtimeState(context: Context) {
+        try {
+            const graph = (context as any)._realtimeSnapshot?.graph;
+            (context as any)._realtimeMetrics = graph ? graph.measure() : realtimeGraph(context, this._realtimeLimits).measure();
+        } catch (error) {
+            (context as any)._realtimeLifecycle.failed = true;
+            (context as any)._realtimeMetrics = { nodes: 0, mutableCells: 0, seriesSlots: 0,
+                baselineNodes: 0, newbornNodes: 0, prunedNodes: 0, ...(error as any).stats };
+            throw error;
+        }
     }
 
     private _readyPromise: Promise<any> = null;
@@ -633,11 +788,26 @@ export class PineTS {
 
         if (this._realtimeMode) {
             this._realtimeContext = context;
-            (context as any)._realtimeLifecycle = { index: endIdx - 1, confirmed: false, newBar: true };
-            await this._executeIterations(context, prepared.fn, startIdx, endIdx - 1);
-            (context as any)._realtimeSnapshot = this._takeRealtimeSnapshot(context);
-            await this._executeIterations(context, prepared.fn, endIdx - 1, endIdx);
-            return context;
+            const historical = this._realtimeInitialTail === 'historical';
+            (context as any)._realtimeLifecycle = { index: historical ? endIdx : endIdx - 1, confirmed: historical, newBar: !historical };
+            try {
+                if (endIdx === 0) throw new Error('Realtime execution requires at least one initial bar.');
+                if (historical) {
+                    await this._executeIterations(context, prepared.fn, startIdx, endIdx);
+                    (context as any)._realtimeLifecycle.index = endIdx - 1;
+                } else {
+                    await this._executeIterations(context, prepared.fn, startIdx, endIdx - 1);
+                    (context as any)._realtimeSnapshot = this._takeRealtimeSnapshot(context);
+                    await this._executeIterations(context, prepared.fn, endIdx - 1, endIdx);
+                }
+                this._measureRealtimeState(context);
+                return context;
+            } catch (error) {
+                (context as any)._realtimeLifecycle.failed = true;
+                if ((error as any).stats) (context as any)._realtimeMetrics = { nodes: 0, mutableCells: 0,
+                    seriesSlots: 0, baselineNodes: 0, newbornNodes: 0, prunedNodes: 0, ...(error as any).stats };
+                throw error;
+            }
         }
 
         if (endIdx - startIdx > 1) {
@@ -980,6 +1150,14 @@ export class PineTS {
             if (this._realtimeUpdating) throw new Error('A realtime update is already running.');
             this._realtimeUpdating = true;
             try { return await this._updateRealtimeTail(context, event); }
+            catch (error) {
+                if (context === this._realtimeContext && (error as any).code === 'REALTIME_STATE_LIMIT') {
+                    (context as any)._realtimeLifecycle.failed = true;
+                    (context as any)._realtimeMetrics = { nodes: 0, mutableCells: 0, seriesSlots: 0,
+                        baselineNodes: 0, newbornNodes: 0, prunedNodes: 0, ...(error as any).stats };
+                }
+                throw error;
+            }
             finally { this._realtimeUpdating = false; }
         }
         // Guard: skip if no data (e.g. secondary context failed to load from provider)
@@ -1052,8 +1230,10 @@ export class PineTS {
     }
 
     private _takeRealtimeSnapshot(context: Context): any {
+        // Establish graph and per-binding history bounds before allocating any copies.
+        const graph = realtimeGraph(context, this._realtimeLimits);
         const scopes = new Map<any, any>();
-        for (const container of [context, ...context.lctx.values()]) {
+        for (const container of realtimeContainers(context)) {
             const state: any = {};
             for (const kind of ['const', 'var', 'let', 'params']) {
                 state[kind] = new Map(Object.entries(container[kind] ?? {}).map(([key, item]: [string, any]) =>
@@ -1061,7 +1241,6 @@ export class PineTS {
             }
             scopes.set(container, state);
         }
-        const graph = realtimeGraph(context);
         (context as any)._captureRealtimeObject = graph.capture;
         const plots = new Map(Object.entries(context.plots).map(([key, plot]: [string, any]) => [key, { plot, length: plot.data.length }]));
         return { scopes, graph, plots, result: this._getResultLength(context.result), data: context.data.close.data.length };
@@ -1094,6 +1273,7 @@ export class PineTS {
         else for (const value of Object.values(context.result ?? {}) as any[]) if (Array.isArray(value)) value.length = snapshot.result;
         for (const item of Object.values(context.data) as any[]) if (item instanceof Series) item.data.length = snapshot.data;
         context.rollbackDrawings(snapshot.data);
+        snapshot.graph.prune(); // Scope rollback has removed transient roots; release only dead births.
     }
 
     private async _updateRealtimeTail(context: Context, event?: { confirmed: boolean }): Promise<boolean> {
@@ -1135,6 +1315,7 @@ export class PineTS {
         }
         context.dataVersion = (context.dataVersion || 0) + 1;
         await this._executeIterations(context, this._transpiledCode as Function, lifecycle.index, lifecycle.index + 1);
+        this._measureRealtimeState(context);
         return true;
     }
 
@@ -1520,6 +1701,7 @@ export class PineTS {
             if (context.lctx) {
                 context.lctx.forEach((lctx: any) => shiftVariables(lctx));
             }
+            if (this._realtimeMode) realtimeSlots(context, this._realtimeLimits);
         }
 
         // End-of-run: compute the risk-adjusted performance ratios
