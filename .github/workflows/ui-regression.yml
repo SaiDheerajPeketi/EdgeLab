@@ -68,6 +68,9 @@ jobs:
       - name: Run native study responsive geometry gate
         run: EDGELAB_GEOMETRY51_PHASE=verified npx playwright test --config=e2e/pine-study-geometry51.config.ts
 
+      - name: Run continuous landing demo and motion gate
+        run: npx playwright test --config=e2e/landing-continuity52.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash

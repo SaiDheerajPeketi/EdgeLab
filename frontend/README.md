@@ -99,6 +99,8 @@ A fresh Vite development preview on `localhost`, `127.0.0.1`, or `[::1]` shows t
 
 Chart toolbar, study settings, and replay controls wrap at narrow widths while retaining touch-sized actions. The dedicated `e2e/pine-study-geometry51.config.ts` suite checks 320px, 390px, tablet and desktop geometry through genuine Pine execution, input edits, keyboard focus, visibility changes and removal against an already-built frontend. It uses explicit session and subscription fixtures rather than live billing.
 
+The landing page has one interactive chart/journal/results preview. Its clearly labelled synthetic market generates continuous OHLCV history, retains 2,048 bars, and fits a dense past-only window to the chart width. Pause, stepping, scrubbing and chart gestures allow inspection; Play returns to the newest candle. Automatic generation pauses offscreen, in hidden tabs and with reduced motion. The larger 3D study uses a fixed synthetic session so its decision chapters preserve context. Text and component transitions use finite scroll-triggered tweens rather than scroll-scrubbed partial poses. `e2e/landing-continuity52.config.ts` checks actual chart continuity, responsive density, motion completion, reduced motion, WebGL framing and current-product copy.
+
 ## Layout
 
 | Path | Purpose |

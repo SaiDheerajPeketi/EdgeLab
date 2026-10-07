@@ -35,7 +35,7 @@ const betaFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
-      "Approved users can use the capabilities present in the current beta build while EdgeLab validates replay, journaling, analytics, and review. Planned features are not included simply because they appear on the roadmap.",
+      "Approved users can use replay, journaling, analytics, and review in the current beta workspace. Connected providers and qualified market data are required for the tools that use them.",
   },
   {
     question: "Can I bring my own CSV data?",
@@ -160,8 +160,8 @@ function BetaPricingSection({ showComparison }: { showComparison: boolean }) {
               Test the core workflow free.
             </h3>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-              Approved users can use the verified beta workflow without billing. Future plans
-              are not inferred from roadmap features, and beta data remains temporary.
+              Approved users can use the core beta workflow without billing.
+              Beta data remains temporary; data exports require an active paid subscription.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">

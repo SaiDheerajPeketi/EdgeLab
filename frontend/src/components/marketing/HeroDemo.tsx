@@ -10,8 +10,8 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { appendDemoReplay, createDemoReplay, demoVisibleBarCount } from "../../lib/demoMarket";
 import { MetricsBar } from "../MetricsBar";
-import { PlaybookBoard } from "../PlaybookBoard";
 import { ResultsPanel } from "../ResultsPanel";
 import { TradeLog } from "../TradeLog";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
@@ -456,20 +456,7 @@ function formatBarTime(value: UTCTimestamp) {
   });
 }
 
-const replayBars = createBars({
-  day: 12,
-  baseVolume: 182000,
-  seed: 7,
-  closes: buildClosePath({
-    anchors: [
-      4278.8, 4276.2, 4279.6, 4275.9, 4281.4, 4278.7, 4284.6, 4281.2, 4288.9,
-      4284.1, 4292.7, 4289.8, 4298.4, 4293.7, 4302.2, 4298.8, 4305.6,
-    ],
-    noiseRatio: 0.0016,
-    seed: 17,
-    stepsPerSegment: 8,
-  }),
-});
+const replayBars = createDemoReplay().bars as DemoBar[];
 
 const reviewBars = createBars({
   day: 14,
@@ -507,7 +494,7 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "replay",
     label: "Replay",
-    note: "Follow the live candle path first, then move into review without losing context.",
+    note: "Follow the simulated candle path first, then move into review without losing context.",
     markerNote: "Entry and exit markers stay on chart while replay unfolds.",
     symbol: "NQ 100",
     timeframe: "5m replay",
@@ -648,7 +635,7 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "results",
     label: "Results",
-    note: "Metrics make more sense when the candle path still feels live and believable.",
+    note: "Illustrative metrics sit beside the candle path for the results walkthrough.",
     markerNote: "Mixed outcomes remain tied to exact swing structure.",
     symbol: "EURUSD",
     timeframe: "5m results",
@@ -765,9 +752,13 @@ const SCENARIOS: DemoScenario[] = [
 
 function MarketingCandleSurface({
   currentBarIndex,
+  firstIndex,
+  onReview,
   scenario,
 }: {
   currentBarIndex: number;
+  firstIndex: number;
+  onReview: () => void;
   scenario: DemoScenario;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -775,15 +766,16 @@ function MarketingCandleSurface({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const [hoveredBar, setHoveredBar] = useState<DemoBar | null>(null);
-  const visibleWindow = 128;
-  const clampedIndex = Math.max(0, Math.min(currentBarIndex, scenario.bars.length - 1));
+  const [chartWidth, setChartWidth] = useState(960);
+  const clampedIndex = Math.max(0, Math.min(currentBarIndex - firstIndex, scenario.bars.length - 1));
+  const visibleWindow = demoVisibleBarCount(chartWidth, clampedIndex + 1);
 
   const visibleBars = useMemo(
     () => {
       const windowStart = Math.max(0, clampedIndex - visibleWindow + 1);
       return scenario.bars.slice(windowStart, clampedIndex + 1);
     },
-    [clampedIndex, scenario.bars],
+    [clampedIndex, scenario.bars, visibleWindow],
   );
   const visibleBarsByTime = useMemo(
     () => new Map(visibleBars.map((bar) => [bar.time, bar])),
@@ -828,7 +820,7 @@ function MarketingCandleSurface({
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.16)",
         barSpacing: 6,
-        rightOffset: 4,
+        rightOffset: 0,
         secondsVisible: false,
         timeVisible: true,
       },
@@ -870,14 +862,25 @@ function MarketingCandleSurface({
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+    const container = containerRef.current;
+    let resizeFrame = 0;
+    const observer = new ResizeObserver(() => {
+      setChartWidth(container.clientWidth);
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => chart.timeScale().fitContent());
+    });
+    observer.observe(container);
+    setChartWidth(container.clientWidth);
 
     return () => {
+      observer.disconnect();
+      cancelAnimationFrame(resizeFrame);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
     };
-  }, [scenario.id, scenario.bars]);
+  }, [scenario.id]);
 
   useEffect(() => {
     if (!chartRef.current) {
@@ -982,20 +985,16 @@ function MarketingCandleSurface({
       </div>
 
       <div className="mt-3 overflow-hidden bg-[#0b1017]">
-        <div ref={containerRef} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
+        <div ref={containerRef} onPointerDown={onReview} onWheel={onReview} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
       </div>
       <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-xs leading-5 text-slate-400">
         <p>{scenario.markerNote}</p>
-        <p className="font-data tabular-nums" data-visible-candles={visibleBars.length}>
-          {visibleBars.length} bars shown · {scenario.bars.length} in session
+        <p className="font-data tabular-nums" data-visible-candles={visibleBars.length} data-visible-first-time={firstBar?.time} data-visible-last-time={lastBar?.time}>
+          {visibleBars.length} bars shown · {firstIndex + scenario.bars.length} generated
         </p>
       </div>
     </section>
   );
-}
-
-function MarketingReplaySurface({ scenario }: { scenario: DemoScenario }) {
-  return <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />;
 }
 
 function MarketingReviewSurface({
@@ -1222,11 +1221,19 @@ function ReviewMetric({
 export type HeroDemoProps = {
   initialScenarioId?: string;
   initialAutoplayActive?: boolean;
+  overrideScenarioId?: string;
+  overrideBarIndex?: number;
+  overrideReviewTradeId?: number | null;
+  overrideAutoplayActive?: boolean;
 };
 
 export function HeroDemo({
   initialScenarioId,
   initialAutoplayActive,
+  overrideScenarioId,
+  overrideBarIndex,
+  overrideReviewTradeId,
+  overrideAutoplayActive,
 }: HeroDemoProps = {}) {
   const [selectedScenarioId, setSelectedScenarioId] = useState(initialScenarioId ?? SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(initialScenarioId ?? SCENARIOS[0]?.id ?? "replay");
@@ -1238,8 +1245,13 @@ export function HeroDemo({
       SCENARIOS.find((item) => item.id === "review")?.trades[0]?.id ??
       null,
   );
-  const initialCursor = Math.max(0, Math.min(112, (SCENARIOS[0]?.bars.length ?? 1) - 1));
-  const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
+  const [replay, setReplay] = useState(() => createDemoReplay(Math.floor(Math.random() * 0x100000000)));
+  const currentBarIndex = replay.cursor;
+  const setCurrentBarIndex = (next: number | ((current: number) => number)) => setReplay((previous) => ({
+    ...previous,
+    cursor: Math.max(previous.firstIndex, Math.min(previous.firstIndex + previous.bars.length - 1,
+      typeof next === "function" ? next(previous.cursor) : next)),
+  }));
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scenarioRailRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -1247,10 +1259,41 @@ export function HeroDemo({
   const flipPluginRef = useRef<GsapPlugins["Flip"] | null>(null);
   const pendingFlipStateRef = useRef<unknown>(null);
   const selectedScenarioIdRef = useRef(selectedScenarioId);
-  const scenario = useMemo(
-    () => SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0],
-    [visibleScenarioId],
-  );
+  useEffect(() => {
+    if (overrideScenarioId !== undefined) {
+      setSelectedScenarioId(overrideScenarioId);
+      setVisibleScenarioId(overrideScenarioId);
+    }
+  }, [overrideScenarioId]);
+
+  useEffect(() => {
+    if (overrideBarIndex !== undefined) {
+      setCurrentBarIndex(overrideBarIndex);
+    }
+  }, [overrideBarIndex]);
+
+  useEffect(() => {
+    if (overrideReviewTradeId !== undefined) {
+      setSelectedReviewTradeId(overrideReviewTradeId);
+    }
+  }, [overrideReviewTradeId]);
+
+  useEffect(() => {
+    if (overrideAutoplayActive !== undefined) {
+      setAutoplayActive(overrideAutoplayActive);
+    }
+  }, [overrideAutoplayActive]);
+
+  const scenario = useMemo(() => {
+    const base = SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0];
+    return base.id === "replay" ? {
+      ...base,
+      bars: replay.bars as DemoBar[],
+      markers: [],
+      timeframe: "5m simulation",
+      markerNote: "Continuously generated synthetic prices. No trades or performance results are attached to this stream.",
+    } : base;
+  }, [visibleScenarioId, replay.bars]);
   const selectedReviewTrade = useMemo(() => {
     if (scenario.id !== "review") {
       return null;
@@ -1281,25 +1324,10 @@ export function HeroDemo({
   }, []);
 
   useEffect(() => {
-    const nextInitialCursor = Math.max(0, Math.min(112, scenario.bars.length - 1));
-    setCurrentBarIndex(nextInitialCursor);
-  }, [scenario]);
-
-  useEffect(() => {
     if (scenario.id !== "replay" || !autoplayActive || !demoVisible || reducedMotion) return;
-    const nextInitialCursor = Math.max(0, Math.min(112, scenario.bars.length - 1));
-
-    const timer = window.setInterval(() => {
-      setCurrentBarIndex((current) => {
-        if (current >= scenario.bars.length - 1) {
-          return nextInitialCursor;
-        }
-        return current + 1;
-      });
-    }, 280);
-
+    const timer = window.setInterval(() => setReplay(appendDemoReplay), 280);
     return () => window.clearInterval(timer);
-  }, [autoplayActive, demoVisible, reducedMotion, scenario]);
+  }, [autoplayActive, demoVisible, reducedMotion, scenario.id]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -1470,6 +1498,10 @@ export function HeroDemo({
     <div
       className="group/demo w-full max-w-full min-w-0 overflow-hidden rounded-xl bg-[#050a10] shadow-[0_32px_80px_rgba(0,0,0,0.35)]"
       data-replay-cursor={currentBarIndex}
+      data-market-first-index={replay.firstIndex}
+      data-market-last-index={replay.firstIndex + replay.bars.length - 1}
+      data-market-last-time={replay.market.time}
+      data-market-following={autoplayActive && !reducedMotion && demoVisible && scenario.id === "replay"}
       ref={rootRef}
     >
       <div className="border-b border-white/10 px-4 py-3 sm:px-5">
@@ -1477,8 +1509,7 @@ export function HeroDemo({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-6 text-white sm:text-base">
               <CandlestickChart className="shrink-0 text-cyan-100" size={18} />
-              <span className="hidden min-w-0 break-words sm:inline">One trade. One continuous evidence trail.</span>
-              <span className="sm:hidden">One connected workflow.</span>
+              <span className="min-w-0 break-words">Explore the trading workspace.</span>
             </div>
           </div>
           <div className="inline-flex items-center gap-2 text-xs font-medium text-amber-100">
@@ -1488,7 +1519,7 @@ export function HeroDemo({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Chart to review workflow">
+        <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Trading workspace examples">
           {SCENARIOS.map((item) => (
             <button
               data-scenario-pill="true"
@@ -1513,25 +1544,27 @@ export function HeroDemo({
       <div className="p-4 sm:p-5" ref={stageRef}>
         {scenario.id === "replay" ? (
           <div>
-            <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
+            <MarketingCandleSurface currentBarIndex={currentBarIndex} firstIndex={replay.firstIndex} onReview={() => setAutoplayActive(false)} scenario={scenario} />
             <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center" aria-label="Replay controls" role="group">
               <div className="flex flex-wrap gap-2">
-                <button aria-label={autoplayActive ? "Pause replay" : "Play replay"} className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-medium text-cyan-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-400" disabled={reducedMotion} onClick={() => setAutoplayActive((active) => !active)} type="button">{reducedMotion ? "Autoplay off" : autoplayActive ? "Pause" : "Play"}</button>
-                <button aria-label="Previous candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex <= 0} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.max(0, index - 1)); }} type="button">Previous</button>
-                <button aria-label="Next candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex >= scenario.bars.length - 1} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.min(scenario.bars.length - 1, index + 1)); }} type="button">Next</button>
+                <button aria-label={autoplayActive ? "Pause replay" : "Play replay"} className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-medium text-cyan-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-400" disabled={reducedMotion} onClick={() => { if (!autoplayActive) setCurrentBarIndex(replay.firstIndex + replay.bars.length - 1); setAutoplayActive((active) => !active); }} type="button">{reducedMotion ? "Autoplay off" : autoplayActive ? "Pause" : "Play"}</button>
+                <button aria-label="Previous candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex <= replay.firstIndex} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.max(replay.firstIndex, index - 1)); }} type="button">Previous</button>
+                <button aria-label="Next candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" onClick={() => { setAutoplayActive(false); setReplay((previous) => previous.cursor < previous.firstIndex + previous.bars.length - 1 ? { ...previous, cursor: previous.cursor + 1 } : appendDemoReplay(previous)); }} type="button">Next</button>
               </div>
-              <label className="flex min-h-11 min-w-0 items-center"><span className="sr-only">Replay position</span><input className="h-11 w-full accent-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" max={scenario.bars.length - 1} min={0} onChange={(event) => { setAutoplayActive(false); setCurrentBarIndex(Number(event.target.value)); }} step={1} type="range" value={currentBarIndex} /></label>
-              <span className="font-data text-xs tabular-nums text-slate-300">Candle {currentBarIndex + 1} / {scenario.bars.length}</span>
+              <label className="flex min-h-11 min-w-0 items-center"><span className="sr-only">Replay position</span><input className="h-11 w-full accent-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" max={replay.firstIndex + replay.bars.length - 1} min={replay.firstIndex} onChange={(event) => { setAutoplayActive(false); setCurrentBarIndex(Number(event.target.value)); }} step={1} type="range" value={currentBarIndex} /></label>
+              <span className="font-data text-xs tabular-nums text-slate-300">Candle {currentBarIndex + 1} · {autoplayActive && !reducedMotion ? "Following simulation" : "Paused for review"}</span>
             </div>
           </div>
         ) : null}
 
-        <div className={scenario.id === "replay" ? "mt-5 border-t border-white/10 pt-4" : ""}>
-          <MetricsBar compact metrics={scenario.metrics} />
-        </div>
+        {scenario.id !== "replay" ? (
+          <div>
+            <p className="mb-3 text-sm leading-6 text-amber-100">Journal and Results use separate fixed illustrative examples, independent of the generated market.</p>
+            <MetricsBar compact metrics={scenario.metrics} />
+          </div>
+        ) : null}
 
-        <div className="mt-4">
-          {scenario.id === "replay" ? <MarketingReplaySurface scenario={scenario} /> : null}
+        {scenario.id !== "replay" ? <div className="mt-4">
           {scenario.id === "review" ? (
             <MarketingReviewSurface
               onInspectTrade={(trade) => setSelectedReviewTradeId(trade.id)}
@@ -1540,7 +1573,7 @@ export function HeroDemo({
             />
           ) : null}
           {scenario.id === "results" ? <MarketingResultsSurface scenario={scenario} /> : null}
-        </div>
+        </div> : null}
       </div>
     </div>
   );

@@ -1,22 +1,22 @@
-import { CheckCircle2, Clock3 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const VERIFIED_EVIDENCE = [
   {
-    body: "Manual bar replay, simulated market, limit, and stop orders, Journal records, reports, and playbooks are implemented in the current build.",
-    title: "The core review loop is working product",
+    body: "Step through price, place simulated market, limit, and stop orders, then review your trades beside your notes and playbook rules.",
+    title: "Practice with the full decision in view",
   },
   {
-    body: "Google verifies your identity. EdgeLab checks your own session and subscription separately, and preserves your return destination without treating a sign-in or checkout return as paid access.",
-    title: "Access is gated and the return path is explicit",
+    body: "Your workspace is protected by Google sign-in. Saved sessions, notes, scripts, and chart layouts keep your work together between visits.",
+    title: "Keep your process together",
   },
   {
-    body: "Imported datasets are supported. Quant depends on configured models and permissions; footprint and TPO require qualified trade-level data. Candle-only feeds do not unlock order flow.",
-    title: "Provider and roadmap boundaries stay visible",
+    body: "Import market datasets for replay. Footprint and TPO need trade-level data; the Quant assistant needs a connected model provider.",
+    title: "Bring the market history you use",
   },
   {
-    body: "An active paid subscription enables application-data JSON, trade CSV, and chart-image exports. Large market-data files remain outside the application-data bundle; test subscriptions do not enable exports.",
-    title: "Your export requirements are explicit",
+    body: "Export your application records, trade CSVs, and chart images with an active paid subscription. Market-data files stay separate from the application-data bundle.",
+    title: "Keep a copy of your work",
   },
 ] as const;
 
@@ -31,15 +31,15 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)] lg:items-end lg:gap-16">
           <div>
             <h2 className="max-w-4xl text-balance text-[clamp(2.6rem,6vw,5.6rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary">
-              What the current build can prove.
+              Every decision leaves a record.
             </h2>
             <p className="mt-6 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8">
-              Trust starts with a clear boundary between shipped behavior, access requirements, and work
-              that is still planned.
+              Keep the chart, the reason, and the result together. Return to the evidence
+              when it is time to review your next session.
             </p>
           </div>
           <p className="text-sm leading-7 text-edgelab-text-secondary lg:border-l lg:border-edgelab-border lg:pl-8">
-            These statements describe the current product and its access requirements. Read the{" "}
+            Understand how your records are handled. Read the{" "}
             <Link
               className="inline-flex min-h-11 items-center align-middle font-medium text-cyan-100 underline decoration-cyan-300/40 underline-offset-4 hover:decoration-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               to="/privacy"
@@ -56,9 +56,9 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
               className="grid gap-4 border-b border-edgelab-border py-7 last:border-b-0 sm:grid-cols-[190px_minmax(0,1fr)] sm:gap-8 sm:py-8"
               key={item.title}
             >
-              <div className="flex items-center gap-2 self-start text-xs font-semibold text-cyan-100">
+              <div className="flex items-center gap-2 self-start text-xs font-semibold text-cyan-100" data-marketing-flow>
                 <CheckCircle2 aria-hidden="true" size={16} />
-                Verified in product
+                In your workspace
               </div>
               <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1fr)] lg:gap-10">
                 <h3 className="text-xl font-medium leading-7 tracking-[-0.02em] text-edgelab-text-primary">
@@ -72,22 +72,6 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
           ))}
         </div>
 
-        <div className="grid gap-4 border-b border-edgelab-border py-7 sm:grid-cols-[190px_minmax(0,1fr)] sm:gap-8 sm:py-8">
-          <div className="flex items-center gap-2 self-start text-xs font-semibold text-amber-100">
-            <Clock3 aria-hidden="true" size={16} />
-            Intentionally unpublished
-          </div>
-          <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1fr)] lg:gap-10">
-            <h3 className="text-xl font-medium leading-7 tracking-[-0.02em] text-edgelab-text-primary">
-              External proof will appear only when it exists
-            </h3>
-            <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
-              EdgeLab does not publish invented testimonials, customer counts, return claims, or
-              unsupported speed comparisons. Independent evidence and named customer stories remain
-              placeholders until they can be verified.
-            </p>
-          </div>
-        </div>
       </div>
     </section>
   );

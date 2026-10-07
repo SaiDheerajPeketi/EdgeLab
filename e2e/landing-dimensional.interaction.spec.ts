@@ -68,11 +68,9 @@ test("real WebGL artwork, dense working chart, branding and accessible desktop/m
   await hero.scrollIntoViewIfNeeded();
   await expect(hero.locator("canvas").first()).toBeVisible();
   const candles = Number(await hero.locator("[data-visible-candles]").getAttribute("data-visible-candles"));
-  expect(candles).toBeGreaterThan(100); expect(candles).toBeLessThanOrEqual(128);
-  for (const chapter of ["replay", "review", "results"]) {
-    const demo = page.locator(`[data-workflow-demo="${chapter}"]`); await demo.scrollIntoViewIfNeeded();
-    await expect(demo.getByLabel("Chart to review workflow").getByRole("button")).toHaveCount(3);
-  }
+  expect(candles).toBeGreaterThanOrEqual(64); expect(candles).toBeLessThanOrEqual(256);
+  await expect(page.locator("[data-replay-cursor]")).toHaveCount(1);
+  await expect(page.locator("[data-flow-row]")).toHaveCount(4);
   const attribution = page.getByRole("link", { name: /From Black and Blue/ });
   await attribution.scrollIntoViewIfNeeded(); await expect(attribution).toHaveAttribute("href", "https://blackandblue.co.in/");
   await expect(attribution).toHaveAttribute("target", "_blank"); expect(await attribution.locator("svg path").count()).toBe(2);
@@ -85,7 +83,7 @@ test("real WebGL artwork, dense working chart, branding and accessible desktop/m
   }
   await capture(page, `landing-${info.project.name}-viewport`); await capture(page, `landing-${info.project.name}-full`, undefined, true);
   await capture(page, `hero-${info.project.name}`, hero);
-  await top(page);
+  await hero.scrollIntoViewIfNeeded();
   const firstView = await hero.locator("canvas").first().evaluate((node) => {
     const canvas = node as HTMLCanvasElement, box = canvas.getBoundingClientRect(), context = canvas.getContext("2d")!;
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -97,7 +95,7 @@ test("real WebGL artwork, dense working chart, branding and accessible desktop/m
     }
     return colored;
   });
-  expect(firstView, "Actual candle pixels remain in the first viewport").toBeGreaterThan(20);
+  expect(firstView, "Actual candle pixels remain in the visible single chart").toBeGreaterThan(20);
   const iconHref = await page.locator('link[rel="icon"]').getAttribute("href"); expect(iconHref).toContain("edgelab-favicon.svg");
   const icon = await page.request.get(iconHref!); expect(icon.ok()).toBe(true); expect(await icon.text()).toContain("<svg");
 });
@@ -159,30 +157,42 @@ test("actual WebGL context loss exposes readable fallback and keeps chart/journa
   await expect(scene).toHaveAttribute("data-scene-status", "fallback"); await expect(scene.getByText(/The 3D view is unavailable on this device/)).toBeVisible();
   await capture(page, `fallback-${info.project.name}`, scene);
   const hero = page.locator("[data-landing-stage]"); await hero.scrollIntoViewIfNeeded();
-  await hero.getByLabel("Chart to review workflow").getByRole("button").nth(1).click(); await expect(hero.getByText("Review Notes", { exact: true })).toBeVisible();
-  await hero.getByLabel("Chart to review workflow").getByRole("button").first().click(); await expect(hero.locator("canvas").first()).toBeVisible();
+  await hero.getByLabel("Trading workspace examples").getByRole("button").nth(1).click(); await expect(hero.getByText("Review Notes", { exact: true })).toBeVisible();
+  await hero.getByLabel("Trading workspace examples").getByRole("button").first().click(); await expect(hero.locator("canvas").first()).toBeVisible();
   await certifyUiState(page);
 });
 
-test("workflow chapters contain responsive working replay, journal selection and review controls", async ({ page }, info) => {
-  await installDeterminism(page); await gotoStable(page, "/");
-  for (const chapter of ["replay", "review", "results"]) {
-    const demo = page.locator(`[data-workflow-demo="${chapter}"]`); await demo.scrollIntoViewIfNeeded();
-    const buttons = demo.getByLabel("Chart to review workflow").getByRole("button");
-    await expect(buttons.nth(chapter === "replay" ? 0 : chapter === "review" ? 1 : 2)).toHaveAttribute("aria-current", "step");
-    if (chapter === "replay") await expect(demo.locator("canvas").first()).toBeVisible();
-    if (chapter === "review") {
-      await expect(demo.getByText("Review Notes", { exact: true })).toBeVisible();
-      const reviews = demo.getByRole("button", { name: "Review", exact: true });
-      await reviews.first().click(); const firstTrade = await demo.getByRole("heading", { name: /^Trade #/ }).textContent();
-      await reviews.last().click(); await expect(demo.getByRole("heading", { name: /^Trade #/ })).not.toHaveText(firstTrade!);
-    }
-    await capture(page, `workflow-${info.project.name}-${chapter}`, demo);
-    const clipped = await demo.locator("h3, [data-scenario-pill]").evaluateAll((nodes) => nodes.filter((node) => { const b = node.getBoundingClientRect(); return b.left < -1 || b.right > innerWidth + 1; }).map((node) => node.textContent)); expect(clipped).toEqual([]);
-    await buttons.first().focus(); await page.keyboard.press("Tab"); await expect(buttons.nth(1)).toBeFocused(); await page.keyboard.press("Enter");
-    await expect(buttons.nth(1)).toHaveAttribute("aria-current", "step"); await expect(demo.getByText("Review Notes", { exact: true })).toBeVisible();
-    await buttons.nth(2).click(); await expect(buttons.nth(2)).toHaveAttribute("aria-current", "step");
-    await buttons.first().click(); await expect(demo.locator("canvas").first()).toBeVisible();
+test("one working chart provides replay journal and pattern controls beside the workflow narrative", async ({ page }, info) => {
+  await installDeterminism(page);
+  await gotoStable(page, "/");
+  const demo = page.locator("[data-landing-stage]");
+  await demo.scrollIntoViewIfNeeded();
+  await expect(page.locator("[data-replay-cursor]")).toHaveCount(1);
+  const buttons = demo.getByLabel("Trading workspace examples").getByRole("button");
+  await expect(buttons).toHaveCount(3);
+  await expect(demo.locator("canvas").first()).toBeVisible();
+  await buttons.first().focus();
+  await page.keyboard.press("Tab");
+  await expect(buttons.nth(1)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(buttons.nth(1)).toHaveAttribute("aria-current", "step");
+  await expect(demo.getByText("Review Notes", { exact: true })).toBeVisible();
+  const reviews = demo.getByRole("button", { name: "Review", exact: true });
+  await reviews.first().click();
+  const firstTrade = await demo.getByRole("heading", { name: /^Trade #/ }).textContent();
+  await reviews.last().click();
+  await expect(demo.getByRole("heading", { name: /^Trade #/ })).not.toHaveText(firstTrade!);
+  await buttons.nth(2).click();
+  await expect(buttons.nth(2)).toHaveAttribute("aria-current", "step");
+  await buttons.first().click();
+  await expect(demo.locator("canvas").first()).toBeVisible();
+  await capture(page, `workflow-${info.project.name}-single`, demo);
+  const rows = page.locator("[data-flow-row]");
+  await expect(rows).toHaveCount(4);
+  for (const row of await rows.all()) {
+    await row.scrollIntoViewIfNeeded();
+    await expect(row.getByRole("heading", { level: 3 })).toBeVisible();
+    await expect(row.getByRole("link", { name: "Explore the working example", exact: true })).toHaveAttribute("href", "#live-preview");
   }
   await certifyUiState(page);
 });
@@ -190,19 +200,19 @@ test("workflow chapters contain responsive working replay, journal selection and
 
 test("manual replay buttons and keyboard range change actual candles under reduced motion", async ({ page }, info) => {
   await installDeterminism(page); await gotoStable(page, "/");
-  for (const demo of [page.locator("[data-landing-stage]"), page.locator('[data-workflow-demo="replay"]')]) {
+  for (const demo of [page.locator("[data-landing-stage]")]) {
     await demo.scrollIntoViewIfNeeded(); const state = demo.locator("[data-replay-cursor]");
     const slider = demo.getByRole("slider", { name: "Replay position", exact: true });
-    await expect(slider).toHaveValue("112"); await expect(demo.getByRole("button", { name: /^(Play|Pause) replay$/ })).toBeDisabled();
+    await expect(slider).toHaveValue("255"); await expect(demo.getByRole("button", { name: /^(Play|Pause) replay$/ })).toBeDisabled();
     const initial = await demo.locator("canvas").first().screenshot();
-    await demo.getByRole("button", { name: "Previous candle", exact: true }).click(); await expect(state).toHaveAttribute("data-replay-cursor", "111"); await expect(slider).toHaveValue("111");
-    await demo.getByRole("button", { name: "Next candle", exact: true }).click(); await expect(state).toHaveAttribute("data-replay-cursor", "112");
+    await demo.getByRole("button", { name: "Previous candle", exact: true }).click(); await expect(state).toHaveAttribute("data-replay-cursor", "254"); await expect(slider).toHaveValue("254");
+    await demo.getByRole("button", { name: "Next candle", exact: true }).click(); await expect(state).toHaveAttribute("data-replay-cursor", "255");
     await slider.focus(); await page.keyboard.press("Home"); await expect(state).toHaveAttribute("data-replay-cursor", "0");
     await expect(demo.getByRole("button", { name: "Previous candle", exact: true })).toBeDisabled();
     await expect.poll(() => demo.locator("[data-visible-candles]").getAttribute("data-visible-candles")).toBe("1");
     expect((await demo.locator("canvas").first().screenshot()).equals(initial)).toBe(false);
     await page.keyboard.press("End"); await expect(state).toHaveAttribute("data-replay-cursor", (await slider.getAttribute("max"))!);
-    await expect(demo.getByRole("button", { name: "Next candle", exact: true })).toBeDisabled();
+    await expect(demo.getByRole("button", { name: "Next candle", exact: true })).toBeEnabled();
     await page.keyboard.press("ArrowLeft"); await expect(demo.getByRole("button", { name: "Next candle", exact: true })).toBeEnabled();
     await slider.fill("112"); await expect(state).toHaveAttribute("data-replay-cursor", "112");
     await capture(page, `replay-controls-${info.project.name}-${await demo.getAttribute("data-workflow-demo") ?? "hero"}`, demo);
@@ -210,8 +220,8 @@ test("manual replay buttons and keyboard range change actual candles under reduc
   await certifyUiState(page);
 });
 
-test("autoplay pause persists offscreen and play resumes from the chosen candle", async ({ page }) => {
-  await installDeterminism(page, { motionLock: false }); await page.emulateMedia({ reducedMotion: "no-preference" }); await gotoStable(page, "/");
+test("autoplay pause persists offscreen and play resumes the continuous market tail", async ({ page }) => {
+  await installDeterminism(page, { motionLock: false, freezeTime: false }); await page.emulateMedia({ reducedMotion: "no-preference" }); await gotoStable(page, "/");
   const hero = page.locator("[data-landing-stage]"), state = hero.locator("[data-replay-cursor]");
   const cursor = async () => Number(await state.getAttribute("data-replay-cursor"));
   await hero.scrollIntoViewIfNeeded(); await hero.getByRole("button", { name: "Pause replay", exact: true }).click();
@@ -221,8 +231,7 @@ test("autoplay pause persists offscreen and play resumes from the chosen candle"
   await hero.scrollIntoViewIfNeeded(); await page.waitForTimeout(400); expect(await cursor()).toBe(120); await expect(hero.getByRole("button", { name: "Play replay", exact: true })).toBeVisible();
   await hero.getByRole("button", { name: "Play replay", exact: true }).click(); await expect.poll(cursor).toBeGreaterThan(120);
   await hero.getByRole("button", { name: "Pause replay", exact: true }).click(); const paused = await cursor(); expect(paused).toBeGreaterThan(120); await page.waitForTimeout(400); expect(await cursor()).toBe(paused);
-  const workflow = page.locator('[data-workflow-demo="replay"]'); await workflow.scrollIntoViewIfNeeded(); await expect(workflow.getByRole("button", { name: "Play replay", exact: true })).toBeVisible();
-  const workflowState = workflow.locator("[data-replay-cursor]"); await expect(workflowState).toHaveAttribute("data-replay-cursor", "112"); await page.waitForTimeout(400); await expect(workflowState).toHaveAttribute("data-replay-cursor", "112");
+  await expect(page.locator("[data-replay-cursor]")).toHaveCount(1);
 });
 
 test("production brand vectors render at favicon, small icon and header sizes", async ({ page }, info) => {

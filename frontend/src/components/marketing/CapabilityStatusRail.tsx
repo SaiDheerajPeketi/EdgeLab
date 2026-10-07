@@ -1,6 +1,6 @@
 import { Check, Clock3 } from "lucide-react";
 
-type CapabilityStatus = "available" | "data-required" | "provider-required" | "experimental" | "planned";
+type CapabilityStatus = "available" | "data-required" | "provider-required" | "experimental";
 
 type Capability = {
   description: string;
@@ -51,7 +51,6 @@ const STATUS_COPY: Record<CapabilityStatus, string> = {
   "data-required": "Qualified data required",
   "provider-required": "Provider dependent",
   experimental: "Experimental",
-  planned: "Planned",
 };
 
 export function CapabilityStatusRail() {
@@ -70,12 +69,12 @@ export function CapabilityStatusRail() {
               data-split-text="lines"
               id="capability-status-title"
             >
-              What ships now. What comes next.
+              Built for your trading day.
             </h2>
           </div>
           <p className="max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8 lg:justify-self-end">
-            Working tools, provider requirements, and future work are labelled separately.
-            Check the data and access requirements before starting a session.
+            Replay, chart, journal, and review in one workspace.
+            See which tools need connected providers or trade-level data.
           </p>
         </div>
 
@@ -90,6 +89,7 @@ export function CapabilityStatusRail() {
                 key={capability.name}
               >
                 <div
+                  data-marketing-flow
                   className={`inline-flex w-fit items-center gap-2 text-xs font-semibold ${
                     isAvailable ? "text-cyan-200" : "text-amber-200"
                   }`}

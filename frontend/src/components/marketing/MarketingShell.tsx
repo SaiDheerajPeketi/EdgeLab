@@ -12,7 +12,7 @@ import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { StudioAttribution } from "../brand/StudioAttribution";
 import { isBetaMode } from "../../lib/deploymentMode";
-import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
+import { loadGsap, prefersReducedMotion } from "../../lib/gsap";
 import { buildMarketingCta } from "../../lib/marketingCta";
 import { useReducedMotionPreference } from "../../lib/motionPreferences";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
@@ -28,6 +28,14 @@ type MarketingShellProps = {
   pageDescription: string;
   pageTitle: string;
 };
+
+const MARKETING_FLOW_SELECTOR = "[data-marketing-reveal], [data-marketing-flow], .landing-story h2, .landing-story h3, .landing-story p";
+
+function flowNodes(shell: HTMLElement) {
+  return Array.from(shell.querySelectorAll<HTMLElement>(MARKETING_FLOW_SELECTOR)).filter((node) =>
+    !node.parentElement?.closest("[data-marketing-reveal], [data-marketing-flow], [data-landing-stage], [data-market-sculpture]"),
+  );
+}
 
 export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem[] {
   const prefix = mode === "home" ? "" : "/";
@@ -273,19 +281,16 @@ export function MarketingShell({
 
     let cancelled = false;
     let context: { revert(): void } | null = null;
-    const splitInstances: Array<{ revert(): void }> = [];
-    const scrollTriggers: Array<{ kill(): void }> = [];
+    let resizeObserver: ResizeObserver | null = null;
+    let refreshFrame = 0;
     const restoreRevealNodes = () => {
-      const revealNodes = Array.from(
-        shell.querySelectorAll<HTMLElement>("[data-marketing-reveal][data-motion='reveal']"),
-      );
+      const revealNodes = flowNodes(shell);
       const headerNodes = Array.from(header.querySelectorAll<HTMLElement>("[data-shell-motion]"));
       [...headerNodes, ...revealNodes].forEach((node) => {
         node.style.removeProperty("opacity");
         node.style.removeProperty("transform");
         node.style.removeProperty("will-change");
       });
-      splitInstances.splice(0).forEach((instance) => instance.revert());
     };
 
     if (reducedMotion) {
@@ -293,7 +298,7 @@ export function MarketingShell({
       return;
     }
 
-    void loadGsap({ plugins: ["CustomEase", "ScrollTrigger", "SplitText"] })
+    void loadGsap({ plugins: ["CustomEase", "ScrollTrigger"] })
       .then(({ gsap, plugins }) => {
         if (cancelled || !shell || !header) {
           return;
@@ -307,9 +312,7 @@ export function MarketingShell({
             const headerNodes = Array.from(
               header.querySelectorAll<HTMLElement>("[data-shell-motion]"),
             );
-            const revealNodes = Array.from(
-              shell.querySelectorAll<HTMLElement>("[data-marketing-reveal][data-motion='reveal']"),
-            );
+            const revealNodes = flowNodes(shell);
 
             if (headerNodes.length > 0) {
               if (reduceMotion) {
@@ -336,39 +339,23 @@ export function MarketingShell({
                 gsap.set(revealNodes, { clearProps: "all" });
               } else {
                 revealNodes.forEach((node) => {
-                  const splitResult = resolveSplitTargets(node, plugins.SplitText);
-                  const targets = splitResult?.targets ?? [node];
-                  const offsetY = node.dataset.splitText ? 44 : 24;
-                  const stagger = node.dataset.splitText === "chars" ? 0.014 : 0.08;
-                  if (splitResult) {
-                    splitInstances.push(splitResult.instance);
-                  }
-                  gsap.set(targets, {
-                    opacity: 0,
-                    y: offsetY,
-                    willChange: "transform, opacity",
-                  });
+                  const targets = [node];
+                  const offsetY = node.hasAttribute("data-marketing-flow") ? 40 : 28;
 
                   if (plugins.ScrollTrigger) {
-                    scrollTriggers.push(
-                      plugins.ScrollTrigger.create({
-                        once: true,
-                        onEnter: () => {
-                          const delay = Number(node.dataset.revealDelay ?? "0");
-                          gsap.to(targets, {
-                            clearProps: "opacity,transform,willChange",
-                            delay,
-                            duration: 0.82,
-                            ease: revealEase,
-                            opacity: 1,
-                            stagger,
-                            y: 0,
-                          });
-                        },
-                        start: "top 86%",
+                    // Play/reverse are finite tweens: a stopped scroll never leaves half-revealed text.
+                    gsap.fromTo(targets, { opacity: 0, y: offsetY }, {
+                      duration: 0.72,
+                      ease: revealEase,
+                      opacity: 1,
+                      y: 0,
+                      scrollTrigger: {
+                        start: "top 92%",
+                        end: "bottom top",
+                        toggleActions: "play reverse play reverse",
                         trigger: node,
-                      }),
-                    );
+                      },
+                    });
                     return;
                   }
 
@@ -377,7 +364,6 @@ export function MarketingShell({
                     duration: 0.82,
                     ease: revealEase,
                     opacity: 1,
-                    stagger,
                     y: 0,
                   });
                 });
@@ -386,8 +372,15 @@ export function MarketingShell({
 
           }, shell);
 
+          const refresh = () => {
+            window.cancelAnimationFrame(refreshFrame);
+            refreshFrame = window.requestAnimationFrame(() => { if (!cancelled) plugins.ScrollTrigger?.refresh(); });
+          };
+          resizeObserver = new ResizeObserver(refresh);
+          const main = shell.querySelector("main");
+          if (main) resizeObserver.observe(main);
           plugins.ScrollTrigger?.refresh();
-          void document.fonts?.ready.then(() => plugins.ScrollTrigger?.refresh());
+          void document.fonts?.ready.then(refresh);
         } catch (error) {
           restoreRevealNodes();
           console.warn("EdgeLab marketing animations were restored after GSAP setup failed.", error);
@@ -400,8 +393,8 @@ export function MarketingShell({
 
     return () => {
       cancelled = true;
-      scrollTriggers.forEach((trigger) => trigger.kill());
-      splitInstances.forEach((instance) => instance.revert());
+      resizeObserver?.disconnect();
+      window.cancelAnimationFrame(refreshFrame);
       context?.revert();
     };
   }, [pageTitle, reducedMotion]);
@@ -664,37 +657,4 @@ export function MarketingShell({
       </div>
     </div>
   );
-}
-
-function resolveSplitTargets(
-  node: HTMLElement,
-  splitTextPlugin?: GsapPlugins["SplitText"],
-) {
-  const splitMode = node.dataset.splitText;
-  if (!splitMode || !splitTextPlugin) {
-    return null;
-  }
-
-  const split = splitTextPlugin.create(node, {
-    linesClass: "edgelab-split-line",
-    type: splitMode,
-    wordsClass: "edgelab-split-word",
-  });
-
-  const targets =
-    splitMode === "chars"
-      ? split.chars ?? []
-      : splitMode === "words"
-        ? split.words ?? []
-        : split.lines ?? split.words ?? [];
-
-  if (targets.length === 0) {
-    split.revert();
-    return null;
-  }
-
-  return {
-    instance: split,
-    targets,
-  };
 }

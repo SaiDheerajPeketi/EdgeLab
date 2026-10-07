@@ -136,8 +136,8 @@ export function TermsPage() {
         body="Do not treat beta workspace storage as permanent recordkeeping. Users are responsible for separately retaining important information before beta ends. Application-data exports require an active paid subscription, including during beta. Large market-data files are not part of the export."
       />
       <LegalSection
-        title="Providers and planned features"
-        body="The subscription covers EdgeLab software. Imported datasets require appropriate usage rights. Live data, broker synchronization, and Quant/AI depend on supported adapters, configured credentials, permissions, and any provider charges. Footprint and TPO require qualified trade-level data. A roadmap entry does not promise an available feature or included provider entitlement."
+        title="Connected providers and market data"
+        body="The subscription covers EdgeLab software. Imported datasets require appropriate usage rights. Live data, broker synchronization, and Quant/AI depend on supported adapters, configured credentials, permissions, and any provider charges. Footprint and TPO require qualified trade-level data. Provider access and charges are separate from your EdgeLab subscription."
       />
     </LegalPageFrame>
   );

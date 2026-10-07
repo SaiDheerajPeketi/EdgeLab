@@ -8,7 +8,6 @@ import {
   MarketingShell,
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
-import { loadGsap, prefersReducedMotion } from "../lib/gsap";
 import { buildMarketingCta } from "../lib/marketingCta";
 import { useReducedMotionPreference } from "../lib/motionPreferences";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
@@ -43,7 +42,6 @@ type WorkflowStep = {
   phase: string;
   step: string;
   title: string;
-  scenario?: "replay" | "review" | "results";
   action?: string;
 };
 
@@ -60,7 +58,6 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     phase: "Replay",
     title: "Replay the decision, not just the candle.",
     body: "Walk price forward while entries, exits, sizing, and tempo remain visible in the same market context.",
-    scenario: "replay",
     action: "Try it: step through the candles and inspect where the entry meets the price path.",
   },
   {
@@ -68,7 +65,6 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     phase: "Journal",
     title: "Capture what you saw while it is still useful.",
     body: "Journal notes, mistake tags, and playbooks stay attached to the exact session behavior that produced them.",
-    scenario: "review",
     action: "Try it: select a trade to read its decision notes and execution details together.",
   },
   {
@@ -76,7 +72,6 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     phase: "Review",
     title: "Read the outcome beside the original context.",
     body: "Trades, notes, mistake tags, and session metrics keep the review grounded in what actually happened.",
-    scenario: "results",
     action: "Explore the example breakdown, then return to the trade that produced it.",
   },
   {
@@ -130,9 +125,8 @@ function MarketTape() {
       setItems((current) =>
         current.map((item, index) => {
           const baseValue = parseMarketValue(MARKET_PULSE[index]?.value ?? item.value);
-          const nextValue = baseValue * (1 + Math.sin(Date.now() / 1400 + index * 1.7) * 0.0009);
-          const baseChange = Number((MARKET_PULSE[index]?.change ?? item.change).replace("%", ""));
-          const nextChange = baseChange + Math.sin(Date.now() / 1900 + index * 1.3) * 0.18;
+          const nextValue = parseMarketValue(item.value) * Math.exp((Math.random() - 0.5) * 0.0018);
+          const nextChange = Number((MARKET_PULSE[index]?.change ?? "0").replace("%", "")) + (nextValue / baseValue - 1) * 100;
 
           return {
             ...item,
@@ -227,8 +221,6 @@ function SectionHeading({
 export function LandingPage() {
   const location = useLocation();
   const betaMode = isBetaMode(deploymentMode);
-  const pageRef = useRef<HTMLDivElement | null>(null);
-  const reducedMotion = useReducedMotionPreference();
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
@@ -240,82 +232,13 @@ export function LandingPage() {
         : "Waitlist open";
   const primaryCta = buildMarketingCta({ search: location.search, seatsRemaining });
 
-  useEffect(() => {
-    const page = pageRef.current;
-    if (!page || reducedMotion || prefersReducedMotion()) {
-      return;
-    }
-
-    let cancelled = false;
-    let context: { revert(): void } | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-    let refreshFrame = 0;
-
-    void loadGsap({ plugins: ["ScrollTrigger"] })
-      .then(({ gsap, plugins }) => {
-        if (cancelled || !page || !plugins.ScrollTrigger) {
-          return;
-        }
-
-        context = gsap.context(() => {
-          page.querySelectorAll<HTMLElement>("[data-scroll-scene]").forEach((scene) => {
-            const content = scene.querySelector<HTMLElement>("[data-scene-content]");
-            if (!content) return;
-            gsap.timeline({
-              scrollTrigger: {
-                trigger: scene,
-                start: "top bottom",
-                end: "bottom top",
-                scrub: 0.45,
-                invalidateOnRefresh: true,
-              },
-            })
-              .fromTo(content,
-                { y: 40, opacity: 0.55, scale: 0.985 },
-                { y: 0, opacity: 1, scale: 1, duration: 0.14, ease: "power3.out" })
-              .to(content, { y: 0, opacity: 1, scale: 1, duration: 0.72, ease: "none" })
-              .to(content, { y: -32, opacity: 0.45, scale: 0.985, duration: 0.14, ease: "power2.in" });
-          });
-
-          page.querySelectorAll<HTMLElement>("[data-flow-row]").forEach((row, index) => {
-            const content = row.querySelector<HTMLElement>("[data-flow-content]");
-            if (!content) return;
-            gsap.fromTo(content, { x: 32 + index * 8 }, {
-              x: -12,
-              ease: "none",
-              scrollTrigger: { trigger: row, start: "top bottom", end: "bottom top", scrub: 0.6 },
-            });
-          });
-        }, page);
-
-        const refresh = () => {
-          window.cancelAnimationFrame(refreshFrame);
-          refreshFrame = window.requestAnimationFrame(() => {
-            if (!cancelled) plugins.ScrollTrigger?.refresh();
-          });
-        };
-        resizeObserver = new ResizeObserver(refresh);
-        resizeObserver.observe(page);
-        void document.fonts.ready.then(refresh);
-        plugins.ScrollTrigger.refresh();
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(refreshFrame);
-      resizeObserver?.disconnect();
-      context?.revert();
-    };
-  }, [reducedMotion]);
-
   return (
     <MarketingShell
       navItems={buildMarketingNavItems("home")}
       pageDescription="Replay price action, record the decision, and review the evidence in one focused trading workspace."
       pageTitle="Trading replay and journal"
     >
-      <div className="landing-story" ref={pageRef}>
+      <div className="landing-story">
         <section
           className="relative px-3 pb-20 pt-6 sm:px-6 sm:pb-28 sm:pt-12 lg:px-8 lg:pt-14"
           data-landing-hero
@@ -323,10 +246,10 @@ export function LandingPage() {
           tabIndex={-1}
         >
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-center lg:gap-x-12 lg:gap-y-8">
+            <div className="grid gap-8 sm:gap-12 lg:min-h-[650px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-16">
               <div className="order-1 min-w-0">
                 <h1
-                  className="max-w-4xl text-balance text-[clamp(2.65rem,5.5vw,4.7rem)] font-medium leading-[0.96] tracking-[-0.04em] text-white"
+                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[0.95] tracking-[-0.05em] text-white"
                   data-marketing-reveal="title"
                   data-motion="reveal"
                   data-reveal-delay="0.03"
@@ -377,7 +300,7 @@ export function LandingPage() {
                 </p> : null}
               </div>
 
-              <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene id="live-preview" tabIndex={-1}>
+              <div className="order-3 min-w-0 origin-top scroll-mt-28 lg:col-span-2" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
                 <div className="landing-motion-content" data-scene-content>
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
                   <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
@@ -386,12 +309,12 @@ export function LandingPage() {
                   </p>
                 </div>
               </div>
-              <div className="order-3 min-w-0 lg:order-2">
-                <Suspense fallback={<div className="flex min-h-80 items-center border-y border-cyan-300/15 px-6 text-sm text-slate-300">A market. A decision. A trace. Preparing the 3D example…</div>}><MarketSculpture /></Suspense>
+              <div className="order-2 min-w-0" data-marketing-flow>
+                <Suspense fallback={<div className="flex min-h-[460px] items-center px-6 text-sm text-slate-300">Preparing the market scene…</div>}><MarketSculpture /></Suspense>
               </div>
             </div>
 
-            <div className="mt-7">
+            <div className="mt-7" data-marketing-flow>
               <MarketTape />
             </div>
           </div>
@@ -426,14 +349,10 @@ export function LandingPage() {
                       {step.body}
                     </p>
                   </div>
-                  {step.scenario ? <div className="mt-8 min-w-0" data-workflow-demo={step.scenario}>
-                    <DeferredMount fallback={<div className="min-h-96 border-y border-white/10 bg-[#050a10]" role="status" aria-label={`${step.phase} interactive example loading`} />}>
-                      <Suspense fallback={<div className="min-h-96 bg-[#050a10]" role="status" aria-label={`${step.phase} interactive example loading`} />}>
-                        <HeroDemo initialScenarioId={step.scenario} initialAutoplayActive={false} />
-                      </Suspense>
-                    </DeferredMount>
-                    <p className="mt-4 max-w-2xl text-sm leading-6 text-cyan-100">{step.action}</p>
-                  </div> : <a className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-cyan-100 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="#live-preview">Return to the working example <ArrowRight size={15} aria-hidden="true" /></a>}
+                  <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-cyan-100" data-marketing-flow>
+                    <span className="font-data">{step.step} / {step.phase}</span>
+                    <a className="inline-flex min-h-11 items-center gap-2 text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="#live-preview">Explore the working example <ArrowRight size={15} aria-hidden="true" /></a>
+                  </div>
                 </article>
               ))}
             </div>
@@ -464,9 +383,9 @@ export function LandingPage() {
                 }
                 title={betaMode ? "Core workflow. Limited beta." : "Your process, connected."}
               />
-              <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+              <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0" data-marketing-flow>
                 <div className="text-xl font-medium text-white">
-                  {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
+                  {isBetaMode(deploymentMode) ? "Private beta" : "EdgeLab Pro"}
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
                   {isBetaMode(deploymentMode)
@@ -510,6 +429,7 @@ export function LandingPage() {
             </div>
             <Link
               className="inline-flex h-12 w-fit items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
+              data-marketing-flow
               to={primaryCta.href}
             >
               {primaryCta.label}

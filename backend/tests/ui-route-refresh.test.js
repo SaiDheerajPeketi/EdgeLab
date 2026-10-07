@@ -9,7 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("landing demo exposes the full, honestly labelled workflow", () => {
   const source = read("frontend/src/components/marketing/HeroDemo.tsx");
-  assert.match(source, /One trade\. One continuous evidence trail\./);
+  assert.match(source, /Explore the trading workspace\./);
   assert.match(source, /Illustrative market data/);
   assert.match(source, /Chart \+ replay/);
   assert.match(source, /Journal \+ review/);

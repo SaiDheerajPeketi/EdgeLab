@@ -9,6 +9,7 @@ type DeterminismOptions = {
   devAuth?: boolean;
   liveFeedState?: "connecting" | "delayed" | "live" | "offline" | "stale" | "unsupported";
   motionLock?: boolean;
+  freezeTime?: boolean;
   seatsRemaining?: number;
   rollout?: "enabled" | "fallback" | "unavailable";
 };
@@ -36,21 +37,23 @@ export const betaSessionResponse = {
 
 export async function installDeterminism(
   page: Page,
-  { devAuth = false, liveFeedState = "live", motionLock = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
+  { devAuth = false, liveFeedState = "live", motionLock = true, freezeTime = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
 ) {
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await page.addInitScript(({ datasetCatalog, frozenEpoch, liveState, lockMotion }) => {
-    const NativeDate = Date;
-    class FrozenDate extends NativeDate {
-      constructor(...args: ConstructorParameters<typeof Date>) {
-        super(...(args.length > 0 ? args : [frozenEpoch]));
+  await page.addInitScript(({ datasetCatalog, frozenEpoch, liveState, lockMotion, lockTime }) => {
+    if (lockTime) {
+      const NativeDate = Date;
+      class FrozenDate extends NativeDate {
+        constructor(...args: ConstructorParameters<typeof Date>) {
+          super(...(args.length > 0 ? args : [frozenEpoch]));
+        }
+        static now() {
+          return frozenEpoch;
+        }
       }
-      static now() {
-        return frozenEpoch;
-      }
+      Object.setPrototypeOf(FrozenDate, NativeDate);
+      Object.defineProperty(globalThis, "Date", { configurable: true, value: FrozenDate });
     }
-    Object.setPrototypeOf(FrozenDate, NativeDate);
-    Object.defineProperty(globalThis, "Date", { configurable: true, value: FrozenDate });
 
     // The authenticated dataset stream is deliberately kept in-process for UI
     // tests. The seeded browser token is not a production JWT, and allowing the
@@ -202,7 +205,7 @@ export async function installDeterminism(
       if (document.head) installStyle();
       else document.addEventListener("DOMContentLoaded", installStyle, { once: true });
     }
-  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock });
+  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock, lockTime: freezeTime });
 
   const total = 500;
   const remaining = Math.max(0, seatsRemaining);
