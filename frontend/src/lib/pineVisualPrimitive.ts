@@ -14,6 +14,36 @@ export function pineVisualColor(value: PineScalar | undefined, fallback = "#22d3
   if (value === null) return "rgba(0,0,0,0)";
   return typeof value === "string" && /^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(value) ? value : fallback;
 }
+type RGBA = [number, number, number, number];
+type Gradient = { top: number; bottom: number; topColor: RGBA; bottomColor: RGBA };
+const COLOR_NAMES: Record<string, string> = { red: "#ff0000", blue: "#0000ff", green: "#008000", white: "#ffffff", black: "#000000", yellow: "#ffff00", orange: "#ffa500", purple: "#800080", lime: "#00ff00", navy: "#000080", teal: "#008080", silver: "#c0c0c0", gray: "#808080", grey: "#808080", maroon: "#800000", aqua: "#00ffff", cyan: "#00ffff", magenta: "#ff00ff", fuchsia: "#ff00ff", transparent: "#00000000" };
+let cssColors: OffscreenCanvasRenderingContext2D | null | undefined;
+/** Keep explicit transparent endpoint RGB; an na color has no RGB and becomes transparent black. */
+export function pineGradientColor(value: PineScalar | undefined): RGBA | undefined {
+  if (value == null) return [0, 0, 0, 0];
+  if (typeof value !== "string") return undefined;
+  let text = value.trim().toLowerCase();
+  text = COLOR_NAMES[text] ?? text;
+  if (/^#[\da-f]{3,4}$/i.test(text)) text = "#" + [...text.slice(1)].map((digit) => digit + digit).join("");
+  if (/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(text)) return [parseInt(text.slice(1, 3), 16), parseInt(text.slice(3, 5), 16), parseInt(text.slice(5, 7), 16), text.length === 9 ? parseInt(text.slice(7, 9), 16) / 255 : 1];
+  const match = /^rgba?\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)(?:\s*,\s*([\d.]+%?))?\s*\)$/.exec(text);
+  if (match) {
+    const channel = (part: string, max: number) => Math.max(0, Math.min(max, parseFloat(part) * (part.endsWith("%") ? max / 100 : 1)));
+    const rgba: RGBA = [channel(match[1], 255), channel(match[2], 255), channel(match[3], 255), match[4] === undefined ? 1 : channel(match[4], 1)];
+    return rgba.every(Number.isFinite) ? rgba : undefined;
+  }
+  if (/^[a-z]{1,24}$/.test(text) && typeof OffscreenCanvas !== "undefined") {
+    cssColors ??= new OffscreenCanvas(1, 1).getContext("2d");
+    if (cssColors) { cssColors.fillStyle = "#010203"; cssColors.fillStyle = text; const normalized = String(cssColors.fillStyle); if (normalized !== "#010203") return pineGradientColor(normalized); }
+  }
+  return undefined;
+}
+function gradientColorAt(gradient: Gradient, y: number, topY: number, bottomY: number): string {
+  const scale = Math.max(Math.abs(y), Math.abs(topY), Math.abs(bottomY), 1);
+  const ratio = Math.max(0, Math.min(1, (y / scale - topY / scale) / (bottomY / scale - topY / scale)));
+  const rgba = gradient.topColor.map((channel, index) => channel * (1 - ratio) + gradient.bottomColor[index] * ratio);
+  return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3]})`;
+}
 function painted(value: string) { return value.toLowerCase() !== "transparent" && !/^#[\da-f]{3}0$/i.test(value) && !/^rgba\([^)]*,\s*0(?:\.0*)?\s*\)$/.test(value) && !/^#[\da-f]{6}00$/i.test(value); }
 function option(source: PinePlot, sample: Sample | undefined, key: string) { return sample?.options[key] !== undefined ? sample.options[key] : source.options[key]; }
 function norm(value: PineScalar | undefined, prefix: string, fallback: string) { return String(value ?? fallback).toLowerCase().replace(new RegExp(`^${prefix}[._]`), ""); }
@@ -82,25 +112,43 @@ function clipFillPolygon(vertices: Vertex[], width: number, height: number): Ver
   if (!vertices.every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))) return [];
   if (vertices.every(({ x, y }) => x >= 0 && x <= width && y >= 0 && y <= height)) return vertices;
   let polygon = vertices;
-  for (const [axis, bound, lower] of [["x", 0, true], ["x", width, false], ["y", 0, true], ["y", height, false]] as const) {
-    if (!polygon.length) break;
-    const output: Vertex[] = [];
-    let previous = polygon[polygon.length - 1];
-    let previousInside = lower ? previous[axis] >= bound : previous[axis] <= bound;
-    for (const current of polygon) {
-      const inside = lower ? current[axis] >= bound : current[axis] <= bound;
-      if (inside !== previousInside) {
-        const scale = Math.max(Math.abs(bound), Math.abs(previous[axis]), Math.abs(current[axis]), 1);
-        const ratio = (bound / scale - previous[axis] / scale) / (current[axis] / scale - previous[axis] / scale);
-        const other = axis === "x" ? "y" : "x";
-        output.push({ [axis]: bound, [other]: previous[other] * (1 - ratio) + current[other] * ratio } as Vertex);
-      }
-      if (inside) output.push(current);
-      previous = current; previousInside = inside;
-    }
-    polygon = output;
-  }
+  for (const [axis, bound, lower] of [["x", 0, true], ["x", width, false], ["y", 0, true], ["y", height, false]] as const) polygon = clipPolygonEdge(polygon, axis, bound, lower);
   return polygon;
+}
+
+function clipPolygonEdge(polygon: Vertex[], axis: "x" | "y", bound: number, lower: boolean): Vertex[] {
+  if (!polygon.length) return [];
+  const output: Vertex[] = [];
+  let previous = polygon[polygon.length - 1];
+  let previousInside = lower ? previous[axis] >= bound : previous[axis] <= bound;
+  for (const current of polygon) {
+    const inside = lower ? current[axis] >= bound : current[axis] <= bound;
+    if (inside !== previousInside) {
+      const scale = Math.max(Math.abs(bound), Math.abs(previous[axis]), Math.abs(current[axis]), 1);
+      const ratio = (bound / scale - previous[axis] / scale) / (current[axis] / scale - previous[axis] / scale);
+      const other = axis === "x" ? "y" : "x";
+      output.push({ [axis]: bound, [other]: previous[other] * (1 - ratio) + current[other] * ratio } as Vertex);
+    }
+    if (inside) output.push(current);
+    previous = current; previousInside = inside;
+  }
+  return output;
+}
+function paintedGradientValues(values: [number, number, number, number], gradient: Gradient): number[] {
+  const mask: [Vertex, Vertex, Vertex, Vertex] = [{ x: 0, y: values[0] }, { x: 1, y: values[1] }, { x: 1, y: values[2] }, { x: 0, y: values[3] }];
+  const painted: number[] = [];
+  for (let polygon of fillLobes(mask)) {
+    if (gradient.topColor[3] === 0) polygon = clipPolygonEdge(polygon, "y", gradient.top, gradient.top < gradient.bottom);
+    if (gradient.bottomColor[3] === 0) polygon = clipPolygonEdge(polygon, "y", gradient.bottom, gradient.bottom < gradient.top);
+    const scale = Math.max(...polygon.map(({ y }) => Math.abs(y)), 1);
+    const area = polygon.reduce((sum, point, index) => {
+      const next = polygon[(index + 1) % polygon.length];
+      return sum + point.x * (next.y / scale) - next.x * (point.y / scale);
+    }, 0);
+    // Touching a transparent cutoff without positive-area overlap paints nothing.
+    if (area !== 0) for (const point of polygon) painted.push(point.y);
+  }
+  return painted;
 }
 
 /** One chart-owned canvas primitive for a placement. Only the current viewport is decoded. */
@@ -276,19 +324,30 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       const [from, to] = this.visible(plot, true);
       for (let index = from + 1; index <= to; index++) {
         const polygon = this.fillPolygon(plot, index);
-        if (polygon) for (const value of polygon.values) bounds = extend(bounds, value);
+        if (polygon) for (const value of polygon.gradient ? paintedGradientValues(polygon.values, polygon.gradient) : polygon.values) bounds = extend(bounds, value);
       }
     });
     this.rangeCache = bounds ? { priceRange: { minValue: (bounds as Bounds).min, maxValue: (bounds as Bounds).max }, margins: { above: Math.min(margin, paneHeight * .4), below: Math.min(margin, paneHeight * .4) } } : null;
     return this.rangeCache;
   }
-  private fillPolygon(plot: PineChartPlot, index: number): { shade: string; values: [number, number, number, number] } | null {
+  private fillPolygon(plot: PineChartPlot, index: number): { shade: string; gradient?: Gradient; values: [number, number, number, number] } | null {
     const sample = this.sample(plot, index);
     const shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
-    if (!sample || !painted(shade)) return null;
+    if (!sample) return null;
+    let gradient: Gradient | undefined;
+    if (plot.visual!.gradient) {
+      const source = plot.visual!.source;
+      const top = option(source, sample, "top_value"), bottom = option(source, sample, "bottom_value");
+      const topColor = pineGradientColor(option(source, sample, "top_color")), bottomColor = pineGradientColor(option(source, sample, "bottom_color"));
+      if (typeof top !== "number" || typeof bottom !== "number" || !Number.isFinite(top) || !Number.isFinite(bottom) || top === bottom || !topColor || !bottomColor || (!topColor[3] && !bottomColor[3])) return null;
+      gradient = { top, bottom, topColor, bottomColor };
+    } else if (!painted(shade)) return null;
     const refs = plot.visual!.refs!;
     const values = [this.fillValue(plot, index - 1, refs.upper), this.fillValue(plot, index, refs.upper), this.fillValue(plot, index, refs.lower), this.fillValue(plot, index - 1, refs.lower)];
-    return values.every((value) => value !== undefined) ? { shade, values: values as [number, number, number, number] } : null;
+    if (!values.every((value) => value !== undefined)) return null;
+    const mask = values as [number, number, number, number];
+    if (gradient && !paintedGradientValues(mask, gradient).length) return null;
+    return { shade, gradient, values: mask };
   }
   private fillValue(plot: PineChartPlot, index: number, source: PinePlot): number | undefined {
     const direct = numeric(plot, index, source);
@@ -310,14 +369,26 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           for (let index = from + 1; index <= to; index++) {
             const polygon = this.fillPolygon(plot, index);
             if (!polygon) continue;
-            const { shade, values } = polygon;
+            const { shade, values, gradient } = polygon;
             const left = x(index - 1), right = x(index);
             const ys = values.map((value) => this.series!.priceToCoordinate(value!));
             if (left === null || right === null || ys.some((value) => value === null)) continue;
+            let fillStyle: string | CanvasGradient = shade;
+            if (gradient) {
+              const topY = this.series!.priceToCoordinate(gradient.top), bottomY = this.series!.priceToCoordinate(gradient.bottom);
+              if (topY === null || bottomY === null || !Number.isFinite(topY) || !Number.isFinite(bottomY) || topY === bottomY) continue;
+              const start = Math.max(0, Math.min(topY, bottomY)), end = Math.min(mediaSize.height, Math.max(topY, bottomY));
+              if (start < end) {
+                const ramp = ctx.createLinearGradient(0, start, 0, end);
+                ramp.addColorStop(0, gradientColorAt(gradient, start, topY, bottomY));
+                ramp.addColorStop(1, gradientColorAt(gradient, end, topY, bottomY));
+                fillStyle = ramp;
+              } else fillStyle = gradientColorAt(gradient, mediaSize.height / 2, topY, bottomY);
+            }
             for (const lobe of fillLobes([{ x: left, y: ys[0]! }, { x: right, y: ys[1]! }, { x: right, y: ys[2]! }, { x: left, y: ys[3]! }])) {
               const clipped = clipFillPolygon(lobe, mediaSize.width, mediaSize.height);
               if (clipped.length < 3) continue;
-              ctx.fillStyle = shade; ctx.beginPath(); ctx.moveTo(clipped[0].x, clipped[0].y);
+              ctx.fillStyle = fillStyle; ctx.beginPath(); ctx.moveTo(clipped[0].x, clipped[0].y);
               for (let vertex = 1; vertex < clipped.length; vertex++) ctx.lineTo(clipped[vertex].x, clipped[vertex].y);
               ctx.closePath(); ctx.fill();
             }

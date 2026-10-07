@@ -76,7 +76,7 @@ const test = base.extend<{
 });
 async function run(page: any, source: string, snapshot = bars, options: any = {}) { const result = await page.evaluate(async (input: any) => window.pineVisualFixture.run(input.source, input.snapshot, input.options), { source, snapshot, options }); expect(await page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0); return result; }
 async function probe(page: any, index: number, price: number, options: any = {}) { return page.evaluate((input: any) => window.pineVisualFixture.probe(input.time, input.price, input.options), { time: bars[index].time, price, options }); }
-async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-visuals33"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
+async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-gradients34"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
 // Independent raw PineTS oracle samples, pinned by the original source/fixture hashes above.
 const ribbons: Record<string, {
   index: number;
@@ -196,4 +196,148 @@ test("hidden fill references preserve primary price scale while standalone pane 
   expect(ribbon.red).toBeGreaterThan(0);
   expect(harness.workerRequests).toHaveLength(2);
   await capture(page, "fill-only-pane", info.project.name);
+});
+// Expected colors are independent straight-RGBA interpolation followed by
+// source-over compositing, matching the documented CanvasGradient behavior.
+const gradientProgram = (call: string, upper = "110", lower = "90", hline = false, overlay = true) => program("a=" + (hline ? "hline" : "plot") + "(" + upper + ',"Mask A",display=display.none)\nb=' + (hline ? "hline" : "plot") + "(" + lower + ',"Mask B",display=display.none)\n' + call, overlay);
+const background = [17, 24, 39];
+function expectedGradient(price: number, top: number, bottom: number, topColor: number[], bottomColor: number[]) {
+  const fraction = Math.max(0, Math.min(1, (price - top) / (bottom - top)));
+  const rgba = topColor.map((value, index) => value + (bottomColor[index] - value) * fraction);
+  return rgba.slice(0, 3).map((value, index) => Math.round(value * rgba[3] + background[index] * (1 - rgba[3])));
+}
+async function gradientProbe(page: any, snapshot: any[], index: number, price: number, options: any = {}) {
+  return page.evaluate((input: any) => window.pineVisualFixture.intervalProbe(input.left, input.right, input.price, input.options), { left: snapshot[index - 1].time, right: snapshot[index].time, price, options });
+}
+function expectPixel(sample: any, expected: number[]) {
+  expect(Number.isFinite(sample.x + sample.y)).toBe(true);
+  expect(sample.pixel).toHaveLength(3);
+  expected.forEach((value, channel) => expect(Math.abs(sample.pixel[channel] - value), "RGB channel " + channel + ": " + sample.pixel + " versus " + expected).toBeLessThanOrEqual(3));
+}
+test("native vertical gradient uses independent anchors inside narrow plot and hline masks", async ({ page, harness }, info) => {
+  for (const hline of [false, true]) {
+    const source = gradientProgram("fill(a,b,120,80,#ff0000,#0000ff)", "110", "90", hline);
+    const output = await run(page, source, bars, { from: 120, to: 140 });
+    expect(output.placements[0].range).toBeNull();
+    expect(output.placements[0].primaryCoordinate).toBeCloseTo(output.placements[0].beforeCoordinate, 8);
+    for (const price of [108, 100, 92]) {
+      const sample = await gradientProbe(page, bars, 130, price);
+      expectPixel(sample, expectedGradient(sample.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
+    }
+    expectPixel(await gradientProbe(page, bars, 130, 115), background);
+    expectPixel(await gradientProbe(page, bars, 130, 85), background);
+    await capture(page, hline ? "gradient-hline-mask" : "gradient-plot-mask", info.project.name);
+  }
+  expect(harness.workerRequests).toHaveLength(2);
+});
+test("gradient extends endpoint colors beyond anchor bounds only within a wider mask", async ({ page, harness }, info) => {
+  await run(page, gradientProgram("fill(a,b,110,90,#ff0000,#0000ff)", "130", "70"), bars, { from: 120, to: 140, bounds: [60, 140] });
+  for (const price of [120, 100, 80]) {
+    const sample = await gradientProbe(page, bars, 130, price);
+    expectPixel(sample, expectedGradient(sample.samplePrice, 110, 90, [255, 0, 0, 1], [0, 0, 255, 1]));
+  }
+  await capture(page, "gradient-wide-mask", info.project.name);
+});
+test("dynamic gradient bounds and transparent endpoint RGB remain series values on actual canvas", async ({ page, harness }, info) => {
+  const source = gradientProgram('t=120+bar_index%2*20\nd=80-bar_index%2*20\nc=bar_index%4==0?na:bar_index%4==1?#ff000000:bar_index%4==2?#ff000080:#00ff00\nfill(a,b,t,d,c,#0000ff)');
+  await run(page, source, bars, { from: 120, to: 140 });
+  for (const index of [128, 129, 130, 131]) {
+    const topColor = index % 4 === 0 ? [0, 0, 0, 0] : index % 4 === 1 ? [255, 0, 0, 0] : index % 4 === 2 ? [255, 0, 0, 128 / 255] : [0, 255, 0, 1];
+    for (const price of [106, 100, 94]) {
+      const sample = await gradientProbe(page, bars, index, price);
+      expectPixel(sample, expectedGradient(sample.samplePrice, 120 + index % 2 * 20, 80 - index % 2 * 20, topColor, [0, 0, 255, 1]));
+    }
+  }
+  await capture(page, "gradient-transparent-series", info.project.name);
+});
+test("gradient equal and missing anchors leave gaps while reversed anchors reverse the ramp", async ({ page, harness }, info) => {
+  const source = gradientProgram('t=bar_index%4==0?120:bar_index%4==1?80:bar_index%4==2?100:na\nd=bar_index%4==0?80:bar_index%4==1?120:100\nfill(a,b,t,d,#ff0000,#0000ff)');
+  const output = await run(page, source, bars, { from: 120, to: 140 });
+  expect(output.warnings.some((warning: string) => /equal|zero.?span|degenerate/i.test(warning))).toBe(true);
+  for (const index of [128, 129])
+    for (const price of [106, 94]) {
+      const sample = await gradientProbe(page, bars, index, price);
+      expectPixel(sample, expectedGradient(sample.samplePrice, index % 4 === 0 ? 120 : 80, index % 4 === 0 ? 80 : 120, [255, 0, 0, 1], [0, 0, 255, 1]));
+    }
+  for (const index of [130, 131])
+    expectPixel(await gradientProbe(page, bars, index, 100), background);
+  await capture(page, "gradient-reversed-gaps", info.project.name);
+});
+test("clipped extreme gradient anchors preserve original RGBA ramp and hidden mask cannot expand primary scale", async ({ page, harness }, info) => {
+  for (const extremeMask of [false, true]) {
+    const top = extremeMask ? 120 : 1e9, bottom = extremeMask ? 80 : -1e9;
+    const source = gradientProgram("fill(a,b," + top + "," + bottom + ",#ff000080,#0000ff)", extremeMask ? "1000000000" : "110", extremeMask ? "-1000000000" : "90");
+    const output = await run(page, source, bars, { from: 120, to: 140 });
+    expect(output.placements[0].range).toBeNull();
+    expect(output.placements[0].primaryCoordinate).toBeCloseTo(output.placements[0].beforeCoordinate, 8);
+    for (const price of [106, 100, 94]) {
+      const sample = await gradientProbe(page, bars, 130, price);
+      expectPixel(sample, expectedGradient(sample.samplePrice, top, bottom, [255, 0, 0, 128 / 255], [0, 0, 255, 1]));
+    }
+    await capture(page, extremeMask ? "gradient-extreme-mask" : "gradient-extreme-anchors", info.project.name);
+  }
+});
+test("genuine gradient optional flags hide output and preserve fillgaps behavior", async ({ page, harness }, info) => {
+  const hidden = await run(page, gradientProgram('fill(a,b,120,80,#ff0000,#0000ff,title="Hidden gradient",display=display.none,fillgaps=false,editable=false)'), bars, { from: 120, to: 140 });
+  expect(hidden.drawn).toEqual([]);
+  expect(hidden.plots.find((plot: any) => plot.options.gradient)).toMatchObject({ name: "Hidden gradient", options: { display: "none", fillgaps: false, editable: false } });
+  expectPixel(await gradientProbe(page, bars, 130, 100), background);
+  for (const gaps of [false, true]) {
+    const source = gradientProgram("fill(a,b,120,80,#ff0000,#0000ff,fillgaps=" + gaps + ")", "bar_index==123?na:110");
+    await run(page, source, bars, { from: 120, to: 140 });
+    const sample = await gradientProbe(page, bars, 124, 100);
+    expectPixel(sample, gaps ? expectedGradient(sample.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]) : background);
+    await capture(page, gaps ? "gradient-fillgaps-true" : "gradient-fillgaps-false", info.project.name);
+  }
+});
+test("crossing gradient mask clips lobes without painting the zero-width intersection", async ({ page, harness }, info) => {
+  await run(page, gradientProgram("fill(a,b,120,80,#ff0000,#0000ff)", "bar_index%2==0?110:90", "bar_index%2==0?90:110"), bars, { from: 120, to: 140 });
+  const inside = await gradientProbe(page, bars, 130, 100, { fraction: .25 });
+  expectPixel(inside, expectedGradient(inside.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
+  expectPixel(await gradientProbe(page, bars, 130, 106), background);
+  await capture(page, "gradient-crossing-mask", info.project.name);
+});
+for (const overlay of [true, false])
+  test("packed 20k actual gradient survives pan resize and disposal in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
+    const snapshot = Array.from({ length: 20000 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
+    const source = gradientProgram("fill(a,b,120+bar_index%2*20,80-bar_index%2*20,bar_index%2==0?#ff0000:#00ff00,#0000ff)", "110", "90", false, overlay);
+    const placement = overlay ? 0 : 1, output = await run(page, source, snapshot, { from: 19970, to: 19994 });
+    expect(output.packed).toEqual([true, true, true]);
+    expect(output.placements[placement].series).toBe(1);
+    expect(output.placements[placement].stats.cacheEntries).toBeLessThan(100);
+    const initial = await gradientProbe(page, snapshot, 19980, 100, { placement });
+    expectPixel(initial, expectedGradient(initial.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
+    await page.evaluate(() => window.pineVisualFixture.pan(10000, 10024));
+    const panned = await gradientProbe(page, snapshot, 10011, 100, { placement });
+    expectPixel(panned, expectedGradient(panned.samplePrice, 140, 60, [0, 255, 0, 1], [0, 0, 255, 1]));
+    const resized = await page.evaluate(() => window.pineVisualFixture.resize());
+    expect(resized.placements[placement].stats.cacheEntries).toBeLessThan(100);
+    const changedSize = await gradientProbe(page, snapshot, 10010, 100, { placement });
+    expectPixel(changedSize, expectedGradient(changedSize.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
+    await capture(page, overlay ? "gradient-packed-overlay" : "gradient-packed-pane", info.project.name);
+    const disposed = await page.evaluate(() => window.pineVisualFixture.dispose());
+    expect(disposed[placement].stats.cacheEntries).toBe(0);
+    expectPixel(await gradientProbe(page, snapshot, 10010, 100, { placement }), background);
+  });
+
+test("genuine worker keeps solid na six/eight positional overloads solid and unpainted", async ({ page, harness }, info) => {
+  for (const variant of [
+    { title: "Solid six", tail: 'na,"Solid six",true,3', flags: { editable: true, show_last: 3 } },
+    { title: "Solid eight", tail: 'na,"Solid eight",false,3,false,display.none', flags: { editable: false, show_last: 3, fillgaps: false, display: "none" } }
+  ]) {
+    const output = await run(page, gradientProgram("fill(a,b," + variant.tail + ")"), bars, { from: 240, to: 255 });
+    const fill = output.plots.find((plot: any) => plot.name === variant.title);
+    expect(fill).toMatchObject({ name: variant.title, style: "fill", options: { color: null, ...variant.flags } });
+    expect(fill.options.gradient).toBeUndefined();
+    if (variant.flags.display === "none") {
+      expect(output.drawn).toEqual([]);
+      expect(output.placements[0].series).toBe(0);
+      expect(output.placements[0].range).toBeUndefined();
+    } else expect(output.placements[0].range).toBeNull();
+    expect(output.placements[0].primaryCoordinate).toBeCloseTo(output.placements[0].beforeCoordinate, 8);
+    expectPixel(await gradientProbe(page, bars, 254, 100), background);
+    expectPixel(await gradientProbe(page, bars, 254, 106), background);
+  }
+  expect(harness.workerRequests).toHaveLength(2);
+  await capture(page, "solid-na-overloads", info.project.name);
 });

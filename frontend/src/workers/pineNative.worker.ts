@@ -163,12 +163,100 @@ function resolvedSetting(value: unknown): unknown {
   return value;
 }
 
+/** Pinned FillHelper drops optional gradient flags. Preserve them on this execution's own helper. */
+function bindGradientFillOptions(context: Context) {
+  const namespace = context.pine.fill;
+  const descriptor = Object.getOwnPropertyDescriptor(namespace, "any");
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve gradient fill options.");
+  const original = descriptor.value;
+  const signature = ["plot1", "plot2", "top_value", "bottom_value", "top_color", "bottom_color", "title", "display", "fillgaps", "editable"];
+  const gradientKeys = ["top_value", "bottom_value", "top_color", "bottom_color"];
+  Object.defineProperty(namespace, "any", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+    const sentinel = args[args.length - 1] as { __callsiteId?: unknown } | undefined;
+    const callsite = sentinel && typeof sentinel === "object" && typeof sentinel.__callsiteId === "string" ? sentinel.__callsiteId : undefined;
+    const values = callsite ? args.slice(0, -1) : args;
+    const namedIndex = values.findIndex((value) => value !== null && typeof value === "object" && gradientKeys.some((key) => Object.prototype.hasOwnProperty.call(value, key)));
+    const positional = values.length >= 6 && typeof resolvedSetting(values[2]) === "number" && typeof resolvedSetting(values[3]) === "number";
+    if (!positional && namedIndex < 0) {
+      const color = resolvedSetting(values[2]);
+      if (values.length >= 3 && (color === null || (typeof color === "number" && Number.isNaN(color)))) {
+        // Pinned FillHelper mistakes a positional na color for a numeric gradient anchor.
+        // Its named-color path is unambiguous; hline's solid signature omits show_last.
+        const hlines = values.slice(0, 2).every((value) => {
+          const reference = resolvedSetting(value) as { options?: { style?: string } } | null;
+          return reference?.options?.style === "hline";
+        });
+        const solid = hlines ? ["plot1", "plot2", "color", "title", "editable", "fillgaps", "display"] : ["plot1", "plot2", "color", "title", "editable", "show_last", "fillgaps", "display"];
+        const options: Record<string, unknown> = {};
+        for (let index = 2; index < values.length; index++) {
+          const value = resolvedSetting(values[index]);
+          if (value && typeof value === "object" && !Array.isArray(value)) Object.assign(options, value);
+          else {
+            if (index >= solid.length) error("UNSUPPORTED_FILL_OPTION", "Solid fill received unsupported extra arguments.");
+            options[solid[index]] = value;
+          }
+        }
+        if (Object.keys(options).some((key) => !solid.slice(2).includes(key))) error("UNSUPPORTED_FILL_OPTION", "Solid fill received unsupported named options.");
+        const forwarded: unknown[] = [values[0], values[1], options];
+        if (callsite) forwarded.push(sentinel);
+        return Reflect.apply(original, this, forwarded);
+      }
+      return Reflect.apply(original, this, args);
+    }
+    const named = namedIndex >= 0 ? values[namedIndex] as Record<string, unknown> : {};
+    const fields: Record<string, unknown> = {};
+    const limit = namedIndex >= 0 ? namedIndex : values.length;
+    for (let index = 0; index < limit; index++) {
+      if (index >= signature.length) error("UNSUPPORTED_FILL_OPTION", "Gradient fill received unsupported extra arguments.");
+      if (values[index] && typeof values[index] === "object" && index >= 6) Object.assign(fields, values[index]);
+      else fields[signature[index]] = values[index];
+    }
+    Object.assign(fields, named);
+    if (Object.keys(fields).some((key) => !signature.includes(key) && !["hline1", "hline2"].includes(key))) error("UNSUPPORTED_FILL_OPTION", "Gradient fill supports title, editable, fillgaps and display; show_last and extra options are unavailable.");
+    const first = fields.plot1 ?? fields.hline1, second = fields.plot2 ?? fields.hline2;
+    if (first === undefined || second === undefined || gradientKeys.some((key) => !(key in fields))) error("UNSUPPORTED_FILL_OPTION", "Gradient fill requires two references, two values and two colors.");
+    const title = resolvedSetting(fields.title);
+    if (title !== undefined && typeof title !== "string") error("UNSUPPORTED_FILL_OPTION", "Gradient fill title must resolve to a string.");
+    const flags: Record<string, PineScalar> = { editable: true, fillgaps: false, display: "all" };
+    for (const key of ["editable", "fillgaps"]) {
+      const value = resolvedSetting(fields[key]);
+      if (value !== undefined) {
+        if (typeof value !== "boolean") error("UNSUPPORTED_FILL_OPTION", `Gradient ${key} must resolve to a boolean.`);
+        flags[key] = value;
+      }
+    }
+    const display = resolvedSetting(fields.display);
+    if (display !== undefined) {
+      const normalized = typeof display === "string" ? display.replace(/^display[._]/, "") : display;
+      if (normalized !== "all" && normalized !== "none") error("UNSUPPORTED_FILL_OPTION", "Gradient display must resolve to display.all or display.none.");
+      flags.display = display as string;
+    }
+    const options = Object.fromEntries(gradientKeys.map((key) => [key, resolvedSetting(fields[key])]));
+    if (title !== undefined) options.title = title;
+    const forwarded: unknown[] = [first, second, options];
+    if (callsite) forwarded.push(sentinel);
+    const plots = context.plots as Record<string, { _callsiteId?: string; options?: Record<string, unknown> }>;
+    let key = typeof title === "string" && title ? title : "fill";
+    if (plots[key] && callsite && plots[key]._callsiteId !== callsite) key = callsite;
+    const returned = Reflect.apply(original, this, forwarded);
+    const plot = plots[key];
+    if (!plot?.options || plot.options.gradient !== true || (callsite && plot._callsiteId !== callsite)) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the gradient fill callsite.");
+    for (const [name, value] of Object.entries(flags)) {
+      if (plot.options[name] !== undefined && plot.options[name] !== value) error("UNSUPPORTED_FILL_OPTION", `Gradient ${name} must remain constant throughout the snapshot.`);
+      plot.options[name] = value;
+    }
+    return returned;
+  } });
+}
+
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
 function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean) {
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
+      bindGradientFillOptions(context);
       Object.defineProperties(context.pine.barstate, {
         ishistory: { get: () => true },
         isrealtime: { get: () => false },

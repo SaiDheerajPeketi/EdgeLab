@@ -1,7 +1,7 @@
 import type { Candle } from "./api";
 import type { PineExecutionResult, PinePlot, PineScalar } from "./pineProtocol";
 import { getPackedPinePlot } from "./pinePacked";
-import { PineVisualPrimitive, pineVisualSample } from "./pineVisualPrimitive";
+import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
 import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } from "lightweight-charts";
 
 export type PineChartPoint = { time: UTCTimestamp; value?: number; color?: string; open?: number; high?: number; low?: number; close?: number; wickColor?: string; borderColor?: string };
@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -69,8 +69,14 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (!upper || !lower) { warn("Fill references are unavailable; this fill is not drawn."); return []; }
       if (hasOffset(plot) || hasOffset(upper) || hasOffset(lower)) { warn("Fill references with plot offsets are not rendered by this chart adapter."); return []; }
       if (upper.overlay !== lower.overlay) { warn("Fill references cross chart placements; this fill is not drawn."); return []; }
-      if (plot.options.top_color !== undefined || plot.options.bottom_color !== undefined) { warn("Gradient fills are not rendered; this fill is not drawn."); return []; }
-      return [{ ...common, overlay: upper.overlay, kind: "fill", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, refs: { upper, lower } } }];
+      const gradient = plot.options.gradient === true || [plot.options, ...optionSets].some((options) => ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in options));
+      if (gradient && optionSets.some((options) => {
+        const top = options.top_value !== undefined ? options.top_value : plot.options.top_value;
+        const bottom = options.bottom_value !== undefined ? options.bottom_value : plot.options.bottom_value;
+        return typeof top === "number" && top === bottom;
+      })) warn("Local gradient policy: equal anchors have zero span and are not painted; TradingView corner-case parity has not been verified.");
+      if (gradient && optionSets.some((options) => ["top_color", "bottom_color"].some((key) => pineGradientColor(options[key] !== undefined ? options[key] : plot.options[key]) === undefined))) { warn("This gradient color format is not rendered by this chart adapter."); return []; }
+      return [{ ...common, overlay: upper.overlay, kind: "fill", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, gradient, refs: { upper, lower } } }];
     }
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }

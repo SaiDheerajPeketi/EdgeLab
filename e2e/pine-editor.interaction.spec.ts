@@ -244,6 +244,62 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   await page.screenshot({ path: path.join(captures, `packed-${placement}-${info.project.name}.png`) });
 });
 
+test("native gradient custom inputs survive save and reload and paint the actual pane", async ({ page }, info) => {
+  const state = await fixture(page);
+  let editor = await openEditor(page);
+  const source = '//@version=6\nindicator("Native editor gradient",overlay=false)\ntop=input.float(100,"Gradient top",minval=80,maxval=200)\nbottom=input.float(0,"Gradient bottom",minval=-100,maxval=20)\ntopColor=input.color(#ff0000,"Top color")\nbottomColor=input.color(#0000ff,"Bottom color")\na=plot(80,"Mask upper",display=display.none)\nb=plot(20,"Mask lower",display=display.none)\nfill(a,b,top,bottom,topColor,bottomColor,title="Gradient mask")';
+  await fillSource(editor, source); await check(editor);
+  await editor.getByLabel("Gradient top", { exact: true }).fill("120");
+  await editor.getByLabel("Top color", { exact: true }).fill("#ff0000");
+  await editor.getByLabel("Bottom color", { exact: true }).fill("#0000ff");
+  await run(editor);
+  const result = await nativeRun(page, source);
+  expect(result.inputs).toMatchObject({ in_0: 120, in_1: 0, in_2: "#ff0000", in_3: "#0000ff" });
+  const fill = result.plots.find((plot) => plot.style === "fill")!;
+  expect(fill.options.gradient).toBe(true);
+  expect(fill.points.at(-1)!.options).toMatchObject({ top_value: 120, bottom_value: 0 });
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+  expect(saved).toMatchObject({ source, inputs: result.inputs });
+  await page.reload(); await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  editor = await openEditor(page);
+  await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(source);
+  await check(editor);
+  await expect(editor.getByLabel("Gradient top", { exact: true })).toHaveValue("120");
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  const pane = page.getByRole("region", { name: "Native editor gradient native Pine pane", exact: true });
+  await expect(pane).toBeVisible();
+  await expect(page.getByText(/Gradient fills are not rendered/)).toHaveCount(0);
+  await expect.poll(() => pane.locator("canvas").evaluateAll((canvases) => {
+    const colored: Array<{ y: number; red: number; blue: number }> = [];
+    for (const canvas of canvases) {
+      const element = canvas as HTMLCanvasElement;
+      const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+      if (!pixels) continue;
+      for (let y = 0; y < element.height; y++) for (let x = 0; x < element.width; x++) {
+        const offset = (y * element.width + x) * 4;
+        const [red, green, blue] = pixels.slice(offset, offset + 3);
+        if (red > green * 2 && blue > green * 2 && red + blue > 150) colored.push({ y: y / element.height, red, blue });
+      }
+    }
+    const top = colored.filter((pixel) => pixel.y < 0.4), bottom = colored.filter((pixel) => pixel.y > 0.6);
+    return {
+      topCount: top.length, bottomCount: bottom.length,
+      topRed: top.length ? top.reduce((sum, pixel) => sum + pixel.red, 0) / top.length : 0,
+      bottomRed: bottom.length ? bottom.reduce((sum, pixel) => sum + pixel.red, 0) / bottom.length : 0,
+      topBlue: top.length ? top.reduce((sum, pixel) => sum + pixel.blue, 0) / top.length : 0,
+      bottomBlue: bottom.length ? bottom.reduce((sum, pixel) => sum + pixel.blue, 0) / bottom.length : 0,
+    };
+  }).then((pixels) => pixels.topCount > 100 && pixels.bottomCount > 100 && pixels.topRed > pixels.bottomRed + 40 && pixels.bottomBlue > pixels.topBlue + 40)).toBe(true);
+  await pane.getByRole("button", { name: "Native editor gradient", exact: true }).focus();
+  const captures = path.resolve(".artifacts/pine-gradients34/product");
+  fs.mkdirSync(captures, { recursive: true });
+  await pane.screenshot({ path: path.join(captures, `gradient-pane-${info.project.name}.png`) });
+});
+
 test("plot names matching assumption codes keep unsupported-output warnings visible", async ({ page }) => {
   await fixture(page);
   const editor = await openEditor(page);
