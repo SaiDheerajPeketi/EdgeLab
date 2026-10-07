@@ -27,7 +27,7 @@ const ACCESS_COMPARISON = [
   { area: "Billing frequency", beta: "No billing or credit card", production: "Monthly and annual options not confirmed" },
   { area: "Replay and review", beta: "Current replay, Journal, reports, and playbooks", production: "Packaging and limits not confirmed" },
   { area: "Market data", beta: "Imported datasets", production: "Provider entitlements not announced" },
-  { area: "Broker sync and AI", beta: "Not included in the current beta", production: "No launch commitment published" },
+  { area: "Broker sync and AI", beta: "Configured providers, permissions, and consent required", production: "No launch commitment published" },
 ] as const;
 
 export const pricingFaqItems: FaqItem[] = [
@@ -54,12 +54,12 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "Does EdgeLab connect to my broker or data provider?",
     answer:
-      "The current beta centers on imported datasets. Live broker synchronization and broader provider connections are not represented as available integrations.",
+      "Imported datasets work without a broker connection. Live connections depend on a supported adapter, configured credentials, and provider permissions. The workspace shows connection availability and errors.",
   },
   {
     question: "Are Quant, footprint, and TPO available now?",
     answer:
-      "No. Quant/AI, footprint, and TPO remain planned work. Footprint and auction views also require qualified bid/ask market data before they can be offered responsibly.",
+      "The interfaces are implemented. Quant depends on configured models and permissions; footprint and TPO require qualified trade-level data. Candle-only feeds do not unlock order flow.",
   },
 ];
 
@@ -134,14 +134,11 @@ export function PricingSection({
     return (
       <div className="grid gap-10">
         <div className="rounded-el-xl border border-white/10 bg-[#061018] p-6 shadow-card sm:p-7">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
-                Private beta
-              </div>
-              <div className="mt-3 text-[2.6rem] font-semibold tracking-[-0.06em] text-white">
+          <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="min-w-0">
+              <h3 className="max-w-2xl text-balance text-[clamp(1.75rem,4vw,2.6rem)] font-semibold leading-[1.08] tracking-[-0.04em] text-white">
                 Test the core workflow free.
-              </div>
+              </h3>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
                 Approved users can use the verified beta workflow without billing. Future plans
                 are not inferred from roadmap features, and beta data remains temporary.
@@ -151,7 +148,7 @@ export function PricingSection({
                 {INCLUDED_BETA_WORKFLOW.map((feature) => (
                   <div
                     key={feature}
-                    className="flex items-start gap-2 border-t border-white/10 px-1 py-3 text-sm leading-6 text-slate-200"
+                    className="flex min-w-0 items-start gap-2 border-t border-white/10 px-1 py-3 text-sm leading-6 text-slate-200"
                   >
                     <Check aria-hidden="true" className="mt-1 shrink-0 text-cyan-200" size={15} />
                     {feature}
@@ -168,11 +165,11 @@ export function PricingSection({
               </Link>
             </div>
 
-            <div className="rounded-el-lg border border-white/10 bg-black/20 p-5">
+            <div className="min-w-0 rounded-el-lg border border-white/10 bg-black/20 p-5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Access
               </div>
-              <div className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-white">
+              <div className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">
                 {loading || seatsRemaining == null ? "..." : seatsRemaining}
               </div>
               <div className="mt-1 text-sm text-slate-400">seats open</div>

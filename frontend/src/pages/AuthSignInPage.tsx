@@ -83,9 +83,9 @@ export function AuthSignInPage() {
       rail={
         <div aria-live="polite">
           <h2 className="text-xl font-medium tracking-[-0.02em] text-edgelab-text-primary">
-            Current beta access
+            {isBetaMode(deploymentMode) ? "Current beta access" : "Current access"}
           </h2>
-          <dl className="mt-6 border-y border-edgelab-border">
+          <dl className="mt-5 border-y border-edgelab-border">
             <div className="flex items-center justify-between gap-4 border-b border-edgelab-border py-4">
               <dt className="text-sm text-edgelab-text-secondary">Seats</dt>
               <dd className="text-right text-sm font-medium text-edgelab-text-primary">{betaStatusLabel}</dd>
@@ -96,22 +96,10 @@ export function AuthSignInPage() {
                 {waitlistCount == null ? "Checking…" : `${waitlistCount} queued`}
               </dd>
             </div>
-            <div className="flex items-center justify-between gap-4 border-b border-edgelab-border py-4">
-              <dt className="text-sm text-edgelab-text-secondary">Sign-in</dt>
-              <dd className="text-right text-sm font-medium text-edgelab-text-primary">
-                Google OAuth
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-4 border-b border-edgelab-border py-4">
+            <div className="flex items-center justify-between gap-4 py-4">
               <dt className="text-sm text-edgelab-text-secondary">Billing</dt>
               <dd className="text-right text-sm font-medium text-edgelab-text-primary">
                 No card during beta
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-4 py-4">
-              <dt className="text-sm text-edgelab-text-secondary">Environment</dt>
-              <dd className="text-right text-sm font-medium text-edgelab-text-primary">
-                {isBetaMode(deploymentMode) ? "Private beta" : "Live access"}
               </dd>
             </div>
           </dl>
@@ -163,8 +151,7 @@ export function AuthSignInPage() {
 
         <p className="mt-4 max-w-md text-xs leading-5 text-edgelab-text-secondary">
           After Google confirms your account, EdgeLab returns you to the approved page you
-          requested. Campaign context included by an EdgeLab marketing link stays in that return
-          path.
+          requested.
         </p>
 
         {config.dev_auth_bypass_enabled === true ? (

@@ -3,11 +3,12 @@ import type { Metrics } from "../lib/api";
 import { formatLocaleCurrency, formatMetricPercent, formatMetricRatio } from "../lib/locale";
 
 type Props = {
+  compact?: boolean;
   currency?: string;
   metrics: Metrics | null;
 };
 
-export function MetricsBar({ currency = "USD", metrics }: Props) {
+export function MetricsBar({ compact = false, currency = "USD", metrics }: Props) {
   const stats = [
     {
       label: "Net PnL",
@@ -48,21 +49,21 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
   ];
 
   return (
-    <section className="grid w-full max-w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+    <section className={compact ? "grid min-w-0 grid-cols-3 gap-x-4 gap-y-5 lg:grid-cols-6" : "grid w-full max-w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"}>
       {stats.map((stat) => {
         const Icon = stat.icon;
         return (
           <div
             key={stat.label}
-            className="min-w-0 rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel"
+            className={compact ? "min-w-0" : "min-w-0 rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel"}
           >
             <div className="flex items-center justify-between text-slate-400">
-              <span className="ui-resilient-text min-w-0 text-xs font-medium uppercase tracking-[0.18em]" dir="auto">
+              <span className={compact ? "ui-resilient-text min-w-0 text-xs" : "ui-resilient-text min-w-0 text-xs font-medium uppercase tracking-[0.18em]"} dir="auto">
                 {stat.label}
               </span>
-              <Icon size={17} />
+              {!compact ? <Icon size={17} /> : null}
             </div>
-            <div className={`ui-number mt-3 overflow-x-auto text-2xl font-semibold ${stat.tone}`} title={stat.value}>
+            <div className={`ui-number overflow-x-auto font-semibold ${compact ? "mt-1 text-lg" : "mt-3 text-2xl"} ${stat.tone}`} title={stat.value}>
               {stat.value}
             </div>
           </div>

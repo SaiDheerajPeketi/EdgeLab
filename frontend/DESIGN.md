@@ -35,6 +35,10 @@ Use cyan as the primary series, blue for comparison, green plus `+`/up semantics
 - `/app`: operate from one persistent shell; no route should become a legacy island.
 - `/shared`: explain snapshot scope, ownership, expiry, and open-as-copy.
 
+Public pages lead with the working product. The landing page places a full-width, past-only candle demonstration directly below the headline and actions, before compact metric rows. On mobile, repeated access metadata yields to the chart; illustrative-data and temporary-beta-data labels remain visible.
+
+Landing chapters move into and out of view with scoped, reversible scroll timelines. Animate children of stable triggers, refresh after deferred content changes, keep horizontal movement within reserved space, and use vertical movement on narrow screens. Focused controls and reduced-motion content remain fully visible. Pricing links focus their local destinations; provider-dependent tools disclose their requirements separately from planned work.
+
 ## Non-goals
 
 No LuxAlgo visual clone, decorative glass everywhere, novelty motion in repeated workflows, invented proof, or replacement of expert tools with simplified substitutes.

@@ -54,6 +54,7 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
 
   const intervalCounts = () => page.evaluate(() => ({ ...window.__edgelabMotionIntervalCounts }));
   await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(0);
+  await page.getByLabel("Illustrative market feed").scrollIntoViewIfNeeded();
   await expect.poll(async () => (await intervalCounts())["1600"] ?? 0).toBeGreaterThan(0);
 
   const repeatedAnimationViolations = await page.evaluate(() => {

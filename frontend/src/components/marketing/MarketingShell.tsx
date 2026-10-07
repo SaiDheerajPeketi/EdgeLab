@@ -444,6 +444,7 @@ export function MarketingShell({
 
   const handleNavClick = useMemo(
     () => (event: ReactMouseEvent<HTMLAnchorElement>) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const href = event.currentTarget.getAttribute("href");
       if (!href) {
         return;
@@ -472,7 +473,9 @@ export function MarketingShell({
       }
 
       event.preventDefault();
-      closeMobileMenu(true);
+      closeMobileMenu(false);
+      if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
 
       const headerOffset = headerRef.current?.offsetHeight ?? 88;
       const top = target.getBoundingClientRect().top + window.scrollY - headerOffset - 12;

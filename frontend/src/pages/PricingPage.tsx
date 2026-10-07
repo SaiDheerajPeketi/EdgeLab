@@ -10,23 +10,27 @@ import {
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
 
+const pricingNavItems = buildMarketingNavItems("inner").map((item) => ({
+  ...item,
+  href: ["/#evidence", "/#pricing", "/#faq"].includes(item.href)
+    ? item.href.slice(1)
+    : item.href,
+}));
+
 export function PricingPage() {
   const betaMode = isBetaMode(deploymentMode);
 
   return (
     <MarketingShell
-      navItems={buildMarketingNavItems("inner")}
+      navItems={pricingNavItems}
       pageDescription="Current EdgeLab beta access, included workflow, known limits, and the launch pricing details that remain unpublished."
       pageTitle="Pricing and access"
     >
       <section className="px-3 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:px-8 lg:pb-24">
         <div className="mx-auto max-w-7xl">
           <div className="grid gap-8 border-b border-edgelab-border pb-12 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end lg:gap-16">
-            <div className="max-w-4xl">
-              <p className="font-data text-xs uppercase tracking-[0.18em] text-cyan-100">
-                Pricing &amp; access
-              </p>
-              <h1 className="mt-5 text-balance text-[clamp(3rem,7vw,5.75rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary">
+            <div className="min-w-0 max-w-4xl">
+              <h1 className="text-balance text-[clamp(2.5rem,7vw,5.75rem)] font-medium leading-[0.96] tracking-[-0.04em] text-edgelab-text-primary">
                 Current access, without fine print.
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-edgelab-text-secondary">
@@ -62,8 +66,7 @@ export function PricingPage() {
       <section className="scroll-mt-28 px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="faq" tabIndex={-1}>
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)] lg:gap-20">
           <div>
-            <p className="font-data text-xs uppercase tracking-[0.18em] text-cyan-100">FAQ</p>
-            <h2 className="mt-4 text-balance text-[clamp(2.5rem,5vw,4.6rem)] font-medium leading-[0.94] tracking-[-0.04em] text-edgelab-text-primary">
+            <h2 className="text-balance text-[clamp(2.5rem,5vw,4.6rem)] font-medium leading-[0.96] tracking-[-0.04em] text-edgelab-text-primary">
               Details before access.
             </h2>
             <p className="mt-5 max-w-md text-sm leading-7 text-edgelab-text-secondary">

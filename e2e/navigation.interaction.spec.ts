@@ -12,12 +12,13 @@ test("marketing anchors and disclosure controls remain operable", async ({ page 
   await installDeterminism(page);
   await gotoStable(page, "/");
 
-  await page.getByRole("link", { name: "See the workflow" }).click();
+  await page.getByRole("navigation", { name: "Primary navigation", exact: true }).getByRole("link", { name: "How it works", exact: true }).click();
   await expect(page).toHaveURL(/\/#how-it-works$/);
   await expect(page.getByRole("heading", { name: "One continuous loop." })).toBeInViewport();
 
   await page.goto("/#faq");
   await settlePage(page);
+  await page.getByRole("navigation", { name: "Primary navigation", exact: true }).getByRole("link", { name: "FAQ", exact: true }).click();
   const question = page.getByRole("button", { name: "What happens during beta?" });
   await question.click();
   await expect(question).toHaveAttribute("aria-expanded", "true");

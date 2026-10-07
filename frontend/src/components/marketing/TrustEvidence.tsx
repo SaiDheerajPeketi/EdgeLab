@@ -11,7 +11,7 @@ const VERIFIED_EVIDENCE = [
     title: "Access is gated and the return path is explicit",
   },
   {
-    body: "Imported datasets are supported today. Live broker sync, Quant/AI, footprint, and TPO are not presented as available features.",
+    body: "Imported datasets are supported. Quant depends on configured models and permissions; footprint and TPO require qualified trade-level data. Candle-only feeds do not unlock order flow.",
     title: "Provider and roadmap boundaries stay visible",
   },
   {

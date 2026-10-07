@@ -1,4 +1,4 @@
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowDown, ArrowRight } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
@@ -238,6 +238,8 @@ export function LandingPage() {
 
     let cancelled = false;
     let context: { revert(): void } | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let refreshFrame = 0;
 
     void loadGsap({ plugins: ["ScrollTrigger"] })
       .then(({ gsap, plugins }) => {
@@ -246,43 +248,53 @@ export function LandingPage() {
         }
 
         context = gsap.context(() => {
-          gsap.to("[data-landing-stage]", {
-            ease: "none",
-            scrollTrigger: {
-              end: "bottom top",
-              scrub: 0.65,
-              start: "top 78%",
-              trigger: "[data-landing-stage]",
-            },
-            yPercent: -4,
+          page.querySelectorAll<HTMLElement>("[data-scroll-scene]").forEach((scene) => {
+            const content = scene.querySelector<HTMLElement>("[data-scene-content]");
+            if (!content) return;
+            gsap.timeline({
+              scrollTrigger: {
+                trigger: scene,
+                start: "top bottom",
+                end: "bottom top",
+                scrub: 0.45,
+                invalidateOnRefresh: true,
+              },
+            })
+              .fromTo(content,
+                { y: 40, opacity: 0.55, scale: 0.985 },
+                { y: 0, opacity: 1, scale: 1, duration: 0.14, ease: "power3.out" })
+              .to(content, { y: 0, opacity: 1, scale: 1, duration: 0.72, ease: "none" })
+              .to(content, { y: -32, opacity: 0.45, scale: 0.985, duration: 0.14, ease: "power2.in" });
           });
 
-          const rows = Array.from(page.querySelectorAll<HTMLElement>("[data-flow-row]"));
-          rows.forEach((row, index) => {
-            gsap.fromTo(
-              row,
-              { x: index % 2 === 0 ? 18 : -18 },
-              {
-                clearProps: "transform",
-                duration: 0.9,
-                ease: "power3.out",
-                scrollTrigger: {
-                  once: true,
-                  start: "top 82%",
-                  trigger: row,
-                },
-                x: 0,
-              },
-            );
+          page.querySelectorAll<HTMLElement>("[data-flow-row]").forEach((row, index) => {
+            const content = row.querySelector<HTMLElement>("[data-flow-content]");
+            if (!content) return;
+            gsap.fromTo(content, { x: 32 + index * 8 }, {
+              x: -12,
+              ease: "none",
+              scrollTrigger: { trigger: row, start: "top bottom", end: "bottom top", scrub: 0.6 },
+            });
           });
         }, page);
 
+        const refresh = () => {
+          window.cancelAnimationFrame(refreshFrame);
+          refreshFrame = window.requestAnimationFrame(() => {
+            if (!cancelled) plugins.ScrollTrigger?.refresh();
+          });
+        };
+        resizeObserver = new ResizeObserver(refresh);
+        resizeObserver.observe(page);
+        void document.fonts.ready.then(refresh);
         plugins.ScrollTrigger.refresh();
       })
       .catch(() => undefined);
 
     return () => {
       cancelled = true;
+      window.cancelAnimationFrame(refreshFrame);
+      resizeObserver?.disconnect();
       context?.revert();
     };
   }, [reducedMotion]);
@@ -293,18 +305,18 @@ export function LandingPage() {
       pageDescription="Replay price action, record the decision, and review the evidence in one focused trading workspace."
       pageTitle="Trading replay and journal"
     >
-      <div ref={pageRef}>
+      <div className="landing-story" ref={pageRef}>
         <section
-          className="relative px-3 pb-24 pt-12 sm:px-6 sm:pb-28 sm:pt-16 lg:px-8 lg:pb-32 lg:pt-20"
+          className="relative px-3 pb-20 pt-6 sm:px-6 sm:pb-28 sm:pt-12 lg:px-8 lg:pt-14"
           data-landing-hero
           id="product"
           tabIndex={-1}
         >
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-12 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] lg:items-end lg:gap-20">
+            <div className="grid gap-5 sm:gap-7 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] lg:items-end lg:gap-16">
               <div>
                 <h1
-                  className="max-w-5xl text-balance text-[clamp(3.25rem,9.2vw,6rem)] font-medium leading-[0.84] tracking-[-0.04em] text-white"
+                  className="max-w-4xl text-balance text-[clamp(2.65rem,6.4vw,5.2rem)] font-medium leading-[0.96] tracking-[-0.04em] text-white"
                   data-marketing-reveal="title"
                   data-motion="reveal"
                   data-reveal-delay="0.03"
@@ -313,16 +325,18 @@ export function LandingPage() {
                   Replay the market. Preserve the decision.
                 </h1>
                 <p
-                  className="mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl sm:leading-9"
+                  className="mt-5 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8"
                   data-marketing-reveal="lede"
                   data-motion="reveal"
                   data-reveal-delay="0.08"
                 >
-                  EdgeLab keeps chart replay, Journal context, and performance review in one
-                  focused workspace—so every conclusion can be traced back to the trade.
+                  Replay the market, capture your decisions, and review every trade in one
+                  connected workspace.
                 </p>
+              </div>
+              <div>
                 <div
-                  className="mt-8 flex flex-wrap items-center gap-3"
+                  className="flex flex-wrap items-center gap-3 lg:justify-start"
                   data-marketing-reveal="hero-actions"
                   data-motion="reveal"
                   data-reveal-delay="0.12"
@@ -335,57 +349,39 @@ export function LandingPage() {
                     <ArrowRight aria-hidden="true" size={16} />
                   </Link>
                   <a
-                    className="inline-flex h-12 items-center rounded-el-md border border-edgelab-border bg-edgelab-surface px-5 text-sm font-medium text-edgelab-text-primary transition-colors hover:border-cyan-300/40 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                    href="#how-it-works"
+                    className="inline-flex h-12 items-center gap-2 px-3 text-sm font-medium text-edgelab-text-primary underline-offset-4 transition-colors hover:text-cyan-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                    href="#live-preview"
                   >
-                    See the workflow
+                    Explore the product
+                    <ArrowDown aria-hidden="true" size={16} />
                   </a>
                 </div>
-              </div>
-
-              <aside
-                aria-label="Product workflow and beta status"
-                className="border-y border-edgelab-border py-6 lg:border-y-0 lg:border-l lg:py-1 lg:pl-8"
-              >
-                <ol className="grid gap-5">
-                  {["Replay market context", "Record the decision", "Review the evidence"].map(
-                    (label) => (
-                      <li className="flex items-center gap-3 text-sm text-edgelab-text-secondary" key={label}>
-                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-cyan-300/12 text-cyan-200">
-                          <Check aria-hidden="true" size={14} strokeWidth={2.4} />
-                        </span>
-                        {label}
-                      </li>
-                    ),
-                  )}
-                </ol>
-                <div className="mt-6 border-t border-edgelab-border pt-5" role="status">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <strong className="text-lg font-medium text-edgelab-text-primary">
+                <div className="mt-4 hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 sm:flex" role="status">
+                    <strong className="font-medium text-cyan-100">
                       {loading ? "Checking beta access…" : accessLabel}
                     </strong>
-                    <span className="text-xs text-edgelab-text-secondary">
+                    <span className="text-edgelab-text-secondary">
                       {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
                     </span>
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-edgelab-text-secondary">
-                    Private beta workspaces are temporary test environments.
-                  </p>
                 </div>
-              </aside>
+                <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
+                  Private beta · temporary test workspaces
+                </p>
+              </div>
             </div>
 
-            <div className="mt-12" data-marketing-reveal="market-tape" data-motion="reveal" data-reveal-delay="0.16">
+            <div className="mt-6 origin-top scroll-mt-28 sm:mt-8 lg:mt-10" data-landing-stage data-scroll-scene id="live-preview" tabIndex={-1}>
+              <div className="landing-motion-content" data-scene-content>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
+                <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
+                  Interactive product preview using illustrative market data.
+                  <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-7">
               <MarketTape />
-            </div>
-
-            <div className="mt-7 origin-top lg:mt-10" data-landing-stage>
-              <DeferredMount fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg border border-edgelab-border bg-edgelab-surface" />}>
-                <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg border border-edgelab-border bg-edgelab-surface" />}><HeroDemo /></Suspense>
-              </DeferredMount>
-              <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
-                Interactive product preview using illustrative market data.
-              </p>
             </div>
           </div>
         </section>
@@ -393,9 +389,10 @@ export function LandingPage() {
         <section
           className="border-y border-edgelab-border bg-edgelab-surface px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
           id="how-it-works"
+          data-scroll-scene
           tabIndex={-1}
         >
-          <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1.38fr)] lg:gap-20">
+          <div className="landing-motion-content mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1.38fr)] lg:gap-20" data-scene-content>
             <div className="lg:sticky lg:top-32 lg:self-start">
               <SectionHeading
                 description="Price action, decisions, and review move as one system instead of three disconnected tools."
@@ -414,7 +411,7 @@ export function LandingPage() {
                     <span className="text-cyan-200">{step.step}</span>
                     <span>{step.phase}</span>
                   </div>
-                  <div>
+                  <div className="landing-motion-content md:pr-16" data-flow-content>
                     <h3 className="max-w-2xl text-2xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-3xl">
                       {step.title}
                     </h3>
@@ -428,16 +425,21 @@ export function LandingPage() {
           </div>
         </section>
 
-        <CapabilityStatusRail />
+        <div data-scroll-scene>
+          <div className="landing-motion-content" data-scene-content><CapabilityStatusRail /></div>
+        </div>
 
-        <TrustEvidence />
+        <div data-scroll-scene>
+          <div className="landing-motion-content" data-scene-content><TrustEvidence /></div>
+        </div>
 
         <section
           className="border-y border-edgelab-border bg-edgelab-surface px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
           id="pricing"
+          data-scroll-scene
           tabIndex={-1}
         >
-          <div className="mx-auto max-w-7xl">
+          <div className="landing-motion-content mx-auto max-w-7xl" data-scene-content>
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
               <SectionHeading
                 description={
@@ -448,8 +450,7 @@ export function LandingPage() {
                 title={isBetaMode(deploymentMode) ? "Core workflow. Limited beta." : "Plans that scale with the process."}
               />
               <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Current mode</div>
-                <div className="mt-3 text-xl font-medium text-white">
+                <div className="text-xl font-medium text-white">
                   {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
@@ -468,8 +469,8 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="faq" tabIndex={-1}>
-          <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(0,0.76fr)_minmax(0,1.24fr)] lg:gap-20">
+        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="faq" tabIndex={-1} data-scroll-scene>
+          <div className="landing-motion-content mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(0,0.76fr)_minmax(0,1.24fr)] lg:gap-20" data-scene-content>
             <SectionHeading
               description="Straight answers on access, imports, billing timing, and the beta data lifecycle."
               title="Before you enter."
@@ -482,8 +483,8 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="px-3 pb-28 pt-8 sm:px-6 sm:pb-32 lg:px-8">
-          <div className="mx-auto grid max-w-7xl gap-8 border-y border-edgelab-border py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <section className="px-3 pb-28 pt-8 sm:px-6 sm:pb-32 lg:px-8" data-scroll-scene>
+          <div className="landing-motion-content mx-auto grid max-w-7xl gap-8 border-y border-edgelab-border py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end" data-scene-content>
             <div>
               <h2 className="max-w-4xl text-balance text-[clamp(2.5rem,6vw,5rem)] font-medium leading-[0.94] tracking-[-0.04em] text-edgelab-text-primary">
                 Make every replay leave evidence.

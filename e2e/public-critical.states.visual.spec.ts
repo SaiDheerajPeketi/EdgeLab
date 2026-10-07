@@ -80,11 +80,13 @@ test.describe("landing critical-state visual baselines", () => {
     await expectStableScreenshot(page, "landing-cta-error-fallback", { fullPage: false });
   });
 
-  test("beta capacity routes the primary CTA to the waitlist", async ({ page }) => {
+  test("beta capacity routes the primary CTA to the waitlist", async ({ page }, testInfo) => {
     await page.route("**/api/auth/beta/status", (route) => route.fulfill({ body: JSON.stringify(fullBetaProgram), contentType: "application/json", status: 200 }));
     await gotoStable(page, "/", { waitForNetworkIdle: false });
     await expect(page.getByText("waitlist live", { exact: true })).toBeVisible();
-    await expect(page.getByText("Waitlist open", { exact: true })).toBeVisible();
+    const heroAvailability = page.getByText("Waitlist open", { exact: true });
+    if (testInfo.project.name === "mobile") await expect(heroAvailability).toBeHidden();
+    else await expect(heroAvailability).toBeVisible();
     const cta = page.getByRole("link", { name: "Join waitlist" }).first();
     await expect(cta).toHaveAttribute("href", /waitlist=1/);
     await expectInteractiveGeometry(page, cta);

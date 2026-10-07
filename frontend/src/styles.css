@@ -6,6 +6,24 @@
   src: url("@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2") format("woff2-variations");
 }
 
+.landing-motion-content:focus-within {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+@media (max-width: 767px) {
+  .landing-story [data-flow-content] {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-motion-content {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 @font-face {
   font-family: "JetBrains Mono";
   font-style: normal;

@@ -775,7 +775,7 @@ function MarketingCandleSurface({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const [hoveredBar, setHoveredBar] = useState<DemoBar | null>(null);
-  const visibleWindow = 72;
+  const visibleWindow = 128;
   const clampedIndex = Math.max(0, Math.min(currentBarIndex, scenario.bars.length - 1));
 
   const visibleBars = useMemo(
@@ -812,7 +812,7 @@ function MarketingCandleSurface({
       layout: {
         background: { color: "#0b1017", type: ColorType.Solid },
         fontFamily:
-          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+          "Instrument Sans Variable, Instrument Sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
         textColor: "#94a3b8",
       },
       grid: {
@@ -827,7 +827,7 @@ function MarketingCandleSurface({
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.16)",
-        barSpacing: 10,
+        barSpacing: 6,
         rightOffset: 4,
         secondsVisible: false,
         timeVisible: true,
@@ -935,24 +935,19 @@ function MarketingCandleSurface({
   }, [scenario, visibleBars]);
 
   return (
-    <section className="w-full max-w-full min-w-0 rounded-[26px] border border-white/10 bg-[#060c12] p-4 shadow-panel">
-      <div className="flex flex-col gap-3 border-b border-white/10 pb-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
-            {scenario.symbol}
-          </div>
-          <h3 className="mt-2 text-[1.7rem] font-semibold tracking-[-0.04em] text-white">
-            {scenario.timeframe}
-          </h3>
-          <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
+    <section className="w-full min-w-0" aria-label={`${scenario.symbol} ${scenario.timeframe} chart`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h3 className="text-lg font-semibold tracking-[-0.025em] text-white">{scenario.symbol}</h3>
+          <span className="text-xs text-slate-400">{scenario.timeframe}</span>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-100">
-          <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)] motion-safe:animate-pulse" />
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
           {formatBarTime(displayBar?.time ?? scenario.bars[0]?.time ?? 0)}
         </div>
       </div>
 
-      <div className="chart-ohlcv-row mt-4">
+      <div className="chart-ohlcv-row mt-3">
         <span className="chart-ohlcv-time">OHLCV</span>
         <span className="chart-ohlcv-item">
           <span>O</span>
@@ -979,15 +974,21 @@ function MarketingCandleSurface({
         </span>
       </div>
 
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+      <div className="mt-3 h-px overflow-hidden bg-white/10" aria-hidden="true">
         <div
-          className="h-full origin-left rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 will-change-transform"
+          className="h-full origin-left bg-cyan-200"
           style={{ transform: `scaleX(${replayProgress / 100})` }}
         />
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#0b1017]">
-        <div ref={containerRef} className="h-[280px] w-full sm:h-[336px] lg:h-[392px]" />
+      <div className="mt-3 overflow-hidden bg-[#0b1017]">
+        <div ref={containerRef} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
+      </div>
+      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-xs leading-5 text-slate-400">
+        <p>{scenario.markerNote}</p>
+        <p className="font-data tabular-nums" data-visible-candles={visibleBars.length}>
+          {visibleBars.length} bars shown · {scenario.bars.length} in session
+        </p>
       </div>
     </section>
   );
@@ -1228,7 +1229,7 @@ export function HeroDemo() {
       SCENARIOS.find((item) => item.id === "review")?.trades[0]?.id ??
       null,
   );
-  const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
+  const initialCursor = Math.max(0, Math.min(112, (SCENARIOS[0]?.bars.length ?? 1) - 1));
   const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scenarioRailRef = useRef<HTMLDivElement | null>(null);
@@ -1276,7 +1277,7 @@ export function HeroDemo() {
       return;
     }
 
-    const nextInitialCursor = Math.max(0, Math.min(78, scenario.bars.length - 1));
+    const nextInitialCursor = Math.max(0, Math.min(112, scenario.bars.length - 1));
 
     setCurrentBarIndex(nextInitialCursor);
 
@@ -1458,28 +1459,26 @@ export function HeroDemo() {
 
   return (
     <div
-      className="group/demo w-full max-w-full min-w-0 overflow-hidden rounded-[28px] border border-cyan-100/15 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]"
+      className="group/demo w-full max-w-full min-w-0 overflow-hidden rounded-xl bg-[#050a10] shadow-[0_32px_80px_rgba(0,0,0,0.35)]"
       ref={rootRef}
     >
-      <div className="relative overflow-hidden border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/80 to-transparent transition-[transform,opacity] duration-700 ease-out group-hover/demo:scale-x-110 group-hover/demo:opacity-100 motion-reduce:transition-none" />
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="border-b border-white/10 px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[clamp(1.35rem,5.8vw,1.9rem)] font-semibold leading-tight tracking-[-0.04em] text-white">
-              <CandlestickChart className="text-cyan-100" size={22} />
-              <span className="min-w-0 break-words">One trade. One continuous evidence trail.</span>
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-6 text-white sm:text-base">
+              <CandlestickChart className="shrink-0 text-cyan-100" size={18} />
+              <span className="hidden min-w-0 break-words sm:inline">One trade. One continuous evidence trail.</span>
+              <span className="sm:hidden">One connected workflow.</span>
             </div>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-              Move from chart to replay, attach the decision to your Journal, then review the exact market moment without rebuilding context.
-            </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1.5 text-xs font-medium text-amber-50">
+          <div className="inline-flex items-center gap-2 text-xs font-medium text-amber-100">
             <ShieldCheck size={14} />
-            Illustrative market data
+            <span className="hidden sm:inline">Illustrative market data</span>
+            <span className="sm:hidden">Illustrative data</span>
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-3 overflow-hidden rounded-xl border border-white/10 bg-[#070c12]" ref={scenarioRailRef} aria-label="Chart to review workflow">
+        <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Chart to review workflow">
           {SCENARIOS.map((item) => (
             <button
               data-scenario-pill="true"
@@ -1494,7 +1493,7 @@ export function HeroDemo() {
               type="button"
             >
               <span className="block text-[10px] tabular-nums text-slate-500">{item.id === "replay" ? "01 · Chart + replay" : item.id === "review" ? "02 · Journal" : "03 · Patterns"}</span>
-              <span className="mt-1 block">{item.label}</span>
+              <span className="mt-1 block"><span className="hidden sm:inline">{item.label}</span><span className="sm:hidden">{item.id === "review" ? "Journal" : item.label}</span></span>
               {item.id === selectedScenarioId ? <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 bg-cyan-200" /> : null}
             </button>
           ))}
@@ -1502,13 +1501,15 @@ export function HeroDemo() {
       </div>
 
       <div className="p-4 sm:p-5" ref={stageRef}>
-        <MetricsBar metrics={scenario.metrics} />
-
         {scenario.id === "replay" ? (
-          <div className="mt-4">
+          <div>
             <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
           </div>
         ) : null}
+
+        <div className={scenario.id === "replay" ? "mt-5 border-t border-white/10 pt-4" : ""}>
+          <MetricsBar compact metrics={scenario.metrics} />
+        </div>
 
         <div className="mt-4">
           {scenario.id === "replay" ? <MarketingReplaySurface scenario={scenario} /> : null}

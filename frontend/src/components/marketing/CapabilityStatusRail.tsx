@@ -1,6 +1,6 @@
 import { Check, Clock3 } from "lucide-react";
 
-type CapabilityStatus = "available" | "planned";
+type CapabilityStatus = "available" | "data-required" | "provider-required" | "planned";
 
 type Capability = {
   description: string;
@@ -21,28 +21,35 @@ const CAPABILITIES: Capability[] = [
   },
   {
     name: "Chart-integrated Journal",
-    description: "Review Journal trades and notes directly beside the chart that produced them.",
-    status: "planned",
+    description: "Open active-symbol trade history and the review queue beside the chart, with review notes attached to each trade.",
+    status: "available",
   },
   {
     name: "Footprint and TPO",
-    description: "Read bid/ask volume, imbalance, and auction structure from qualified market data.",
-    status: "planned",
+    description: "Read footprint and auction structure from qualified trade-level data. Candle-only feeds show an explicit unavailable state.",
+    status: "data-required",
   },
   {
     name: "Account comparison",
-    description: "Compare behavior and outcomes across trading accounts in one review view.",
-    status: "planned",
+    description: "Compare two account scopes; monetary results remain in each account’s own currency.",
+    status: "available",
   },
   {
     name: "Quant assistant",
-    description: "Explore chart-aware research and backtest workflows with explicit user control.",
+    description: "Explore chart-aware research and generated indicators with configured models, permissions, and consent for external requests.",
+    status: "provider-required",
+  },
+  {
+    name: "Native Pine scripts",
+    description: "Run Pine indicators and strategy tests directly from the chart editor.",
     status: "planned",
   },
 ];
 
 const STATUS_COPY: Record<CapabilityStatus, string> = {
   available: "Available now",
+  "data-required": "Qualified data required",
+  "provider-required": "Provider dependent",
   planned: "Planned",
 };
 
@@ -66,8 +73,8 @@ export function CapabilityStatusRail() {
             </h2>
           </div>
           <p className="max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8 lg:justify-self-end">
-            EdgeLab separates working product from roadmap. Available means it is in the current
-            build; planned means it is not being sold as live yet.
+            Working tools, provider requirements, and future work are labelled separately.
+            Check the data and access requirements before starting a session.
           </p>
         </div>
 
