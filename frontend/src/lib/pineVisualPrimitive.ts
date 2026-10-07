@@ -2,7 +2,7 @@ import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPri
 type CanvasRenderingTarget2D = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 import type { PineChartPlot } from "./pineChartAdapter";
 import type { PinePlot, PineScalar } from "./pineProtocol";
-import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
+import { getPackedPinePlot, pointAtBar } from "./pinePacked";
 
 const BLOCK = 128;
 const MAX_CACHED_SAMPLES = 8192;
@@ -10,6 +10,10 @@ const SIZES: Record<string, number> = { auto: 10, tiny: 6, small: 8, normal: 10,
 const sourceStarts = new WeakMap<PinePlot, WeakMap<object, number>>();
 type Sample = { value: number | boolean | null | number[]; options: Record<string, PineScalar> };
 type Bounds = { min: number; max: number };
+type MarkerBounds = { bounds: Bounds | null; above: number; below: number };
+type TextLayout = { lines: string[]; width: number; measured: boolean; maxAscent: number; maxDescent: number; glyphs: { ascent: number; descent: number }[] };
+type MarkerGeometry = { shape: string; size: number; offset: number; direction: number; shade: string; textColor: string; layout: TextLayout; lineHeight: number; textY: number; labelTop: number; labelHeight: number; min: number; max: number };
+let markerMetrics: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null | undefined;
 export function pineVisualColor(value: PineScalar | undefined, fallback = "#22d3ee"): string {
   if (value === null) return "rgba(0,0,0,0)";
   return typeof value === "string" && /^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(value) ? value : fallback;
@@ -161,8 +165,8 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private series?: ISeriesApi<SeriesType>;
   private requestUpdate?: () => void;
   private samples = new Map<PinePlot, Map<number, Sample | undefined>>();
-  private margins = new Map<PineChartPlot, number>();
-  private textLayouts = new Map<number, Map<string, { lines: string[]; width: number }>>();
+  private markerBlocks = new Map<PineChartPlot, Map<number, MarkerBounds>>();
+  private textLayouts = new Map<number, Map<string, TextLayout>>();
   private numericIndices = new Map<PinePlot, Uint16Array>();
   private blocks = new Map<PineChartPlot, Map<number, Bounds | null>>();
   private rangeKey = "";
@@ -190,7 +194,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   detached() {
     this.chart?.timeScale().unsubscribeVisibleTimeRangeChange(this.onRange);
     this.chart = undefined; this.series = undefined; this.requestUpdate = undefined;
-    this.samples.clear(); this.cacheSize = 0; this.blocks.clear(); this.numericIndices.clear(); this.margins.clear(); this.textLayouts.clear(); this.rangeKey = ""; this.rangeCache = null;
+    this.samples.clear(); this.cacheSize = 0; this.blocks.clear(); this.numericIndices.clear(); this.markerBlocks.clear(); this.textLayouts.clear(); this.rangeKey = ""; this.rangeCache = null;
     this.plots = []; this.scalePeers = []; this.from = 0; this.to = -1;
   }
   updateAllViews() { /* Coordinates are read at draw time so price zoom/resize cannot reuse stale geometry. */ }
@@ -258,7 +262,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       let bounds: Bounds | null = null;
       for (let index = lo; index <= hi; index++) {
         this.scans++;
-        bounds = extend(bounds, plot.kind === "markers" ? anchor(plot, index, pineVisualSample(plot, index)) : numeric(plot, index));
+        bounds = extend(bounds, numeric(plot, index));
       }
       return bounds;
     };
@@ -270,6 +274,37 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         bounds = cache.get(block)!;
       } else bounds = scan(index, end);
       if (bounds) { result = extend(result, bounds.min); result = extend(result, bounds.max); }
+      index = end + 1;
+    }
+    return result;
+  }
+  private markerBounds(plot: PineChartPlot, from: number, to: number): MarkerBounds {
+    let cache = this.markerBlocks.get(plot);
+    if (!cache) { cache = new Map(); this.markerBlocks.set(plot, cache); }
+    const result: MarkerBounds = { bounds: null, above: 0, below: 0 };
+    const scan = (lo: number, hi: number): MarkerBounds => {
+      const result: MarkerBounds = { bounds: null, above: 0, below: 0 };
+      for (let index = lo; index <= hi; index++) {
+        this.scans++;
+        const sample = this.sample(plot, index), value = anchor(plot, index, sample);
+        if (value === undefined) continue;
+        const geometry = this.markerGeometry(plot, sample!);
+        if (!geometry) continue;
+        result.bounds = extend(result.bounds, value);
+        result.above = Math.max(result.above, -geometry.min);
+        result.below = Math.max(result.below, geometry.max);
+      }
+      return result;
+    };
+    for (let index = from; index <= to;) {
+      const block = Math.floor(index / BLOCK), end = Math.min(to, (block + 1) * BLOCK - 1);
+      let found: MarkerBounds;
+      if (index % BLOCK === 0 && end === (block + 1) * BLOCK - 1) {
+        if (!cache.has(block)) cache.set(block, scan(index, end));
+        found = cache.get(block)!;
+      } else found = scan(index, end);
+      if (found.bounds) { result.bounds = extend(result.bounds, found.bounds.min); result.bounds = extend(result.bounds, found.bounds.max); }
+      result.above = Math.max(result.above, found.above); result.below = Math.max(result.below, found.below);
       index = end + 1;
     }
     return result;
@@ -288,11 +323,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   rangeForVisible(): AutoscaleInfo | null {
     const ranges = this.plots.map((plot) => this.visible(plot));
     const paneHeight = this.chart?.paneSize?.().height ?? Infinity;
-    const key = `${paneHeight}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
+    const inverted = this.series?.priceScale?.().options().invertScale === true;
+    const key = `${inverted}|${paneHeight}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
     if (key === this.rangeKey) return this.rangeCache;
     this.rangeKey = key;
     let bounds: Bounds | null = null;
-    let margin = 0;
+    let above = 0, below = 0;
     this.plots.forEach((plot, p) => {
       const level = plot.visual?.level;
       if (level) {
@@ -301,26 +337,13 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       }
       const [from, to] = ranges[p];
       if (to < from || plot.kind === "fill") return;
-      const found = this.bounds(plot, from, to);
+      const marker = plot.kind === "markers" ? this.markerBounds(plot, from, to) : undefined;
+      const found = marker ? marker.bounds : this.bounds(plot, from, to);
+      if (marker) { above = Math.max(above, marker.above); below = Math.max(below, marker.below); }
       if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
       if (plot.kind === "line" && !plot.pointsOnly && !["linebr", "steplinebr", "areabr"].includes(plot.visual!.style)) {
         bounds = extend(bounds, this.interpolated(plot, from, plot.visual!.source, plot.step));
         bounds = extend(bounds, this.interpolated(plot, to, plot.visual!.source, plot.step));
-      }
-      if (plot.kind === "markers") {
-        let maxMargin = this.margins.get(plot);
-        if (maxMargin === undefined) {
-        maxMargin = 0;
-        const source = plot.visual!.source;
-        const options = pinePlotOptionSets(source);
-        for (const fields of options) {
-          const size = SIZES[norm(fields.size ?? source.options.size, "size", "auto")] ?? 10;
-          const lines = String(fields.text ?? source.options.text ?? "").split("\n").length;
-          maxMargin = Math.max(maxMargin, size * 2 + 16 + lines * (size + 5));
-        }
-        this.margins.set(plot, maxMargin);
-        }
-        margin = Math.max(margin, maxMargin);
       }
     });
     // A fill-only pane needs price coordinates; only painted geometry is a deliberate fallback.
@@ -332,7 +355,9 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         if (polygon) for (const value of polygon.gradient ? paintedGradientValues(polygon.values, polygon.gradient) : polygon.values) bounds = extend(bounds, value);
       }
     });
-    this.rangeCache = bounds ? { priceRange: { minValue: (bounds as Bounds).min, maxValue: (bounds as Bounds).max }, margins: { above: Math.min(margin, paneHeight * .4), below: Math.min(margin, paneHeight * .4) } } : null;
+    const screenAbove = Math.min(above, paneHeight * .4), screenBelow = Math.min(below, paneHeight * .4);
+    // LWC's inverted-coordinate transform compensates its internal margin swap: these remain screen extents.
+    this.rangeCache = bounds ? { priceRange: { minValue: (bounds as Bounds).min, maxValue: (bounds as Bounds).max }, margins: { above: screenAbove, below: screenBelow } } : null;
     return this.rangeCache;
   }
   private fillPolygon(plot: PineChartPlot, index: number): { shade: string; gradient?: Gradient; values: [number, number, number, number] } | null {
@@ -447,53 +472,82 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       ctx.restore();
     });
   }
-  private shape(ctx: CanvasRenderingContext2D, plot: PineChartPlot, sample: Sample, x: number, anchorY: number, paneHeight: number) {
+  /** Shared vertical geometry keeps drawing and directional autoscale margins in agreement. */
+  private markerGeometry(plot: PineChartPlot, sample: Sample, ctx?: CanvasRenderingContext2D): MarkerGeometry | null {
     const source = plot.visual!.source;
     const shape = norm(option(source, sample, "shape"), "shape", "circle").replace(/_/g, "");
     const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
     const location = norm(option(source, sample, "location"), "location", "abovebar");
-    const y = anchorY + (location === "abovebar" ? -size - 4 : location === "belowbar" ? size + 4 : 0);
+    const offset = location === "abovebar" ? -size - 4 : location === "belowbar" ? size + 4 : 0;
     const shade = pineVisualColor(option(source, sample, "color"), plot.color);
-    const text = option(source, sample, "text");
-    ctx.font = `${size + 3}px sans-serif`;
+    const textColor = pineVisualColor(option(source, sample, "textcolor"), shade);
+    const rawText = option(source, sample, "text");
+    const text = typeof rawText === "string" ? rawText : "";
     let layouts = this.textLayouts.get(size);
     if (!layouts) { layouts = new Map(); this.textLayouts.set(size, layouts); }
-    const rawText = typeof text === "string" ? text : "";
-    let layout = layouts.get(rawText);
+    let layout = layouts.get(text);
+    if (layout && !layout.measured && ctx) {
+      // A headless/no-canvas first range query must not retain estimated glyph bounds after drawing.
+      layout = undefined; this.markerBlocks.clear(); this.rangeKey = "";
+    }
     if (!layout) {
-      const lines = typeof text === "string" ? text.split("\n") : [];
-      let width = size; for (const line of lines) width = Math.max(width, ctx.measureText(line).width + 8);
-      layout = { lines, width }; layouts.set(rawText, layout);
+      if (markerMetrics === undefined) markerMetrics = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1).getContext("2d") : typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
+      const metrics = markerMetrics ?? ctx;
+      if (metrics) { metrics.font = `${size + 3}px sans-serif`; metrics.textBaseline = "middle"; }
+      const lines = text ? text.split("\n") : [];
+      let width = size;
+      const glyphs = lines.map((line) => {
+        const measured = metrics?.measureText(line);
+        width = Math.max(width, (measured?.width ?? line.length * (size + 3) * .6) + 8);
+        return { ascent: measured?.actualBoundingBoxAscent ?? (size + 3) / 2, descent: measured?.actualBoundingBoxDescent ?? (size + 3) / 2 };
+      });
+      layout = { lines, width, glyphs, maxAscent: Math.max(0, ...glyphs.map((glyph) => glyph.ascent)), maxDescent: Math.max(0, ...glyphs.map((glyph) => glyph.descent)), measured: !!metrics || !lines.some((line) => line.trim()) }; layouts.set(text, layout);
     }
-    const lines = layout.lines;
+    const direction = ["triangledown", "arrowdown", "labeldown"].includes(shape) ? -1 : 1;
     const lineHeight = size + 5;
-    const paintLines = (firstY: number) => {
-      const from = Math.max(0, Math.ceil((-lineHeight / 2 - firstY) / lineHeight));
-      const to = Math.min(lines.length - 1, Math.floor((paneHeight + lineHeight / 2 - firstY) / lineHeight));
-      for (let index = from; index <= to; index++) ctx.fillText(lines[index], x, firstY + index * lineHeight);
-    };
-    const textColor = pineVisualColor(option(source, sample, "textcolor"), shade);
-    ctx.fillStyle = shade; ctx.strokeStyle = shade; ctx.lineWidth = 1;
-    const down = ["triangledown", "arrowdown", "labeldown"].includes(shape);
-    const direction = down ? -1 : 1;
-    if (shape === "circle") { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
-    else if (shape === "square") ctx.fillRect(x - size / 2, y - size / 2, size, size);
-    else if (shape.startsWith("label")) {
-      ctx.font = `${size + 3}px sans-serif`;
-      const width = layout.width, height = Math.max(size + 8, lines.length * lineHeight + 6);
-      const top = direction > 0 ? y + 4 : y - height - 4;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + direction * 4); ctx.lineTo(x + 4, y + direction * 4); ctx.closePath(); ctx.fill();
-      ctx.fillRect(x - width / 2, top, width, height);
-      if (lines.length) { ctx.fillStyle = textColor; ctx.textAlign = "center"; ctx.textBaseline = "middle"; paintLines(top + 3 + lineHeight / 2); }
-      return;
-    } else {
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - size / 2, y + direction * size); ctx.lineTo(x + size / 2, y + direction * size); ctx.closePath(); ctx.fill();
-      if (shape.startsWith("arrow")) ctx.fillRect(x - size / 6, down ? y - size * 1.6 : y + size, size / 3, size * .6);
+    const labelHeight = Math.max(size + 8, layout.lines.length * lineHeight + 6);
+    const labelTop = direction > 0 ? offset + 4 : offset - labelHeight - 4;
+    const textY = shape.startsWith("label") ? labelTop + 3 + lineHeight / 2 : location === "belowbar" ? offset + size + 6 : offset - size - 6 - (layout.lines.length - 1) * lineHeight;
+    let min = Infinity, max = -Infinity;
+    if (painted(shade)) {
+      if (shape === "circle" || shape === "square") { min = offset - size / 2; max = offset + size / 2; }
+      else if (shape.startsWith("label")) { min = Math.min(offset, labelTop); max = Math.max(offset, labelTop + labelHeight); }
+      else { const end = offset + direction * size * (shape.startsWith("arrow") ? 1.6 : 1); min = Math.min(offset, end); max = Math.max(offset, end); }
     }
-    if (lines.length) {
-      ctx.font = `${size + 3}px sans-serif`; ctx.fillStyle = textColor; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const top = location === "belowbar" ? y + size + 6 : y - size - 6 - (lines.length - 1) * lineHeight;
-      paintLines(top);
+    if (painted(textColor)) layout.lines.forEach((line, index) => {
+      if (!line.trim()) return;
+      const y = textY + index * lineHeight, glyph = layout!.glyphs[index];
+      min = Math.min(min, y - glyph.ascent); max = Math.max(max, y + glyph.descent);
+    });
+    return min === Infinity ? null : { shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight, min, max };
+  }
+  private shape(ctx: CanvasRenderingContext2D, plot: PineChartPlot, sample: Sample, x: number, anchorY: number, paneHeight: number) {
+    const geometry = this.markerGeometry(plot, sample, ctx);
+    if (!geometry) return;
+    const { shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight } = geometry;
+    const y = anchorY + offset;
+    ctx.font = `${size + 3}px sans-serif`;
+    ctx.fillStyle = shade; ctx.strokeStyle = shade; ctx.lineWidth = 1;
+    if (painted(shade)) {
+      if (shape === "circle") { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
+      else if (shape === "square") ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      else if (shape.startsWith("label")) {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + direction * 4); ctx.lineTo(x + 4, y + direction * 4); ctx.closePath(); ctx.fill();
+        ctx.fillRect(x - layout.width / 2, anchorY + labelTop, layout.width, labelHeight);
+      } else {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - size / 2, y + direction * size); ctx.lineTo(x + size / 2, y + direction * size); ctx.closePath(); ctx.fill();
+        if (shape.startsWith("arrow")) ctx.fillRect(x - size / 6, direction < 0 ? y - size * 1.6 : y + size, size / 3, size * .6);
+      }
+    }
+    if (painted(textColor)) {
+      ctx.fillStyle = textColor; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const firstY = anchorY + textY;
+      const from = Math.max(0, Math.ceil((-layout.maxDescent - firstY) / lineHeight));
+      const to = Math.min(layout.lines.length - 1, Math.floor((paneHeight + layout.maxAscent - firstY) / lineHeight));
+      for (let index = from; index <= to; index++) {
+        const y = firstY + index * lineHeight, glyph = layout.glyphs[index];
+        if (layout.lines[index].trim() && y + glyph.descent >= 0 && y - glyph.ascent <= paneHeight) ctx.fillText(layout.lines[index], x, y);
+      }
     }
   }
 }

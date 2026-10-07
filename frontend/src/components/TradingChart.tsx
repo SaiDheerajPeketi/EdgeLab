@@ -177,6 +177,8 @@ import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
 import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, type PineChartPlot } from "../lib/pineChartAdapter";
+import { PineChartNotices } from "./PineChartNotices";
+import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
@@ -547,7 +549,7 @@ export function TradingChart({
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
   const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
-  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, { assumptions: string[]; warnings: string[] }>>({});
+  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, Omit<PineChartNoticeStudy, "id" | "name">>>({});
   const [pineStrategyMarkers, setPineStrategyMarkers] = useState<Record<string, SeriesMarker<UTCTimestamp>[]>>({});
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -746,6 +748,10 @@ export function TradingChart({
     customRuntimeStudies.forEach((study) => groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study]));
     return [...groups.values()];
   }, [customRuntimeStudies]);
+  const customNoticeStudies = useMemo(() => Object.entries(customRuntimeWarnings).flatMap(([id, result]) => {
+    const indicator = indicatorInstances.find((item) => item.id === id && item.visible !== false);
+    return indicator ? [{ ...result, id, name: indicator.customScriptName ?? "Pine script" }] : [];
+  }), [customRuntimeWarnings, indicatorInstances]);
   const fvgZoneDefinitions = useMemo(
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
@@ -820,12 +826,9 @@ export function TradingChart({
           ...studies,
         ]);
         if (adapted) {
-          const assumptions = nativeResult!.diagnostics
-            .filter((diagnostic) => ["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"].includes(diagnostic.code))
-            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`);
           setCustomRuntimeWarnings((current) => ({ ...current, [indicator.id]: {
-            assumptions,
-            warnings: adapted.warnings.filter((warning) => !assumptions.includes(warning)),
+            diagnostics: nativeResult!.diagnostics,
+            adapterWarnings: adapted.adapterWarnings,
           } }));
           setPineStrategyMarkers((current) => ({ ...current, [indicator.id]: adapted.strategyMarkers }));
         }
@@ -3247,16 +3250,7 @@ export function TradingChart({
         </div>
       </div>
 
-      {Object.entries(customRuntimeWarnings).filter(([, result]) => result.warnings.length || result.assumptions.length).map(([id, { assumptions, warnings }]) => {
-        return <div className="border-t border-amber-300/15 bg-amber-300/5 px-4 py-2 text-xs leading-5 text-amber-100" key={id} role="status">
-          <strong>{indicatorInstances.find((indicator) => indicator.id === id)?.customScriptName ?? "Pine script"}:</strong>{" "}
-          {warnings.join(" · ")}
-          {assumptions.length > 0 && <details>
-            <summary className="min-h-6 cursor-pointer rounded py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200 max-md:min-h-11">Closed historical snapshot · {assumptions.length} assumptions</summary>
-            <p className="pb-1">{assumptions.join(" · ")}</p>
-          </details>}
-        </div>;
-      })}
+      <PineChartNotices studies={customNoticeStudies} />
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""

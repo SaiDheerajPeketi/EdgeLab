@@ -11,7 +11,7 @@ export type PineChartPlot = {
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
   visual?: { level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
-export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
+export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
 function color(value: PineScalar | undefined, fallback = FALLBACK_COLOR) {
   if (value === null) return "rgba(0,0,0,0)";
@@ -48,7 +48,8 @@ export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp;
 
 /** Preserve native output semantics. Unsupported output is omitted with a visible reason. */
 export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]): PineChartResult {
-  const warnings = result.diagnostics.map((item) => `${item.code}: ${item.message}`);
+  const diagnosticWarnings = result.diagnostics.map((item) => `${item.code}: ${item.message}`);
+  const warnings: string[] = [];
   const barsByTime = new Map(bars.map((bar) => [bar.time, bar]));
   const sources = new Map(result.plots.map((plot) => [plot.id, plot]));
   const hasOffset = (source: PinePlot) => number(source.options.offset, 0) !== 0 || pinePlotOptionSets(source).some((options) => number(options.offset, 0) !== 0);
@@ -183,7 +184,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       strategyMarkers.push({ time: time as UTCTimestamp, position: buy ? "belowBar" : "aboveBar", color: buy ? "#22c55e" : "#fb7185", shape: buy ? "arrowUp" : "arrowDown", text: `Pine ${leg} ${String(trade.entry_id ?? trade.id)}` });
     }
   }
-  return { plots, warnings: [...new Set(warnings)], strategyMarkers: strategyMarkers.sort((left, right) => Number(left.time) - Number(right.time)) };
+  return { plots, warnings: [...new Set([...diagnosticWarnings, ...warnings])], adapterWarnings: [...new Set(warnings)], strategyMarkers: strategyMarkers.sort((left, right) => Number(left.time) - Number(right.time)) };
 }
 
 function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, priceScaleId = "right"): ISeriesApi<SeriesType>[] {
