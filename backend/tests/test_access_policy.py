@@ -6,12 +6,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app import auth
 from app.api import routes
 from app.db import Base
-from app.models import BetaSession, BetaUser, BillingCustomer, BillingSubscription, utcnow
+from app.models import AppStorageItem, BetaSession, BetaUser, BillingCustomer, BillingSubscription, utcnow
 from app.schemas import GoogleAuthExchangeRequest
 from app.services import access_policy, billing
 from test_billing import FakeProvider, config, customer, db, subscription
@@ -126,9 +127,9 @@ def test_production_sandbox_payment_never_grants_access(db, monkeypatch):
     assert access_policy.access_snapshot(db, 1, mode())["workspace_access"] is False
 
 
-def google(monkeypatch, db, subject="google_one", email="one@example.com", verified=True):
+def google(monkeypatch, db, subject="google_one", email="one@example.com", verified=True, hd=None):
     monkeypatch.setattr(routes, "fetch_google_token_payload", lambda *_: {"access_token": "networkfixture"})
-    monkeypatch.setattr(routes, "fetch_google_userinfo", lambda _: {"sub": subject, "email": email, "email_verified": verified, "name": "Google One"})
+    monkeypatch.setattr(routes, "fetch_google_userinfo", lambda _: {"sub": subject, "email": email, "email_verified": verified, "name": "Google One", "hd": hd})
     return routes.exchange_google_auth_code(GoogleAuthExchangeRequest(code="code", redirect_uri="https://example.com/callback"), db)
 
 
@@ -145,10 +146,13 @@ def test_google_subject_legacy_binding_no_foreign_email_merge(db, monkeypatch):
     use_settings(monkeypatch, mode())
     with pytest.raises(HTTPException) as error:
         google(monkeypatch, db)
-    assert error.value.status_code == 409  # existing email provider cannot be taken over
+    assert error.value.status_code == 409  # Third-party verified email alone cannot claim a legacy row.
     db.get(BetaUser, 1).provider = "google"
     db.commit()
-    response = google(monkeypatch, db)
+    with pytest.raises(HTTPException) as error:
+        google(monkeypatch, db)
+    assert error.value.status_code == 409
+    response = google(monkeypatch, db, hd="example.com")
     assert response.session.user.id == 1 and response.session.user.workspace_access is False
     assert db.get(BetaUser, 1).google_subject == "google_one"
     with pytest.raises(HTTPException):
@@ -289,7 +293,7 @@ def test_legacy_google_looking_manual_token_is_revoked_when_verified_owner_binds
     with pytest.raises(HTTPException) as error:
         auth.authenticate_token(db, old.token)
     assert error.value.status_code == 401
-    verified = google(monkeypatch, db)
+    verified = google(monkeypatch, db, hd="example.com")
     assert verified.session.user.id == user.id
     assert db.get(BetaSession, old_id) is None
     assert auth.authenticate_token(db, verified.session.token).id == user.id
@@ -309,3 +313,133 @@ def test_manual_beta_identity_cannot_manage_live_billing_or_paid_export(db, monk
         with pytest.raises(HTTPException) as error:
             guard(identity, db)
         assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("provider", ["email", "google"])
+@pytest.mark.parametrize("deployment", ["production", "beta"])
+@pytest.mark.parametrize("email,hd", [("owned@gmail.com", None), ("owned@alias.example", "primary.example")])
+def test_authoritative_google_recovers_legacy_owner_data_and_revokes_all_sessions(db, monkeypatch, provider, deployment, email, hd):
+    use_settings(monkeypatch, mode("beta"))
+    user = db.get(BetaUser, 1)
+    user.provider, user.email = provider, email
+    history = AppStorageItem(user_id=1, namespace="workspace", key="journal", value={"review": ["keep", 42]})
+    db.add(history)
+    first, second = routes.issue_beta_session(db, user), routes.issue_beta_session(db, user)
+    other = routes.issue_beta_session(db, db.get(BetaUser, 2))
+    db.commit()
+    old_ids = [auth._decode_jwt(token)["session_id"] for token in [first.token, second.token]]
+    other_id = auth._decode_jwt(other.token)["session_id"]
+    before = (user.id, user.status, user.beta_position, user.created_at, history.id, history.value)
+    use_settings(monkeypatch, mode(deployment))
+    response = google(monkeypatch, db, email=email.upper(), hd=hd)
+    assert response.session.user.id == 1 and response.session.user.provider == "google"
+    assert user.google_subject == "google_one" and user.email == email
+    assert (user.id, user.status, user.beta_position, user.created_at, history.id, history.value) == before
+    assert db.scalars(select(BetaSession).where(BetaSession.id.in_(old_ids))).all() == []
+    assert db.scalar(select(BetaSession).where(BetaSession.id == other_id)) is not None
+    assert auth.authenticate_token(db, response.session.token).id == 1
+    for old in [first.token, second.token]:
+        with pytest.raises(HTTPException) as error:
+            auth.authenticate_token(db, old)
+        assert error.value.status_code == 401
+    assert response.session.user.workspace_access is (deployment == "beta")
+    assert response.session.user.plan == ("beta" if deployment == "beta" else "none")
+    assert len(db.scalars(select(BetaUser)).all()) == 2
+
+
+@pytest.mark.parametrize("provider", ["email", "google"])
+@pytest.mark.parametrize("hd", [None, "", False, ["example.com"], {"domain": "example.com"}, " example.com", "example.com ", "example..com", "https://example.com", "example.com:443", "-example.com", "example-.com", "localhost", "a"*64+".com", "a."*127+"com", "example.com\n", "K.com", "İ.com", "ı.com", "ſ.com"])
+def test_unbound_recovery_requires_current_google_mailbox_authority_without_changing_owner(db, monkeypatch, provider, hd):
+    use_settings(monkeypatch, mode("beta"))
+    user = db.get(BetaUser, 1)
+    user.provider = provider
+    old = routes.issue_beta_session(db, user)
+    db.commit()
+    before = (user.provider, user.google_subject, user.name, user.status, user.beta_position)
+    with pytest.raises(HTTPException) as error:
+        google(monkeypatch, db, hd=hd)
+    assert error.value.status_code == 409 and "mailbox ownership verification" in error.value.detail
+    assert (user.provider, user.google_subject, user.name, user.status, user.beta_position) == before
+    assert auth.authenticate_token(db, old.token).id == 1
+
+
+@pytest.mark.parametrize("provider,binding", [("unknown", None), ("email", "other_subject"), ("google", "other_subject"), ("email", "")])
+def test_recovery_never_replaces_unknown_provider_or_existing_binding(db, monkeypatch, provider, binding):
+    use_settings(monkeypatch, mode())
+    user = db.get(BetaUser, 1)
+    user.provider, user.google_subject = provider, binding
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        google(monkeypatch, db, hd="example.com")
+    assert error.value.status_code == 409
+    assert (user.provider, user.google_subject) == (provider, binding)
+
+
+def test_new_and_bound_third_party_google_subjects_do_not_require_recovery_authority(db, monkeypatch):
+    use_settings(monkeypatch, mode())
+    created = google(monkeypatch, db, subject="new_third_party", email="new@example.net")
+    returned = google(monkeypatch, db, subject="new_third_party", email="renamed@example.net")
+    assert created.session.user.id == returned.session.user.id
+    assert returned.session.user.email == "renamed@example.net"
+    assert returned.session.user.workspace_access is False
+    assert db.get(BetaUser, returned.session.user.id).google_subject == "new_third_party"
+
+
+@pytest.mark.parametrize("email", ["one+alias@gmail.com", "o.ne@gmail.com", "one@googlemail.com"])
+def test_recovery_never_merges_gmail_aliases(db, monkeypatch, email):
+    use_settings(monkeypatch, mode())
+    original = db.get(BetaUser, 1)
+    original.email = "one@gmail.com"
+    db.commit()
+    response = google(monkeypatch, db, subject="distinct_subject", email=email)
+    assert response.session.user.id != original.id
+    assert original.provider == "email" and original.google_subject is None
+    assert original.email == "one@gmail.com"
+
+
+def test_first_binding_session_creation_failure_rolls_back_identity_and_revocation(db, monkeypatch):
+    use_settings(monkeypatch, mode("beta"))
+    user = db.get(BetaUser, 1)
+    old = routes.issue_beta_session(db, user)
+    db.commit()
+    before = (user.provider, user.google_subject, user.name, user.status, user.beta_position)
+    def fail_issue(*_):
+        raise OperationalError("session insert", {}, Exception("database unavailable"))
+    monkeypatch.setattr(routes, "issue_beta_session", fail_issue)
+    with pytest.raises(HTTPException) as error:
+        google(monkeypatch, db, hd="example.com")
+    assert error.value.status_code == 500
+    assert (user.provider, user.google_subject, user.name, user.status, user.beta_position) == before
+    assert auth.authenticate_token(db, old.token).id == 1
+
+
+def test_concurrent_recovery_cannot_bind_one_legacy_row_to_two_google_subjects(tmp_path, monkeypatch):
+    use_settings(monkeypatch, mode())
+    engine = create_engine(f"sqlite:///{tmp_path / 'recovery.sqlite'}", connect_args={"check_same_thread": False, "timeout": 10})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as seed:
+        seed.add(BetaUser(id=74, email="legacy@gmail.com", provider="email", status="APPROVED", beta_position=42))
+        seed.commit()
+    monkeypatch.setattr(routes, "fetch_google_token_payload", lambda code, _: {"access_token": code})
+    monkeypatch.setattr(routes, "fetch_google_userinfo", lambda token: {"sub": token, "email": "legacy@gmail.com", "email_verified": True, "name": "Recovered"})
+    barrier = Barrier(2)
+    def recover(subject):
+        with factory() as session:
+            barrier.wait(timeout=5)
+            try:
+                response = routes.exchange_google_auth_code(GoogleAuthExchangeRequest(code=subject, redirect_uri="https://example.com/callback"), session)
+                return 200, response.session.user.id
+            except HTTPException as error:
+                session.rollback()
+                return error.status_code, None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(recover, ["subject_one", "subject_two"]))
+    assert sorted(code for code, _ in results) == [200, 409]
+    with factory() as check:
+        user = check.get(BetaUser, 74)
+        assert user.provider == "google" and user.google_subject in {"subject_one", "subject_two"}
+        assert user.status == "APPROVED" and user.beta_position == 42
+        assert len(check.scalars(select(BetaUser)).all()) == 1
+        assert len(check.scalars(select(BetaSession)).all()) == 1
+    engine.dispose()

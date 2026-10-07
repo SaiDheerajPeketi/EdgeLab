@@ -154,7 +154,7 @@ def test_subject_binding_preserves_legacy_id_data_and_email_change(public):
     with c.factory() as db:
         db.get(models.BetaUser, c.owners[0]).google_subject = None
         db.commit()
-    first = exchange(c, email="billing-0@example.test", sub="bound-original")
+    first = exchange(c, email="billing-0@example.test", sub="bound-original", hd="example.test")
     assert first.status_code == 200 and first.json()["session"]["user"]["id"] == c.owners[0]
     second = exchange(c, email="renamed-google@example.test", sub="bound-original")
     assert second.status_code == 200 and second.json()["session"]["user"]["id"] == c.owners[0]
@@ -637,7 +637,7 @@ def test_provider_failure_does_not_rollback_verified_legacy_google_identity(publ
         db.scalar(select(models.BillingCustomer).where(models.BillingCustomer.user_id == c.owners[0])).verified_at = models.utcnow() - timedelta(seconds=301)
         db.commit()
     c.provider.failure = billing.BillingError(503, "Provider unavailable")
-    result = exchange(c, email="billing-0@example.test", sub="legacy-stable-sub")
+    result = exchange(c, email="billing-0@example.test", sub="legacy-stable-sub", hd="example.test")
     assert result.status_code == 200
     assert result.json()["session"]["user"]["id"] == c.owners[0]
     assert_access(result.json()["session"]["user"])
@@ -662,7 +662,7 @@ def test_first_verified_legacy_binding_revokes_every_old_session_before_paid_acc
         assert c.client.get("/api/auth/session", headers=headers).status_code == 401
         assert c.client.get("/api/billing/status", headers=headers).status_code == 401
         assert c.client.get("/api/app-data/export", headers=headers).status_code == 401
-    verified = exchange(c, email="billing-0@example.test", sub="now-verified-subject")
+    verified = exchange(c, email="billing-0@example.test", sub="now-verified-subject", hd="example.test")
     assert verified.status_code == 200
     fresh = {"Authorization": "Bearer " + verified.json()["session"]["token"]}
     assert c.client.get("/api/app-storage/preferences/workspace", headers=fresh).status_code == 200

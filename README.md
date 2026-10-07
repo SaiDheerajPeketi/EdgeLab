@@ -24,6 +24,8 @@ Stripe billing provides server-created subscription Checkout and Customer Portal
 
 Production mode accepts verified Google accounts and requires a current live paid subscription for workspace APIs and streams. Data exports require that subscription in both production and beta mode. `/pricing` shows the validated server catalog, monthly/yearly choice and hosted Stripe checkout; success returns check provider status rather than grant access. `/account` remains available for billing management and sign-out without workspace access. Set both `EDGELAB_DEPLOYMENT_MODE` and `VITE_DEPLOYMENT_MODE` to `beta` for the optional capped beta workspace; the local Compose file selects beta explicitly. Live checkout remains unavailable until merchant credentials and matching provider prices are configured.
 
+Legacy beta accounts without a Google identity can verify their exact email through Gmail or Google Workspace and retain their history; first verification revokes older sessions. Existing accounts using third-party email without Google ownership authority require separate mailbox recovery. Verification alone does not grant a paid subscription.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

@@ -841,6 +841,21 @@ def valid_google_subject(value) -> bool:
     return isinstance(value, str) and 1 <= len(value) <= 255 and re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
 
 
+def google_authoritative_for_email(userinfo: dict[str, object], email: str) -> bool:
+    # Verified third-party email can outlive mailbox ownership. Only Google's
+    # own Gmail/hosted-domain authority is sufficient to claim a legacy row.
+    if userinfo.get("email_verified") is not True:
+        return False
+    if email.endswith("@gmail.com"):
+        return True
+    hosted_domain = userinfo.get("hd")
+    return isinstance(hosted_domain, str) and re.fullmatch(
+        r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+        hosted_domain,
+        re.IGNORECASE | re.ASCII,
+    ) is not None
+
+
 def fetch_google_userinfo(access_token: str) -> dict[str, object]:
     request = UrlRequest(
         "https://openidconnect.googleapis.com/v1/userinfo",
@@ -1353,13 +1368,15 @@ def exchange_google_auth_code(
                 raise HTTPException(status_code=409, detail="Google account email conflicts with an existing account")
             user.email, user.name = email, name
         elif by_email is not None:
-            if by_email.provider != "google" or by_email.google_subject is not None:
+            if by_email.provider not in {"email", "google"} or by_email.google_subject is not None:
                 raise HTTPException(status_code=409, detail="Use the account's existing sign-in provider")
+            if not google_authoritative_for_email(userinfo, email):
+                raise HTTPException(status_code=409, detail="This existing account requires current mailbox ownership verification before Google recovery.")
             user = by_email
-            # Pre-47 manual enrollment accepted a caller-supplied Google label;
-            # those prior sessions do not prove control of the verified account.
+            # Manual enrollment and pre-47 caller-supplied Google labels did not
+            # prove ownership. Revoke every prior session before binding it.
             db.query(BetaSession).filter(BetaSession.user_id == user.id).delete(synchronize_session=False)
-            user.google_subject, user.name = subject, name
+            user.provider, user.google_subject, user.name = "google", subject, name
         else:
             user = BetaUser(email=email, name=name, provider="google", google_subject=subject, status="WAITLISTED" if mode == "beta" else "PUBLIC")
             db.add(user)
