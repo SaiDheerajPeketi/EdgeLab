@@ -531,7 +531,7 @@ export function WorkspaceApp() {
   );
   const [workspaceRecoveryMessage, setWorkspaceRecoveryMessage] = useState<string | null>(null);
   const [chartPersistenceHydrated, setChartPersistenceHydrated] = useState(false);
-  const [chartSyncSettings, setChartSyncSettings] = useState<ChartSyncSettings>(() =>
+  const [chartSyncSettings, setChartSyncSettingsState] = useState<ChartSyncSettings>(() =>
     sanitizeChartSyncSettings(loadChartLayout()?.syncSettings),
   );
   const [syncedCrosshair, setSyncedCrosshair] = useState<SyncedChartCrosshair | null>(null);
@@ -546,7 +546,7 @@ export function WorkspaceApp() {
   const [chartPanes, setChartPanes] = useState<ChartPaneState[]>(() =>
     loadInitialChartPanes(),
   );
-  const [activeChartPaneId, setActiveChartPaneId] = useState(() => "chart-pane-1");
+  const [activeChartPaneId, setActiveChartPaneIdState] = useState(() => "chart-pane-1");
   const activeChartPaneIndex = Math.max(
     0,
     chartPanes.findIndex((pane) => pane.id === activeChartPaneId),
@@ -554,6 +554,21 @@ export function WorkspaceApp() {
   const activeChartPane = chartPanes[activeChartPaneIndex] ?? chartPanes[0] ?? createDefaultChartPane(0);
   const activeChartPaneCount = chartPaneLayoutById(chartPaneLayout).panes;
   const visibleChartPanes = chartPanes.slice(0, activeChartPaneCount);
+  const chartSettingsHydrationSessionId = state?.session.id ?? null;
+  const chartSettingsHydrationScope = JSON.stringify([
+    activeChartPane.id, chartPaneLayout,
+    chartSyncSettings.style, visibleChartPanes.map((pane) => pane.id),
+  ]);
+  const chartSettingsHydrationRef = useRef({ revision: 0, scope: chartSettingsHydrationScope, sessionId: chartSettingsHydrationSessionId });
+  const chartSettingsPresetSessionRef = useRef(chartSettingsHydrationSessionId);
+  if (chartSettingsHydrationRef.current.scope !== chartSettingsHydrationScope ||
+      (chartSettingsHydrationRef.current.sessionId !== null && chartSettingsHydrationRef.current.sessionId !== chartSettingsHydrationSessionId)) {
+    chartSettingsHydrationRef.current = {
+      revision: chartSettingsHydrationRef.current.revision + 1,
+      scope: chartSettingsHydrationScope,
+      sessionId: chartSettingsHydrationSessionId,
+    };
+  } else chartSettingsHydrationRef.current.sessionId = chartSettingsHydrationSessionId;
   const replayPaneMarketData = usePaneMarketData(
     visibleChartPanes
       .filter((pane) => !chartSymbolsEqual(pane.symbol, state?.session.symbol))
@@ -643,6 +658,25 @@ export function WorkspaceApp() {
     Math.round(speedMs / Math.max(replayStepBars, 1)),
   );
 
+  function captureChartSettingsHydration() {
+    const revision = chartSettingsHydrationRef.current.revision;
+    const access = captureAppDataAccess();
+    return () => {
+      try { assertAppDataAccess(access); } catch { return false; }
+      return revision === chartSettingsHydrationRef.current.revision;
+    };
+  }
+
+  function setActiveChartPaneId(paneId: string) {
+    chartSettingsHydrationRef.current.revision += 1;
+    setActiveChartPaneIdState(paneId);
+  }
+
+  function setChartSyncSettings(action: SetStateAction<ChartSyncSettings>) {
+    chartSettingsHydrationRef.current.revision += 1;
+    setChartSyncSettingsState(action);
+  }
+
   function updateChartPane(
     paneId: string,
     updater: (pane: ChartPaneState) => ChartPaneState,
@@ -688,13 +722,20 @@ export function WorkspaceApp() {
 
   function applyChartSettingsToCurrentScope(
     action: SetStateAction<ChartVisualSettings>,
+    scope = {
+      paneId: activeChartPane.id,
+      settings: activeChartPane.chartSettings,
+      synchronizeStyle: chartSyncSettings.style,
+      visiblePaneIds: visibleChartPanes.map((pane) => pane.id),
+    },
   ) {
+    chartSettingsHydrationRef.current.revision += 1;
     const resolveSettings = (previous: ChartVisualSettings) =>
       sanitizeChartVisualSettings(resolveStateAction(action, previous));
-    const next = resolveSettings(activeChartPane.chartSettings);
-    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    const next = resolveSettings(scope.settings);
+    const visibleIds = new Set(scope.visiblePaneIds);
     setChartPanes((current) => current.map((pane) =>
-      pane.id === activeChartPane.id || (chartSyncSettings.style && visibleIds.has(pane.id))
+      pane.id === scope.paneId || (scope.synchronizeStyle && visibleIds.has(pane.id))
         ? { ...pane, chartSettings: next }
         : pane,
     ));
@@ -977,22 +1018,24 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     let active = true;
+    const canApplyHydration = captureChartSettingsHydration();
     void hydrateChartPersistence().then(async () => {
       if (!active) {
         return;
       }
+      const applyHydratedState = canApplyHydration();
       const saved = loadChartLayout();
-      if (saved) {
-        applyChartLayout(saved, { restorePanels: false });
-      }
+      const restoredScope = applyHydratedState && saved
+        ? applyChartLayout(saved, { restorePanels: false })
+        : undefined;
       const hydratedRecords = loadChartLayoutRecords();
-      setLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? loadActiveLayoutName());
+      if (applyHydratedState) setLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? loadActiveLayoutName());
       setAvailableLayouts(hydratedRecords.map((record) => record.name));
       setDefaultLayoutName(hydratedRecords.find((record) => record.isDefault)?.name ?? null);
       setStartupLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? null);
       const activeSettingsPreset = loadActiveChartSettingsPreset();
-      if (activeSettingsPreset) {
-        applyChartSettingsToCurrentScope(activeSettingsPreset.settings);
+      if (applyHydratedState && activeSettingsPreset) {
+        applyChartSettingsToCurrentScope(activeSettingsPreset.settings, restoredScope);
       }
       setChartPersistenceHydrated(true);
 
@@ -1107,9 +1150,17 @@ export function WorkspaceApp() {
   }, [state?.session.id, state?.session.symbol, sourceTimeframe]);
 
   useEffect(() => {
+    const sessionId = state?.session.id ?? null;
+    if (sessionId === null) return;
+    const previousSessionId = chartSettingsPresetSessionRef.current;
+    chartSettingsPresetSessionRef.current = sessionId;
+    // Initial persistence already loads the preset. Reapplying it when startup
+    // finishes would undo an edit that invalidated that initial response.
+    if (!chartPersistenceHydrated || previousSessionId === null || previousSessionId === sessionId) return;
     let active = true;
+    const canApplyHydration = captureChartSettingsHydration();
     void hydrateChartSettingsPresets().then((presets) => {
-      if (!active) {
+      if (!active || !canApplyHydration()) {
         return;
       }
       const activeName = loadActiveChartSettingsPresetName(presets);
@@ -1123,7 +1174,7 @@ export function WorkspaceApp() {
     return () => {
       active = false;
     };
-  }, [state?.session.id]);
+  }, [state?.session.id, chartPersistenceHydrated]);
 
   useEffect(() => {
     if (timeframe !== effectiveTimeframe) {
@@ -1903,6 +1954,7 @@ export function WorkspaceApp() {
   }
 
   function changeChartPaneLayout(nextLayout: ChartPaneLayoutId) {
+    chartSettingsHydrationRef.current.revision += 1;
     const layout = chartPaneLayoutById(nextLayout);
     setChartPaneLayout(layout.id);
     setChartPanes((current) => {
@@ -2450,15 +2502,17 @@ export function WorkspaceApp() {
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>, { restorePanels = true }: { restorePanels?: boolean } = {}) {
+    chartSettingsHydrationRef.current.revision += 1;
     const nextLayout = sanitizeChartPaneLayout(layout.paneLayout);
     const nextPanes = sanitizeChartPanes(layout);
     const nextActivePane =
       nextPanes.find((pane) => pane.id === layout.activePaneId) ?? nextPanes[0];
+    const nextSyncSettings = sanitizeChartSyncSettings(layout.syncSettings);
     setChartPaneLayout(nextLayout);
     setChartPanes(nextPanes);
     setActiveChartPaneId(nextActivePane?.id ?? "chart-pane-1");
     setReplayTimeframe(sanitizeTimeframe(layout.replayTimeframe ?? nextActivePane?.timeframe));
-    setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
+    setChartSyncSettings(nextSyncSettings);
     workspaceRevisionRef.current = Math.max(0, Math.floor(layout.revision ?? 0));
     if (restorePanels && layout.panelState) {
       setWorkspacePanel(layout.panelState.activePanel);
@@ -2469,6 +2523,12 @@ export function WorkspaceApp() {
     drawingsRef.current = nextActivePane?.drawings ?? [];
     resetDrawingUndoHistory();
     setSelectedDrawingId(null);
+    return {
+      paneId: nextActivePane?.id ?? "chart-pane-1",
+      settings: nextActivePane?.chartSettings ?? DEFAULT_CHART_VISUAL_SETTINGS,
+      synchronizeStyle: nextSyncSettings.style,
+      visiblePaneIds: nextPanes.slice(0, chartPaneLayoutById(nextLayout).panes).map((pane) => pane.id),
+    };
   }
 
   function toggleChartTools() {
