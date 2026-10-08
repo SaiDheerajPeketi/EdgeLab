@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight } from "lucide-react";
+import { ArrowDown, ArrowRight, Pause, Play } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
@@ -114,10 +114,12 @@ function MarketTape() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState(MARKET_PULSE);
   const [isActive, setIsActive] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
   const reducedMotion = useReducedMotionPreference();
+  const isRunning = isActive && !isPaused && !reducedMotion;
 
   useEffect(() => {
-    if (!isActive || reducedMotion) {
+    if (!isRunning) {
       return;
     }
 
@@ -139,7 +141,7 @@ function MarketTape() {
     }, 1600);
 
     return () => window.clearInterval(timer);
-  }, [isActive, reducedMotion]);
+  }, [isRunning]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -160,7 +162,7 @@ function MarketTape() {
   return (
     <div
       aria-label="Illustrative market feed"
-      className="relative grid h-[58px] w-full max-w-full grid-cols-[auto_minmax(0,1fr)] overflow-hidden rounded-xl bg-[#080d12] shadow-panel ring-1 ring-inset ring-white/10"
+      className="relative grid h-[58px] w-full max-w-full grid-cols-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl bg-[#080d12] shadow-panel ring-1 ring-inset ring-white/10"
       ref={rootRef}
       role="region"
     >
@@ -170,7 +172,7 @@ function MarketTape() {
       <div className="relative min-w-0 overflow-hidden">
         <div
           className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center ${
-            isActive && !reducedMotion ? "edgelab-marquee-active" : "edgelab-marquee-paused"
+            isRunning ? "edgelab-marquee-active" : "edgelab-marquee-paused"
           }`}
         >
           {loopItems.map((item, index) => (
@@ -188,6 +190,17 @@ function MarketTape() {
           ))}
         </div>
       </div>
+      {!reducedMotion && (
+        <button
+          aria-label={isPaused ? "Resume demo feed" : "Pause demo feed"}
+          className="relative z-10 mx-1 my-auto inline-flex h-11 min-w-11 items-center justify-center gap-2 rounded-lg bg-[#080d12] px-3 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          onClick={() => setIsPaused((current) => !current)}
+          type="button"
+        >
+          {isPaused ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
+          <span className="hidden sm:inline">{isPaused ? "Resume" : "Pause"}</span>
+        </button>
+      )}
     </div>
   );
 }

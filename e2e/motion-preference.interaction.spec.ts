@@ -120,7 +120,7 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(pausedMotionCounts.heroAutoplay);
   await expect.poll(async () => (await intervalCounts())["1600"] ?? 0).toBeGreaterThan(pausedMotionCounts.marketTicker);
 
-  const workflow = page.getByLabel("Chart to review workflow");
+  const workflow = page.getByLabel("Trading workspace examples");
   const reviewStep = workflow.locator('[data-scenario-pill="true"]').filter({ hasText: "02 · Journal" });
   const resultsStep = workflow.locator('[data-scenario-pill="true"]').filter({ hasText: "03 · Patterns" });
   await reviewStep.click();
