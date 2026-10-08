@@ -109,18 +109,8 @@ export function security(context: any) {
     // Capture the host policy before user execution. Never infer identity from a stripped ticker.
     const validateRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestContext')?.value;
     const runRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRunRequest')?.value;
-    return async (...rawArgs: any[]) => {
-        // Pine named-arg semantics: bind to the function's known signature by name,
-        // not by position. The transpiler emits a trailing options object; we let
-        // parseArgsForPineParams (which already handles `remaining_options`) merge
-        // it into the right named slots. This is required so that calls like
-        //   request.security(symbol, tf, expr, lookahead = barmerge.lookahead_on)
-        // correctly set lookahead — previously the options bag was landing in the
-        // `gaps` positional slot.
-        const argNames: (string | undefined)[] = [];
-        const args = unwrapParamTuples(rawArgs, argNames);
-        const parsed = parseArgsForPineParams<any>(args, SECURITY_SIGNATURES, SECURITY_TYPES);
-
+    const staticRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabStaticRequest')?.value;
+    const evaluate = async (parsed: any, argNames: (string | undefined)[]) => {
         // Slots filled via named-args bag may still contain wrapped [val, name] tuples
         // (e.g. `lookahead: p54` where p54 is a request.param wrapper). Unwrap each.
         const symbolSlot = resolveSlotValue(parsed.symbol);
@@ -398,5 +388,21 @@ export function security(context: any) {
 
         // Wrap tuples in 2D array to match $.precision() convention
         return Array.isArray(value) ? [value] : value;
+    };
+    return async (...rawArgs: any[]) => {
+        // Pine named-arg semantics: bind to the function's known signature by name,
+        // not by position. The transpiler emits a trailing options object; we let
+        // parseArgsForPineParams (which already handles `remaining_options`) merge
+        // it into the right named slots. This is required so that calls like
+        //   request.security(symbol, tf, expr, lookahead = barmerge.lookahead_on)
+        // correctly set lookahead — previously the options bag was landing in the
+        // `gaps` positional slot.
+        const argNames: (string | undefined)[] = [];
+        const args = unwrapParamTuples(rawArgs, argNames);
+        const parsed = parseArgsForPineParams<any>(args, SECURITY_SIGNATURES, SECURITY_TYPES);
+
+        return typeof staticRequest === 'function'
+            ? staticRequest(context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames))
+            : evaluate(parsed, argNames);
     };
 }

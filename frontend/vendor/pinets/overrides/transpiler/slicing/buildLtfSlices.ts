@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
+// Modified by EdgeLab, 2026-10-08: isolate direct UDF request invocations by call ID.
 
 /**
  * LTF / HTF request slicing — Phases 1 + 2 + 3.
@@ -16,19 +17,17 @@
  *     / `switch` / nested `BlockStatement` at any depth.
  *   - Phase 3 — call inside a user-defined function (or UDT method —
  *     methods compile to regular FunctionDeclarations). Slice
- *     preserves the function definition with its body truncated at
- *     the call, plus the EARLIEST top-level statement that invokes
- *     that function. Multi-level nesting (A→B→C with the call inside
- *     C, only B called from top level) is currently NOT handled
- *     specially; in that case the runtime falls back to today's
- *     full-script slow path.
+ *     preserves the truncated definition and earliest direct invocation
+ *     as the default. `_edgelabCallSlices` additionally selects each
+ *     direct invocation by its literal `$.call` ID. Calls reached only
+ *     through another UDF have no supported slice.
  *
  * Slices are keyed by the static `pN` literal carried by the call's
  * third positional argument (the same name `request.param` injects at
  * codegen). Inside a function body, the runtime composes the actual
  * `_expression_name` as `$$.id + 'pN'` (see commit 812eb2d for the
- * path-prefixing fix); the runtime hook in `security_lower_tf.ts`
- * extracts the trailing `pN` for slice-map lookup.
+ * path-prefixing fix). The trailing `pN` selects the base slice; its
+ * remaining call-path prefix selects a direct invocation slice.
  */
 
 import * as astring from 'astring';
@@ -211,46 +210,26 @@ function dollarCallTarget(node: any): string | null {
     return null;
 }
 
-/**
- * Find the earliest top-level statement in `wrapperBody.body` whose
- * subtree contains a `$.call(<fnName>, ...)` invocation. Returns the
- * statement index, or -1 if no invocation is found.
- *
- * Skips the function declaration itself (a fn calling itself wouldn't
- * count — and would put us in recursion territory).
- */
-function findEarliestInvocationIdx(wrapperBody: any, fnName: string, fnDeclNode: any): number {
-    const stmts: any[] = wrapperBody.body || [];
-    for (let i = 0; i < stmts.length; i++) {
-        const stmt = stmts[i];
-        if (stmt === fnDeclNode) continue;
-        if (subtreeContainsDollarCall(stmt, fnName)) return i;
-    }
-    return -1;
-}
-
-function subtreeContainsDollarCall(root: any, fnName: string): boolean {
-    let found = false;
+/** Direct wrapper invocations only. Calls inside another function are unsupported. */
+function findInvocationPaths(wrapperBody: any, fnName: string): Array<{ id: string; path: any[] }> {
+    const found: Array<{ id: string; path: any[] }> = [];
     const seen = new WeakSet<object>();
-    function walk(n: any) {
-        if (found || !n || typeof n !== 'object') return;
-        if (seen.has(n)) return;
-        seen.add(n);
-        if (dollarCallTarget(n) === fnName) {
-            found = true;
-            return;
+    function walk(node: any, path: any[]): void {
+        if (!node || typeof node !== 'object' || seen.has(node) || isFunctionLike(node)) return;
+        seen.add(node);
+        const nextPath = path.concat(node);
+        if (dollarCallTarget(node) === fnName) {
+            const id = node.arguments?.[1];
+            if (id?.type === 'Literal' && typeof id.value === 'string') found.push({ id: id.value, path: nextPath });
         }
-        for (const key of Object.keys(n)) {
+        for (const key of Object.keys(node)) {
             if (AST_SKIP_KEYS.has(key)) continue;
-            const v = n[key];
-            if (Array.isArray(v)) {
-                for (const item of v) walk(item);
-            } else if (v && typeof v === 'object') {
-                walk(v);
-            }
+            const value = node[key];
+            if (Array.isArray(value)) for (const child of value) walk(child, nextPath);
+            else walk(value, nextPath);
         }
     }
-    walk(root);
+    walk(wrapperBody, []);
     return found;
 }
 
@@ -261,22 +240,20 @@ function subtreeContainsDollarCall(root: any, fnName: string): boolean {
  *   1. The call's path = [wrapperBody, …, fnDecl, fnDecl.body, …, call].
  *   2. Slice fnDecl.body at the call (using sliceAlongPath rooted at
  *      fnDecl).
- *   3. Find the earliest top-level statement that invokes fnDecl via
- *      `$.call(fnDecl.id, …)`. If none, bail (defensive — shouldn't
- *      happen in practice).
- *   4. Build the wrapper-body slice: keep statements [0..invIdx]
- *      inclusive, with fnDecl swapped for its sliced version. The
+ *   3. Find the requested direct `$.call(fnDecl.id, id, …)` invocation,
+ *      or the earliest direct invocation for the default slice.
+ *   4. Project the wrapper through that invocation, swapping fnDecl
+ *      for its sliced version. The
  *      kept statements include any `var` instance initializers the
  *      method needs (e.g. `var Counter c = Counter.new()`), preserving
  *      the var-once semantics observed in TV (Probe 3).
  *
  * Returns the sliced wrapper.body's statement list, or null if the
  * shape isn't supported (multi-level fn nesting, recursive fn,
- * invocation buried inside an expression that we can't safely
- * truncate, etc.). Falling back is always safe — the runtime uses
- * the legacy full-script slow path when no slice is registered.
+ * etc.). Expression nodes retain their value semantics. A missing
+ * slice lets the host explicitly reject unsupported isolation.
  */
-function buildPhase3SliceStmts(wrapperBody: any, path: any[]): any[] | null {
+function buildPhase3SliceStmts(wrapperBody: any, path: any[], invocationPath?: any[]): any[] | null {
     // path[0] === wrapperBody. Find the FIRST FunctionDeclaration
     // on the path — that's the outer-most fn body the call lives in.
     let fnIdx = -1;
@@ -301,24 +278,15 @@ function buildPhase3SliceStmts(wrapperBody: any, path: any[]): any[] | null {
     const fnSlicePath = path.slice(fnIdx); // [fnDecl, fnDecl.body?, …, call]
     const slicedFn = sliceAlongPath(fnNode, fnSlicePath, 0);
 
-    // Find the earliest top-level invocation of this function.
-    const invIdx = findEarliestInvocationIdx(wrapperBody, fnName, fnNode);
-    if (invIdx < 0) return null;
-
-    // Build the wrapper.body slice: keep [0..invIdx] inclusive, with
-    // fnNode replaced by slicedFn. The fn declaration may sit AFTER
-    // the invocation in source order — when the fn is hoisted by the
-    // pineToJS step. Handle either case:
-    const stmts: any[] = wrapperBody.body || [];
-    const fnDeclIdx = stmts.indexOf(fnNode);
+    // Keep the existing earliest-call default, and expose exact direct call-site slices.
+    const invocation = invocationPath ?? findInvocationPaths(wrapperBody, fnName)[0]?.path;
+    if (!invocation) return null;
+    const fnDeclIdx = wrapperBody.body.indexOf(fnNode);
     if (fnDeclIdx < 0) return null;
-
-    const result: any[] = [];
-    const lastIdx = Math.max(invIdx, fnDeclIdx);
-    for (let i = 0; i <= lastIdx; i++) {
-        const s = stmts[i];
-        result.push(s === fnNode ? slicedFn : s);
-    }
+    const projected = sliceAlongPath(wrapperBody, invocation, 0);
+    const result = projected.body.map((statement: any) => statement === fnNode ? slicedFn : statement);
+    // Declarations are hoisted; retain only this declaration if it follows the invocation.
+    if (!result.includes(slicedFn)) result.push(slicedFn);
     return result;
 }
 
@@ -413,8 +381,24 @@ export function buildLtfSlices(ast: any): Record<string, Function> {
         }
         if (!stmts || stmts.length === 0) continue;
 
-        const sliceFn = buildSliceFunction(wrapperFn, stmts);
-        Object.defineProperty(sliceFn, '_edgelabRequestDependencies', { value: Object.freeze(requestDependencies(exprName, bindings, fields)) });
+        const dependencies = Object.freeze(requestDependencies(exprName, bindings, fields));
+        const makeSlice = (body: any[]): Function => {
+            const fn = buildSliceFunction(wrapperFn, body);
+            Object.defineProperty(fn, '_edgelabRequestDependencies', { value: dependencies });
+            return fn;
+        };
+        const sliceFn = makeSlice(stmts);
+        if (crossesFn) {
+            const fnNode = path.find(isFunctionLike);
+            const callSlices: Record<string, Function> = Object.create(null);
+            if (fnNode?.type === 'FunctionDeclaration' && fnNode.id?.name) {
+                for (const invocation of findInvocationPaths(wrapperFn.body, fnNode.id.name)) {
+                    const body = buildPhase3SliceStmts(wrapperFn.body, path, invocation.path);
+                    if (body?.length) callSlices[invocation.id] = makeSlice(body);
+                }
+            }
+            Object.defineProperty(sliceFn, '_edgelabCallSlices', { value: Object.freeze(callSlices) });
+        }
         slices[exprName] = sliceFn;
     }
 

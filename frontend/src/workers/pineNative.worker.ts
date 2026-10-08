@@ -77,6 +77,13 @@ function displayName(source: string, declaration: string): string {
   return `Pine ${declaration}`;
 }
 function normalizeSymbol(symbol: string): string { return symbol.toUpperCase(); }
+type RequestContext = Context & {
+  _edgelabRequestDepth?: number;
+  _edgelabEnclosingExpression?: string;
+  _edgelabRequestDependencies?: readonly string[];
+  _edgelabStaticPath?: readonly string[];
+  _ltfTruncatedBodies?: Record<string, Function>;
+};
 function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>()) {
   const context = request.context!;
   const timeframe = canonicalPineTimeframe(context.timeframe);
@@ -135,9 +142,42 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       return { ...info };
     },
   };
+  const captures = new WeakMap<Context, { id: string; values: unknown[]; costs: number[]; count: number }>();
+  const staticSnapshots = new Map<string, Promise<{ values: unknown[]; closes: number[] }>>();
+  const requestSlice = (parent: RequestContext, expressionName: string): Function | undefined => {
+    const id = expressionName?.match(/p\d+$/)?.[0] ?? expressionName;
+    const slice = parent._ltfTruncatedBodies?.[id] as (Function & { _edgelabCallSlices?: Readonly<Record<string, Function>> }) | undefined;
+    const path = expressionName?.slice(0, -id.length).replace(/_$/, "");
+    return path ? slice?._edgelabCallSlices?.[path] : slice;
+  };
+  const runRequest = async (engine: PineTS, slice: Function | undefined, parent: RequestContext, expressionName: string,
+    captureExpression?: string, staticPath?: readonly string[]) => {
+    slice = requestSlice(parent, expressionName);
+    if (!slice) error("UNSUPPORTED_REQUEST_EXPRESSION", "This requested expression cannot be isolated safely by the Pine compiler.");
+    const depth = (parent._edgelabRequestDepth ?? 0) + 1;
+    if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
+    const prepared = { fn: slice } as PreparedScript;
+    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, false, context.quantityStep);
+    const bound = prepared.fn;
+    const fn = (child: Context) => {
+      Object.assign(child, { _edgelabStaticPath: staticPath ?? parent._edgelabStaticPath, _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
+      if (captureExpression && !captures.has(child)) captures.set(child, { id: captureExpression, values: [], costs: [], count: 0 });
+      return bound(child);
+    };
+    Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
+    engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
+    const child = await engine.runPretranspiled(fn, parent.inputs);
+    for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
+      for (const scope of [owner.const, owner.var, owner.varip, owner.let, owner.params]) {
+        for (const value of Object.values(scope ?? {})) retainedSlots += Array.isArray(value) ? value.length : (value as { data?: unknown[] })?.data?.length ?? 0;
+      }
+    }
+    if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much secondary series history.");
+    return child;
+  };
   // The provider owns immutable policies, captured before executing any authored script.
   Object.defineProperties(provider, {
-    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: Context & { _edgelabEnclosingExpression?: string; _edgelabRequestDependencies?: readonly string[] }, expressionName: string) => {
+    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext) => {
       const rawTimeframe = String(requestedTimeframe ?? "");
       let tf: string | undefined;
       try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
@@ -145,35 +185,60 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
         || (kind === "security_lower_tf" && tf !== timeframe)) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
-      const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
-        ?? parent.strategy?.config?.dynamic_requests ?? parent.pineVersion === 6;
-      if (parent.isSecondaryContext && dynamic === false && parent._edgelabEnclosingExpression !== expressionName && parent._edgelabRequestDependencies?.includes(expressionName.match(/p\d+$/)?.[0] ?? expressionName)) {
-        error("UNSUPPORTED_REQUEST_EXPRESSION", "Nested requests with dynamic_requests=false are unavailable. Use dynamic_requests=true for nested timeframe calculations.");
-      }
       try { dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
       return { symbol, timeframe: tf };
     } },
-    _edgelabRunRequest: { value: async (engine: PineTS, slice: Function | undefined, parent: Context & { _edgelabRequestDepth?: number; _ltfTruncatedBodies?: object }, expressionName: string) => {
-      if (!slice) error("UNSUPPORTED_REQUEST_EXPRESSION", "This requested expression cannot be isolated safely by the Pine compiler.");
-      const depth = (parent._edgelabRequestDepth ?? 0) + 1;
-      if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
-      const prepared = { fn: slice } as PreparedScript;
-      bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, false, context.quantityStep);
-      const bound = prepared.fn;
-      const fn = (child: Context) => {
-        Object.assign(child, { _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
-        return bound(child);
-      };
-      Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
-      engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
-      const child = await engine.runPretranspiled(fn, parent.inputs);
-      for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
-        for (const scope of [owner.const, owner.var, owner.varip, owner.let, owner.params]) {
-          for (const value of Object.values(scope ?? {})) retainedSlots += Array.isArray(value) ? value.length : (value as { data?: unknown[] })?.data?.length ?? 0;
+    _edgelabRunRequest: { value: runRequest },
+    _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>) => {
+      const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
+        ?? parent.strategy?.config?.dynamic_requests ?? parent.pineVersion === 6;
+      const dependency = expressionName?.match(/p\d+$/)?.[0] ?? expressionName;
+      if (parent.isSecondaryContext && dynamic === false && parent._edgelabEnclosingExpression !== expressionName
+        && parent._edgelabRequestDependencies?.includes(dependency)) {
+        // Static requests are computed independently on the original chart. Never rebind their blank context to an outer request.
+        const path = parent._edgelabStaticPath ?? [];
+        if (path.includes(expressionName)) error("REQUEST_LIMIT", "Pine static request dependencies contain a cycle.");
+        let snapshot = staticSnapshots.get(expressionName);
+        if (!snapshot) {
+          const slice = parent._ltfTruncatedBodies?.[dependency];
+          const engine = new PineTS(provider, symbol, timeframe, request.bars!.length);
+          engine.markAsSecondary();
+          snapshot = runRequest(engine, slice, parent, expressionName, expressionName, [...path, expressionName]).then((child) => {
+            const capture = captures.get(child);
+            const values = capture?.values;
+            if (!values || capture?.count !== request.bars!.length || values.length !== request.bars!.length) error("UNSUPPORTED_REQUEST_EXPRESSION", "The original static request history could not be isolated completely.");
+            return { values, closes: child.data.closeTime.data };
+          });
+          staticSnapshots.set(expressionName, snapshot);
         }
+        const original = await snapshot;
+        const boundary = parent.data.closeTime.get(0);
+        let low = 0, high = original.closes.length;
+        while (low < high) {
+          const middle = (low + high) >>> 1;
+          if (original.closes[middle] <= boundary) low = middle + 1; else high = middle;
+        }
+        return low ? original.values[low - 1] : NaN;
       }
-      if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much secondary series history.");
-      return child;
+      const value = await evaluate();
+      const capture = captures.get(parent);
+      if (capture?.id === expressionName) {
+        // Native scalar/tuple request returns are copied so later calculations cannot mutate a captured bar.
+        let slots = 1; // The per-bar accounting entry is retained alongside the captured value.
+        const copy = (item: unknown, depth = 0): unknown => {
+          slots++;
+          if (Array.isArray(item) && depth < 2 && item.length <= 128) return item.map((entry) => copy(entry, depth + 1));
+          if (item == null || ["number", "string", "boolean"].includes(typeof item)) return item;
+          return error("UNSUPPORTED_REQUEST_EXPRESSION", "Static request collections and objects cannot be sampled safely.");
+        };
+        const copied = copy(value);
+        if (!Object.prototype.hasOwnProperty.call(capture.values, parent.idx)) capture.count++;
+        retainedSlots += slots - (capture.costs[parent.idx] ?? 0);
+        if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much static series history.");
+        capture.values[parent.idx] = copied;
+        capture.costs[parent.idx] = slots;
+      }
+      return value;
     } },
   });
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.

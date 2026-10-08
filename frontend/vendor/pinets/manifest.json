@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-higher-timeframe-104",
+  "patch": "edgelab-static-requests-105",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -68,7 +68,7 @@
       "source": "src/transpiler/transformers/ExpressionTransformer.ts",
       "file": "overrides/transpiler/transformers/ExpressionTransformer.ts",
       "upstreamSha256": "372ab1fc56abb72cc2233bd3ee38558eb02f4a58783cdefb55a0c35c34d9f623",
-      "sha256": "98a687f51a62c6f96863622a6fe1617ae2251b6319c00d471313601e6ca07b5f"
+      "sha256": "34815bbddf1cf2b113db85f21b1746d79bc4c0b0eee2c7b3ace638265ab9a0ed"
     },
     {
       "source": "src/namespaces/strategy/utils.ts",
@@ -128,7 +128,7 @@
       "source": "src/namespaces/request/methods/security.ts",
       "file": "overrides/namespaces/request/methods/security.ts",
       "upstreamSha256": "06e8d41952b525ecf3285f9017441846f81701f12eb6275e5f9f12fd78d6425c",
-      "sha256": "6b165476fcf2536622d58811536c0a9bb6d928e182fa653765394d61253b3341"
+      "sha256": "a1507d5778cde30876877a7bc8551e678f3a3bdf83d99891db510d9f1ec3dc3d"
     },
     {
       "source": "src/namespaces/request/methods/security_lower_tf.ts",
@@ -146,7 +146,7 @@
       "source": "src/transpiler/slicing/buildLtfSlices.ts",
       "file": "overrides/transpiler/slicing/buildLtfSlices.ts",
       "upstreamSha256": "f9c2739804c09bd9b6088f9948c1343d7a08b572e8a68696207fe187ba7c878f",
-      "sha256": "ab82b364bacd026bee528b74e6b23eb14012990b43de9277dee1fdf9b87aed0a"
+      "sha256": "4a296b278ef41a8f9ad3a0d5f591f9824b2dcfd1ea02a10667d8063c76c4732d"
     },
     {
       "source": "src/namespaces/Core.ts",
@@ -157,6 +157,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "3d200099c8650f4532fcf7896f295dd83eaa1158cc427adb1a4763e8844dcc29"
+    "sha256": "e8b65e5e58baccb67176aa3b3b7577d12030fd15729e12db6410f0841e0a4b20"
   }
 }

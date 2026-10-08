@@ -241,7 +241,7 @@ test("nested higher requests and blank aliases use their executing context while
   }
 });
 
-test("dynamic nested dataflow stays remote while unsupported static dependencies fail explicitly", async () => {
+test("dynamic nested dataflow stays remote while static dependencies preserve the original chart", async () => {
   const direct = 'inner=request.security("","",timeframe.period=="1"?1:15)\n' +
     plot(remote("inner", 15), "Nested value");
   const delegated = 'f()=>request.security("","",timeframe.period=="1"?1:15)\ninner=f()\n' +
@@ -250,11 +250,11 @@ test("dynamic nested dataflow stays remote while unsupported static dependencies
   for (const version of [5, 6]) {
     const dynamic = await run(body, { version, declaration: 'indicator("Dynamic higher104",dynamic_requests=true)' });
     assert.deepEqual(values(dynamic, "Nested value"), merge(bars, complete(bars, 15), () => 15));
-    await assert.rejects(run(body, { version, declaration: 'indicator("Static higher104",dynamic_requests=false)' }),
-      cause => { assert.equal(cause.code, "UNSUPPORTED_REQUEST_EXPRESSION", cause.message); return true; });
+    const fixed = await run(body, { version, declaration: 'indicator("Static higher104",dynamic_requests=false)' });
+    assert.deepEqual(values(fixed, "Nested value"), merge(bars, complete(bars, 15), () => 1));
   }
-  await assert.rejects(run(body, { version: 5 }),
-    cause => { assert.equal(cause.code, "UNSUPPORTED_REQUEST_EXPRESSION", cause.message); return true; });
+  const defaultV5 = await run(body, { version: 5 });
+  assert.deepEqual(values(defaultV5, "Nested value"), merge(bars, complete(bars, 15), () => 1));
   const defaultV6 = await run(body, { version: 6 });
   assert.deepEqual(values(defaultV6, "Nested value"), merge(bars, complete(bars, 15), () => 15));
   }

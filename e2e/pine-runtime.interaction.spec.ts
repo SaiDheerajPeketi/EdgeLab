@@ -571,8 +571,6 @@ test("production higher timeframe104 evaluates remote candles inputs and histori
     const failures = [
       { body: 'plot(request.security("OTHER:TEST","3",close))', code: "UNAVAILABLE_DATA", declaration: 'indicator("Foreign higher104")' },
       { body: 'plot(request.security(ticker.heikinashi(syminfo.tickerid),"3",close))', code: "UNAVAILABLE_DATA", declaration: 'indicator("Nonstandard higher104")' },
-      { body: 'inner=request.security("","",timeframe.period=="1"?1:15)\nplot(request.security("CHART:TEST","3",inner))',
-        code: "UNSUPPORTED_REQUEST_EXPRESSION", declaration: 'indicator("Static higher104",dynamic_requests=false)' },
     ];
     for (const failure of failures) {
       const failedSource = `//@version=${version}\n${failure.declaration}\n${failure.body}`;
@@ -581,11 +579,65 @@ test("production higher timeframe104 evaluates remote candles inputs and histori
       expect(outcome.error?.code, JSON.stringify(outcome.error)).toBe(failure.code);
       expect(outcome.value).toBeUndefined();
     }
+    const staticSource = `//@version=${version}\nindicator("Static higher104",dynamic_requests=false)\ninner=request.security("","",timeframe.period=="1"?1:15)\nplot(request.security("CHART:TEST","3",inner),"Static")`;
+    const fixed = await run(page, { ...runtimeRequest(staticSource), bars: snapshot, context });
+    expect(fixed.ok, JSON.stringify(fixed.error)).toBe(true);
+    expect(fixed.value.source).toBe(staticSource);
+    expect(fixed.value.plots.find((plot: any) => plot.name === "Static").points.map((point: any) => point.value))
+      .toEqual([null, null, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     const ordinary = `//@version=${version}\nindicator("Ordinary after higher104")\nplot(close,"Close")`;
     const followUp = await run(page, { ...runtimeRequest(ordinary), bars: snapshot, context });
     expect(followUp.ok, JSON.stringify(followUp.error)).toBe(true);
     expect(followUp.value.plots.find((plot: any) => plot.name === "Close").points.map((point: any) => point.value))
       .toEqual(snapshot.map(bar => bar.close));
+  }
+  expect(harness.assetRequests).toContain(harness.workerPath);
+  expect(harness.endpointRequests).toEqual([]);
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+});
+
+test("production static requests105 preserve original sampled series saved inputs and distinct function calls", async ({ page, harness }) => {
+  const snapshot = Array.from({ length: 30 }, (_, index) => ({
+    time: 1_700_000_100 + index * 60, open: 9 + index, high: 12 + index, low: 8 + index, close: 10 + index, volume: 100 + index,
+  }));
+  const context = { symbol: "CHART:TEST", timeframe: "1", mintick: 0.01, pointvalue: 1 };
+  const closing = (first: number | null, second: number | null) =>
+    [...Array(14).fill(null), ...Array(15).fill(first), second];
+  const body = 'length=input.int(2,"Remote length",minval=1,maxval=8)\n' +
+    'inner=request.security("CHART:TEST","3",close)\n' +
+    'smooth=request.security("CHART:TEST","3",ta.sma(close,length))\n' +
+    'f(int amount)=>request.security("CHART:TEST","3",close+amount)\nfirst=f(1)\nsecond=f(9)\n' +
+    'plot(request.security("CHART:TEST","15",smooth),"Saved")\n' +
+    'plot(request.security("CHART:TEST","15",inner[1]),"Previous")\n' +
+    'plot(request.security("CHART:TEST","15",inner,lookahead=barmerge.lookahead_on),"On")\n' +
+    'plot(request.security("CHART:TEST","15",inner,gaps=barmerge.gaps_on),"Events")\n' +
+    'plot(request.security("CHART:TEST","15",first),"First")\n' +
+    'plot(request.security("CHART:TEST","15",second),"Second")';
+  for (const version of [5, 6] as const) {
+    const source = "//@version=" + version + "\n" +
+      (version === 5 ? 'indicator("Production static105")' : 'indicator("Production static105",dynamic_requests=false)') + "\n" + body;
+    const request = { ...runtimeRequest(source), bars: snapshot, context };
+    const prepared = await run(page, { ...request, action: "prepare" });
+    expect(prepared.ok, JSON.stringify(prepared.error)).toBe(true);
+    expect(prepared.value.source).toBe(source);
+    expect(prepared.value.inputDefinitions.map((input: any) => [input.id, input.type, input.defval])).toEqual([["in_0", "int", 2]]);
+    for (const length of [2, 3]) {
+      const inputs = JSON.parse(JSON.stringify({ in_0: length }));
+      const output = await run(page, { ...request, inputs });
+      expect(output.ok, JSON.stringify(output.error)).toBe(true);
+      expect(output.value.source).toBe(source);
+      expect(output.value.inputs).toEqual(inputs);
+      // 3m closes are12,15,...,39; the15m closing samples are24/39.
+      const expected = {
+        Saved: closing(length === 2 ? 22.5 : 21, length === 2 ? 37.5 : 36),
+        Previous: closing(null, 24),
+        On: [...Array(15).fill(24), ...Array(15).fill(39)],
+        Events: [...Array(14).fill(null), 24, ...Array(14).fill(null), 39],
+        First: closing(25, 40), Second: closing(33, 48),
+      };
+      for (const [name, numbers] of Object.entries(expected))
+        expect(output.value.plots.find((plot: any) => plot.name === name).points.map((point: any) => point.value)).toEqual(numbers);
+    }
   }
   expect(harness.assetRequests).toContain(harness.workerPath);
   expect(harness.endpointRequests).toEqual([]);

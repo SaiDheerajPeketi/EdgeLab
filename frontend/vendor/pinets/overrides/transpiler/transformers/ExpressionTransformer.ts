@@ -1517,6 +1517,10 @@ export function transformFunctionArgument(arg: any, namespace: string, scopeMana
 
     if (arg.type === 'ObjectExpression') {
         arg.properties = arg.properties.map((prop: any) => {
+            // Named request expressions need the same stable history/call identity as positional expressions.
+            if (namespace === 'request' && !prop.computed && (prop.key?.name ?? prop.key?.value) === 'expression') {
+                return { ...prop, shorthand: false, value: prop.value._isParamCall ? prop.value : transformFunctionArgument(prop.value, namespace, scopeManager) };
+            }
             // Get the variable name and kind
             if (prop.value.name) {
                 // `x2 = time`: a dual-use built-in (time, hour, …) is the namespace function,
