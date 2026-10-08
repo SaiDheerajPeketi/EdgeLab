@@ -139,6 +139,13 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    # Configured Google-exchange admission fails closed while Redis is unavailable.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
     ports:
       - "127.0.0.1:${EDGELAB_REDIS_PORT:-6379}:6379"
     restart: unless-stopped
@@ -309,7 +316,7 @@ services:
       pgbouncer-timescaledb:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}
@@ -400,7 +407,7 @@ services:
       pgbouncer-timescaledb:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}

@@ -46,6 +46,12 @@ By default, local development uses SQLite and `datasets/`. Set `DATABASE_URL` an
 | `scripts/` | Imports, refresh jobs, and benchmarks |
 | `tests/` | Python and Node-based backend tests |
 
+## Google exchange admission
+
+`POST /api/auth/google/exchange` reserves admission before contacting Google: 120 requests per 60 seconds across API processes using the configured `EDGELAB_REDIS_URL`, with atomic expiry, or one bounded process-local counter when that URL is unset. Budget exhaustion returns 429 with the remaining-window `Retry-After`; configured Redis errors return 503 with `Retry-After: 5` instead of falling back to an independent counter. Each process admits at most eight simultaneous exchanges; a full process returns 429 with `Retry-After: 1` without waiting for a slot. Requests do not use user-controlled forwarded headers as admission keys.
+
+The production Nginx proxy separately limits the exact exchange path by `$binary_remote_addr` to 10 requests per minute with a burst of three, returning JSON 429 and `Retry-After: 6`. NAT clients and clients behind an additional proxy share its socket-address budget. Direct API development runs bypass this edge limit but retain API admission. Compose starts APIs only after Redis responds to its health check. No new configuration variables or dependency changes are required.
+
 ## Stripe billing
 
 Billing is disabled by default. Set `EDGELAB_BILLING_ENABLED=1`, `EDGELAB_STRIPE_MODE=test`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and `STRIPE_PRO_ANNUAL_PRICE_ID` on the API. Create active recurring USD prices for EdgeLab Pro at 2900 cents monthly and 29000 cents annually, with interval count 1 and no trial. The service validates provider price facts and mode instead of trusting client amounts or IDs. Use `EDGELAB_PUBLIC_ORIGIN` for fixed checkout and portal return URLs; production requires HTTPS. These credentials never belong in browser build variables.

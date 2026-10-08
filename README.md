@@ -40,6 +40,8 @@ Production mode accepts verified Google accounts and requires a current live pai
 
 Legacy beta accounts without a Google identity can verify their exact email through Gmail or Google Workspace and retain their history; first verification revokes older sessions. Existing accounts using third-party email without Google ownership authority require separate mailbox recovery. Verification alone does not grant a paid subscription.
 
+Google code exchange has separate admission limits before provider work. Nginx limits the exact `/api/auth/google/exchange` path to 10 requests per minute per connecting socket address, with a burst of three and JSON 429 responses with `Retry-After: 6`. Clients behind a NAT or upstream proxy share that address budget; forwarded headers do not change the key. The API also shares 120 admissions per 60 seconds through configured Redis, or uses one bounded process-local counter when Redis is unset, with at most eight concurrent exchanges per process. Configured Redis failure returns 503 with `Retry-After: 5`; concurrency refusal returns 429 with `Retry-After: 1`. Compose waits for Redis health before APIs start. These fixed limits require no new environment variables.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

@@ -39,6 +39,8 @@ When changing API prefixes or proxy behavior, update `docker/nginx.conf`, fronte
 - The Docker Compose frontend publishes Nginx on `${FRONTEND_PORT:-8080}`.
 - The frontend image is built with `VITE_API_BASE_URL=/api`.
 - Nginx proxies `/api/*` to the FastAPI service at `api:8000`.
+- The exact Google exchange proxy route uses a 10 MB socket-address limit zone at 10 requests/minute with burst 3; forwarded headers must not select the admission key. Preserve JSON 429, `Retry-After: 6`, and inherited security headers when changing that route.
+- Google exchange API admission uses configured Redis for its shared 120/60-second budget and fails closed on Redis errors; an unset URL permits only a bounded process-local fallback. Compose APIs wait for Redis health.
 - FastAPI stores its SQLite database at `/var/lib/edgelab/trade_journal_v2.db` in the `api-data` named volume.
 - The default Compose deployment is dataset-root driven.
 - Dataset folders are mounted read-only at `/datasets` for the API.

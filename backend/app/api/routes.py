@@ -234,6 +234,7 @@ from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgres
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
 from app.services.rate_limits import build_rate_limiter
+from app.services.auth_rate_limits import (AuthRateLimitExceeded, AuthRateLimiterUnavailable, build_google_exchange_limiter)
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
@@ -270,6 +271,7 @@ read_model_cache = ReadModelCacheService(
     redis_url=settings.redis_url,
 )
 rate_limiter = build_rate_limiter(settings.redis_url)
+google_exchange_limiter = build_google_exchange_limiter(settings.redis_url)
 WORKSPACE_SHARE_CREATE_RATE_LIMIT = 30
 WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT = 120
 WORKSPACE_SHARE_OPEN_RATE_LIMIT = 240
@@ -1364,7 +1366,20 @@ def beta_access(
         raise HTTPException(status_code=500, detail="Beta access request failed") from exc
 
 
-@router.post("/auth/google/exchange", response_model=BetaAccessResponse)
+def require_google_exchange_admission():
+    try:
+        with google_exchange_limiter.admit():
+            yield
+    except AuthRateLimitExceeded as exc:
+        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again shortly.",
+                            headers={"Retry-After": str(exc.retry_after_seconds)}) from exc
+    except AuthRateLimiterUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Sign-in is temporarily unavailable. Try again shortly.",
+                            headers={"Retry-After": "5"}) from exc
+
+
+@router.post("/auth/google/exchange", response_model=BetaAccessResponse,
+             dependencies=[Depends(require_google_exchange_admission)])
 def exchange_google_auth_code(
     payload: GoogleAuthExchangeRequest,
     db: Session = Depends(get_db),
