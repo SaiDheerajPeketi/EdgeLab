@@ -116,6 +116,8 @@ npm run dev:frontend
 
 Vite listens on <http://127.0.0.1:5173> and proxies `/api` to FastAPI on port 8000. For the complete local development stack, use `npm run dev` from the repository root.
 
+Production builds keep a running Vite server’s dependency cache intact and still verify the matching source archive after building. The dev command uses `--force` on startup. If cache maintenance is needed, stop Vite before running `node scripts/purge-vite-cache.js` from the repository root, then restart the dev command and reload the page.
+
 A fresh Vite development preview on `localhost`, `127.0.0.1`, or `[::1]` shows the redesigned interface even when FastAPI is offline. Saved rollout policy and subsequent server responses take precedence; malformed or expired stored policy keeps the compatibility fallback. Production builds still wait for valid server policy. This presentation fallback does not bypass sign-in, subscription checks, or API requirements for workspace data.
 
 Chart toolbar, study settings, and replay controls wrap at narrow widths while retaining touch-sized actions. The dedicated `e2e/pine-study-geometry51.config.ts` suite checks 320px, 390px, tablet and desktop geometry through genuine Pine execution, input edits, keyboard focus, visibility changes and removal against an already-built frontend. It uses explicit session and subscription fixtures rather than live billing.
