@@ -643,3 +643,55 @@ test("production static requests105 preserve original sampled series saved input
   expect(harness.endpointRequests).toEqual([]);
   await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
 });
+
+test("production nested functions106 preserve async call paths saved inputs and refuse unsafe shared replay", async ({ page, harness }) => {
+  const snapshot = Array.from({ length: 30 }, (_, index) => ({
+    time: 1_700_000_100 + index * 60, open: 9 + index, high: 12 + index, low: 8 + index, close: 10 + index, volume: 100 + index,
+  }));
+  const context = { symbol: "CHART:TEST", timeframe: "1", mintick: 0.01, pointvalue: 1 };
+  const closing = (first: number, second: number) => [...Array(14).fill(null), ...Array(15).fill(first), second];
+  const body = 'amount=input.int(2,"Amount",minval=0,maxval=20)\n' +
+    'f(int offset)=>request.security("CHART:TEST","3",close+offset)\ng(int offset)=>\n' +
+    '    prefix=request.security("","",close)\n    f(offset)+prefix\n' +
+    'first=g(amount)\nsecond=g(amount+7)\n' +
+    'plot(request.security("CHART:TEST","15",first),"First")\n' +
+    'plot(request.security("CHART:TEST","15",second),"Second")';
+  for (const version of [5, 6] as const) {
+    const declaration = version === 5 ? 'indicator("Production nested106")' : 'indicator("Production nested106",dynamic_requests=false)';
+    const source = "//@version=" + version + "\n" + declaration + "\n" + body;
+    const request = { ...runtimeRequest(source), bars: snapshot, context };
+    const prepared = await run(page, { ...request, action: "prepare" });
+    expect(prepared.ok, JSON.stringify(prepared.error)).toBe(true);
+    expect(prepared.value.source).toBe(source);
+    expect(prepared.value.inputDefinitions.map((input: any) => [input.id, input.type, input.defval])).toEqual([["in_0", "int", 2]]);
+    for (const amount of [2, 4]) {
+      const inputs = JSON.parse(JSON.stringify({ in_0: amount }));
+      const outcome = await run(page, { ...request, inputs });
+      expect(outcome.ok, JSON.stringify(outcome.error)).toBe(true);
+      expect(outcome.value.source).toBe(source);
+      expect(outcome.value.inputs).toEqual(inputs);
+      const actual = (name: string) => outcome.value.plots.find((plot: any) => plot.name === name).points.map((point: any) => point.value);
+      expect(actual("First")).toEqual(closing(amount === 2 ? 50 : 52, amount === 2 ? 80 : 82));
+      expect(actual("Second")).toEqual(closing(amount === 2 ? 57 : 59, amount === 2 ? 87 : 89));
+    }
+    const stateful = 'var pool=array.new<float>()\nf()=>\n    prefix=request.security("","",close)\n' +
+      '    previous=array.size(pool)\n    array.push(pool,prefix)\n    previous\ng()=>f()\na=g()\nb=g()\n' +
+      'plot(b,"B")\nplot(array.size(pool),"Pool")';
+    const originalSource = "//@version=" + version + "\n" + declaration + "\n" + stateful;
+    const original = await run(page, { ...runtimeRequest(originalSource), bars: snapshot, context });
+    expect(original.ok, JSON.stringify(original.error)).toBe(true);
+    expect(original.value.source).toBe(originalSource);
+    expect(original.value.plots.find((plot: any) => plot.name === "B").points.map((point: any) => point.value))
+      .toEqual(snapshot.map((_, i) => i * 2 + 1));
+    expect(original.value.plots.find((plot: any) => plot.name === "Pool").points.map((point: any) => point.value))
+      .toEqual(snapshot.map((_, i) => (i + 1) * 2));
+    const unsafeSource = originalSource + '\nplot(request.security("CHART:TEST","15",b),"Unsafe")';
+    const unsafe = await run(page, { ...runtimeRequest(unsafeSource), bars: snapshot, context });
+    expect(unsafe.ok).toBe(false);
+    expect(unsafe.error?.code, JSON.stringify(unsafe.error)).toBe("UNSUPPORTED_REQUEST_EXPRESSION");
+    expect(unsafe.value).toBeUndefined();
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  expect(harness.assetRequests).toContain(harness.workerPath);
+  expect(harness.endpointRequests).toEqual([]);
+});

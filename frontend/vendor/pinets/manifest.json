@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-static-requests-105",
+  "patch": "edgelab-nested-functions-106",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -38,7 +38,7 @@
       "source": "src/Context.class.ts",
       "file": "overrides/Context.class.ts",
       "upstreamSha256": "c539cacd319115f06118c9249b4886dcfe1615c8a8e47490bdf139ce7e8fe721",
-      "sha256": "7425fa263810f348f002124f12ec2338fcf51daae6d2c28648771b2792a2fa98"
+      "sha256": "81865d305b460f31a4f3224c53df52aef61bc4f2b88c96ff9abb0ea69f5bbd81"
     },
     {
       "source": "src/PineTS.class.ts",
@@ -146,7 +146,7 @@
       "source": "src/transpiler/slicing/buildLtfSlices.ts",
       "file": "overrides/transpiler/slicing/buildLtfSlices.ts",
       "upstreamSha256": "f9c2739804c09bd9b6088f9948c1343d7a08b572e8a68696207fe187ba7c878f",
-      "sha256": "4a296b278ef41a8f9ad3a0d5f591f9824b2dcfd1ea02a10667d8063c76c4732d"
+      "sha256": "e5ea00f7c12ab862d64d83541eb7ed4d70c93f56337272ad8a51f4e8a9e52114"
     },
     {
       "source": "src/namespaces/Core.ts",
@@ -157,6 +157,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "e8b65e5e58baccb67176aa3b3b7577d12030fd15729e12db6410f0841e0a4b20"
+    "sha256": "9f07800a658d593beccb992c2b2f0ad674e49b2efa355ce62530972a1ef4e39d"
   }
 }

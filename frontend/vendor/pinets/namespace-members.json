@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "c3a59efe23cbf529cfd3bf5560b748db7852da4428e7241427f02e0469f6696c",
+  "namespaceSourcesSha256": "c6bdf9d1d5319c556a085b1bd83c4549a2dc236084aeb98926ff4c2cc1c8fd58",
   "overrides": [
     {
       "source": "src/Context.class.ts",
-      "sha256": "7425fa263810f348f002124f12ec2338fcf51daae6d2c28648771b2792a2fa98"
+      "sha256": "81865d305b460f31a4f3224c53df52aef61bc4f2b88c96ff9abb0ea69f5bbd81"
     },
     {
       "source": "src/namespaces/array/sliceView.ts",

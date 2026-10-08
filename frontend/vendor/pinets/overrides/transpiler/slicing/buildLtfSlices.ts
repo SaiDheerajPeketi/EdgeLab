@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
-// Modified by EdgeLab, 2026-10-08: isolate direct UDF request invocations by call ID.
+// Modified by EdgeLab, 2026-10-08: isolate bounded UDF request call paths.
 
 /**
  * LTF / HTF request slicing — Phases 1 + 2 + 3.
@@ -17,10 +17,11 @@
  *     / `switch` / nested `BlockStatement` at any depth.
  *   - Phase 3 — call inside a user-defined function (or UDT method —
  *     methods compile to regular FunctionDeclarations). Slice
- *     preserves the truncated definition and earliest direct invocation
- *     as the default. `_edgelabCallSlices` additionally selects each
- *     direct invocation by its literal `$.call` ID. Calls reached only
- *     through another UDF have no supported slice.
+ *     preserves the truncated definition and earliest supported invocation
+ *     as the default. `_edgelabCallSlices` selects a full root-to-callee
+ *     path of literal `$.call` IDs, with each caller projected at its
+ *     matching invocation. Recursive paths and depths beyond eight calls
+ *     are unsupported; generation is capped at 256 slice functions.
  *
  * Slices are keyed by the static `pN` literal carried by the call's
  * third positional argument (the same name `request.param` injects at
@@ -33,6 +34,10 @@
 import * as astring from 'astring';
 
 const SLICING_TARGETS = new Set(['security_lower_tf', 'security']);
+const MAX_CALL_DEPTH = 8;
+const MAX_GENERATED_SLICES = 256;
+const MAX_CALL_PATH_VISITS = 4096;
+
 
 const AST_SKIP_KEYS = new Set([
     'type', 'loc', 'start', 'end', 'range', 'parent',
@@ -88,6 +93,15 @@ function findRequestCallsWithPaths(root: any, bindings: Map<string, any>, fields
             if (key) {
                 const values = fields.get(key) ?? [];
                 values.push(n.right); fields.set(key, values);
+            }
+        }
+        // Reassignments lower to $.set rather than AssignmentExpression.
+        if (n.type === 'CallExpression' && n.callee?.type === 'MemberExpression' && !n.callee.computed
+            && n.callee.object?.name === '$' && n.callee.property?.name === 'set') {
+            const key = fieldKey(n.arguments?.[0]);
+            if (key) {
+                const values = fields.get(key) ?? [];
+                values.push(n.arguments?.[1]); fields.set(key, values);
             }
         }
         if (isRequestSecurityCall(n)) {
@@ -197,7 +211,7 @@ function sliceAlongPath(node: any, path: any[], depth: number): any {
  * Test if a CallExpression is `$.call(fnRef, ...)` and return the
  * fnRef Identifier name. Used to locate top-level invocations of a
  * given user function. Returns null if the node is not a `$.call`
- * or its first arg is not an Identifier.
+ * or its first arg is neither an Identifier nor its exact $.get(fn, 0) wrapper.
  */
 function dollarCallTarget(node: any): string | null {
     if (!node || node.type !== 'CallExpression') return null;
@@ -205,22 +219,31 @@ function dollarCallTarget(node: any): string | null {
     if (!callee || callee.type !== 'MemberExpression' || callee.computed) return null;
     if (callee.object?.type !== 'Identifier' || callee.object.name !== '$') return null;
     if (callee.property?.type !== 'Identifier' || callee.property.name !== 'call') return null;
-    const arg0 = node.arguments?.[0];
+    let arg0 = node.arguments?.[0];
+    // UDF calls inside another UDF unwrap the function through $.get(fn, 0).
+    if (arg0?.type === 'CallExpression' && arg0.callee?.type === 'MemberExpression' && !arg0.callee.computed
+        && arg0.callee.object?.name === '$' && arg0.callee.property?.name === 'get'
+        && arg0.arguments?.length === 2 && arg0.arguments[1]?.type === 'Literal' && arg0.arguments[1].value === 0) {
+        arg0 = arg0.arguments[0];
+    }
     if (arg0?.type === 'Identifier' && typeof arg0.name === 'string') return arg0.name;
     return null;
 }
 
-/** Direct wrapper invocations only. Calls inside another function are unsupported. */
-function findInvocationPaths(wrapperBody: any, fnName: string): Array<{ id: string; path: any[] }> {
-    const found: Array<{ id: string; path: any[] }> = [];
+type Invocation = { id: string; path: any[]; owner: any | null };
+
+/** Calls within one execution scope; nested definitions are scanned separately. */
+function findInvocationPaths(body: any): Array<{ target: string; id: string; path: any[] }> {
+    const found: Array<{ target: string; id: string; path: any[] }> = [];
     const seen = new WeakSet<object>();
     function walk(node: any, path: any[]): void {
         if (!node || typeof node !== 'object' || seen.has(node) || isFunctionLike(node)) return;
         seen.add(node);
         const nextPath = path.concat(node);
-        if (dollarCallTarget(node) === fnName) {
+        const target = dollarCallTarget(node);
+        if (target) {
             const id = node.arguments?.[1];
-            if (id?.type === 'Literal' && typeof id.value === 'string') found.push({ id: id.value, path: nextPath });
+            if (id?.type === 'Literal' && typeof id.value === 'string') found.push({ target, id: id.value, path: nextPath });
         }
         for (const key of Object.keys(node)) {
             if (AST_SKIP_KEYS.has(key)) continue;
@@ -229,65 +252,62 @@ function findInvocationPaths(wrapperBody: any, fnName: string): Array<{ id: stri
             else walk(value, nextPath);
         }
     }
-    walk(wrapperBody, []);
+    walk(body, []);
     return found;
 }
 
-/**
- * Build a Phase 3 slice for a request call inside a function body.
- *
- * Strategy:
- *   1. The call's path = [wrapperBody, …, fnDecl, fnDecl.body, …, call].
- *   2. Slice fnDecl.body at the call (using sliceAlongPath rooted at
- *      fnDecl).
- *   3. Find the requested direct `$.call(fnDecl.id, id, …)` invocation,
- *      or the earliest direct invocation for the default slice.
- *   4. Project the wrapper through that invocation, swapping fnDecl
- *      for its sliced version. The
- *      kept statements include any `var` instance initializers the
- *      method needs (e.g. `var Counter c = Counter.new()`), preserving
- *      the var-once semantics observed in TV (Probe 3).
- *
- * Returns the sliced wrapper.body's statement list, or null if the
- * shape isn't supported (multi-level fn nesting, recursive fn,
- * etc.). Expression nodes retain their value semantics. A missing
- * slice lets the host explicitly reject unsupported isolation.
- */
-function buildPhase3SliceStmts(wrapperBody: any, path: any[], invocationPath?: any[]): any[] | null {
-    // path[0] === wrapperBody. Find the FIRST FunctionDeclaration
-    // on the path — that's the outer-most fn body the call lives in.
-    let fnIdx = -1;
-    for (let i = 1; i < path.length; i++) {
-        if (isFunctionLike(path[i])) { fnIdx = i; break; }
+/** Reverse call edges over top-level declarations, retaining lexical execution scopes. */
+function buildInvocationGraph(wrapperBody: any): Map<string, Invocation[]> {
+    const functions = wrapperBody.body.filter((node: any) => node.type === 'FunctionDeclaration' && node.id?.name);
+    const names = new Set(functions.map((node: any) => node.id.name));
+    const graph = new Map<string, Invocation[]>();
+    for (const owner of [null, ...functions]) {
+        for (const call of findInvocationPaths(owner ? owner.body : wrapperBody)) {
+            if (!names.has(call.target)) continue;
+            const incoming = graph.get(call.target) ?? [];
+            incoming.push({ id: call.id, path: call.path, owner });
+            graph.set(call.target, incoming);
+        }
     }
-    if (fnIdx < 0) return null;
+    return graph;
+}
+
+/** Build bounded root-to-request call paths, never falling back to a different invocation. */
+function buildPhase3Slices(wrapperBody: any, path: any[], graph: Map<string, Invocation[]>): Array<{ id: string; body: any[]; roots: any[] }> {
+    const fnIdx = path.findIndex(isFunctionLike);
+    if (fnIdx < 0 || path.slice(fnIdx + 1).some(isFunctionLike)) return [];
     const fnNode = path[fnIdx];
+    if (fnNode.type !== 'FunctionDeclaration' || !fnNode.id?.name || !wrapperBody.body.includes(fnNode)) return [];
+    const requestOwner = sliceAlongPath(fnNode, path.slice(fnIdx), 0);
+    const slices: Array<{ id: string; body: any[]; roots: any[] }> = [];
+    let visits = 0;
 
-    // Phase 3 v1 — only handle single-level fn nesting. If there's a
-    // SECOND function-like node deeper in the path, bail.
-    for (let i = fnIdx + 1; i < path.length; i++) {
-        if (isFunctionLike(path[i])) return null;
+    function visit(target: any, chain: Invocation[], visited: Set<any>): void {
+        if (chain.length >= MAX_CALL_DEPTH) return;
+        for (const invocation of graph.get(target.id.name) ?? []) {
+            if (++visits > MAX_CALL_PATH_VISITS) throw new Error('Request isolation exceeds the call-path traversal limit.');
+            const next = [invocation, ...chain];
+            if (invocation.owner) {
+                if (visited.has(invocation.owner)) continue;
+                visit(invocation.owner, next, new Set([...visited, invocation.owner]));
+                continue;
+            }
+            if (slices.length >= MAX_GENERATED_SLICES) throw new Error('Request isolation exceeds the generated slice limit.');
+            const replacements = new Map<any, any>([[fnNode, requestOwner]]);
+            for (const call of next) {
+                if (call.owner) replacements.set(call.owner, { ...call.owner, body: sliceAlongPath(call.owner.body, call.path, 0) });
+            }
+            const root = sliceAlongPath(wrapperBody, invocation.path, 0);
+            const body = root.body.map((statement: any) => replacements.get(statement) ?? statement);
+            // A hoisted definition can follow its invocation; retain that definition alone.
+            for (const [original, replacement] of replacements) {
+                if (!root.body.includes(original)) body.push(replacement);
+            }
+            slices.push({ id: next.map(call => call.id).join('|'), body, roots: [...replacements.keys()] });
+        }
     }
-
-    // Only handle FunctionDeclarations — anonymous fn-expressions
-    // can't be looked up by name in the call graph.
-    if (fnNode.type !== 'FunctionDeclaration' || !fnNode.id?.name) return null;
-    const fnName = fnNode.id.name;
-
-    // Slice the function's body at the call.
-    const fnSlicePath = path.slice(fnIdx); // [fnDecl, fnDecl.body?, …, call]
-    const slicedFn = sliceAlongPath(fnNode, fnSlicePath, 0);
-
-    // Keep the existing earliest-call default, and expose exact direct call-site slices.
-    const invocation = invocationPath ?? findInvocationPaths(wrapperBody, fnName)[0]?.path;
-    if (!invocation) return null;
-    const fnDeclIdx = wrapperBody.body.indexOf(fnNode);
-    if (fnDeclIdx < 0) return null;
-    const projected = sliceAlongPath(wrapperBody, invocation, 0);
-    const result = projected.body.map((statement: any) => statement === fnNode ? slicedFn : statement);
-    // Declarations are hoisted; retain only this declaration if it follows the invocation.
-    if (!result.includes(slicedFn)) result.push(slicedFn);
-    return result;
+    visit(fnNode, [], new Set([fnNode]));
+    return slices;
 }
 
 /** Wrap a sliced statement list back into an async arrow Function. */
@@ -334,6 +354,94 @@ function requestDependencies(name: string, bindings: Map<string, any>, fields: M
     return [...dependencies];
 }
 
+/** Prefix replay cannot reconstruct shared mutable state omitted after a request.
+ * Follow only this expression and its original call-chain bodies, not unrelated globals.
+ */
+function staticReplaySafe(name: string, roots: any[], bindings: Map<string, any>, fields: Map<string, any[]>): boolean {
+    const mutableActive = new WeakSet<object>();
+    const mutableMemo = new WeakMap<object, boolean>();
+    function mutableValue(node: any): boolean {
+        if (!node || typeof node !== 'object') return false;
+        if (mutableMemo.has(node)) return mutableMemo.get(node)!;
+        if (mutableActive.has(node)) return false;
+        mutableActive.add(node);
+        const result = classifyMutableValue(node);
+        mutableActive.delete(node);
+        mutableMemo.set(node, result);
+        return result;
+    }
+    function classifyMutableValue(node: any): boolean {
+        if (node.type === 'Identifier') return mutableValue(bindings.get(node.name));
+        const key = fieldKey(node);
+        if (key && fields.has(key)) return fields.get(key)!.some(mutableValue);
+        if (node.type === 'ObjectExpression' || node.type === 'ArrayExpression' || node.type === 'NewExpression') return true;
+        if (node.type === 'AwaitExpression' || node.type === 'ChainExpression') return mutableValue(node.argument ?? node.expression);
+        if (node.type === 'ConditionalExpression') return mutableValue(node.consequent) || mutableValue(node.alternate);
+        if (node.type === 'LogicalExpression') return mutableValue(node.left) || mutableValue(node.right);
+        if (node.type === 'MemberExpression') {
+            if (!node.computed && node.property?.name === 'prototype') return true;
+            if (!node.computed && node.property?.name === 'all' && ['box', 'line', 'label', 'linefill', 'polyline', 'table'].includes(node.object?.name)) return true;
+            return mutableValue(node.object);
+        }
+        if (node.type !== 'CallExpression') return false;
+        const callee = node.callee?.type === 'ChainExpression' ? node.callee.expression : node.callee;
+        const member = callee?.type === 'MemberExpression' && !callee.computed ? callee.property?.name : undefined;
+        const owner = callee?.object?.name;
+        if (owner === '$' && ['init', 'initVar'].includes(member)) return mutableValue(node.arguments?.[1]);
+        if (owner === '$' && ['get', 'param', 'precision'].includes(member)) return mutableValue(node.arguments?.[0]);
+        if (member === 'param') return mutableValue(node.arguments?.[0]);
+        if (owner === '$' && member === 'call') {
+            // A returned formal can carry a mutable value from the caller.
+            // Conservatively retain that risk without inventing parameter bindings.
+            if (node.arguments.slice(2).some(mutableValue)) return true;
+            const target = dollarCallTarget(node);
+            const fn = target ? bindings.get(target) : undefined;
+            if (!fn || fn.type !== 'FunctionDeclaration') return true;
+            let mutable = false;
+            function returns(value: any): void {
+                if (!value || typeof value !== 'object' || mutable) return;
+                if (value.type === 'ReturnStatement') { mutable = mutableValue(value.argument); return; }
+                if (isFunctionLike(value)) return;
+                for (const key of Object.keys(value)) {
+                    if (AST_SKIP_KEYS.has(key)) continue;
+                    const child = value[key];
+                    if (Array.isArray(child)) for (const item of child) returns(item); else returns(child);
+                }
+            }
+            returns(fn.body);
+            return mutable;
+        }
+        // Collections, UDTs and drawing/point constructors return mutable references.
+        // color.new and ticker.new are string-producing helpers, not object factories.
+        // Without complete return-type proof, any collection namespace result
+        // stored in a referenced global is conservatively considered a pointer.
+        if (['array', 'map', 'matrix'].includes(owner)) return true;
+        if ((owner === 'ta' && member === 'pivot_point_levels') || (owner === 'request' && member === 'security_lower_tf')) return true;
+        return ['new', 'copy', 'from_index', 'from_time'].includes(member) && !['color', 'ticker'].includes(owner);
+    }
+    const seen = new WeakSet<object>();
+    let safe = true;
+    function walk(node: any): void {
+        if (!safe || !node || typeof node !== 'object' || seen.has(node)) return;
+        seen.add(node);
+        const key = fieldKey(node);
+        if (key && /^\$\.(?:var|varip|let|const)\.[^.]+$/.test(key)) {
+            const assignments = fields.get(key);
+            if (!assignments?.length || assignments.length > 1 || assignments.some(mutableValue)) { safe = false; return; }
+        }
+        if (node.type === 'Identifier') walk(bindings.get(node.name));
+        if (key) for (const value of fields.get(key) ?? []) walk(value);
+        for (const key of Object.keys(node)) {
+            if (AST_SKIP_KEYS.has(key)) continue;
+            const value = node[key];
+            if (Array.isArray(value)) for (const child of value) walk(child); else walk(value);
+        }
+    }
+    walk(bindings.get(name));
+    for (const root of roots) walk(root);
+    return safe;
+}
+
 function fieldKey(node: any): string | undefined {
     if (node?.type === 'Identifier') return node.name;
     if (node?.type !== 'MemberExpression' || node.computed || node.property?.type !== 'Identifier') return;
@@ -362,6 +470,8 @@ export function buildLtfSlices(ast: any): Record<string, Function> {
     const bindings = new Map<string, any>();
     const fields = new Map<string, any[]>();
     const calls = findRequestCallsWithPaths(wrapperFn.body, bindings, fields);
+    const graph = buildInvocationGraph(wrapperFn.body);
+    let generated = 0;
 
     for (const { call, path } of calls) {
         const exprName = exprNameOfCall(call, bindings);
@@ -372,31 +482,29 @@ export function buildLtfSlices(ast: any): Record<string, Function> {
         // crossing a nested user function.
         const crossesFn = path.some((n) => isFunctionLike(n));
         let stmts: any[] | null = null;
+        let callPaths: Array<{ id: string; body: any[]; roots: any[] }> = [];
         if (!crossesFn) {
             const slicedRoot = sliceAlongPath(wrapperFn.body, path, 0);
             stmts = (slicedRoot && slicedRoot.body) ? slicedRoot.body : [];
         } else {
             // Phase 3 path: call lives inside a function body.
-            stmts = buildPhase3SliceStmts(wrapperFn.body, path);
+            callPaths = buildPhase3Slices(wrapperFn.body, path, graph);
+            stmts = callPaths[0]?.body ?? null;
         }
         if (!stmts || stmts.length === 0) continue;
 
         const dependencies = Object.freeze(requestDependencies(exprName, bindings, fields));
-        const makeSlice = (body: any[]): Function => {
+        const makeSlice = (body: any[], roots: any[] = []): Function => {
+            if (++generated > MAX_GENERATED_SLICES) throw new Error('Request isolation exceeds the generated slice limit.');
             const fn = buildSliceFunction(wrapperFn, body);
             Object.defineProperty(fn, '_edgelabRequestDependencies', { value: dependencies });
+            Object.defineProperty(fn, '_edgelabStaticReplaySafe', { value: staticReplaySafe(exprName, roots, bindings, fields) });
             return fn;
         };
-        const sliceFn = makeSlice(stmts);
+        const sliceFn = makeSlice(stmts, callPaths[0]?.roots);
         if (crossesFn) {
-            const fnNode = path.find(isFunctionLike);
             const callSlices: Record<string, Function> = Object.create(null);
-            if (fnNode?.type === 'FunctionDeclaration' && fnNode.id?.name) {
-                for (const invocation of findInvocationPaths(wrapperFn.body, fnNode.id.name)) {
-                    const body = buildPhase3SliceStmts(wrapperFn.body, path, invocation.path);
-                    if (body?.length) callSlices[invocation.id] = makeSlice(body);
-                }
-            }
+            for (const invocation of callPaths) callSlices[invocation.id] = makeSlice(invocation.body, invocation.roots);
             Object.defineProperty(sliceFn, '_edgelabCallSlices', { value: Object.freeze(callSlices) });
         }
         slices[exprName] = sliceFn;

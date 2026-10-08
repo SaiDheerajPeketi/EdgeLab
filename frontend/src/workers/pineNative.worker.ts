@@ -200,7 +200,10 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
         if (path.includes(expressionName)) error("REQUEST_LIMIT", "Pine static request dependencies contain a cycle.");
         let snapshot = staticSnapshots.get(expressionName);
         if (!snapshot) {
-          const slice = parent._ltfTruncatedBodies?.[dependency];
+          const slice = requestSlice(parent, expressionName);
+          if (slice && Object.getOwnPropertyDescriptor(slice, "_edgelabStaticReplaySafe")?.value === false) {
+            error("UNSUPPORTED_REQUEST_EXPRESSION", "Static requests that depend on shared mutable state cannot be isolated safely.");
+          }
           const engine = new PineTS(provider, symbol, timeframe, request.bars!.length);
           engine.markAsSecondary();
           snapshot = runRequest(engine, slice, parent, expressionName, expressionName, [...path, expressionName]).then((child) => {

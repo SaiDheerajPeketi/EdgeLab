@@ -1075,13 +1075,19 @@ export class Context {
      */
     public call(fn: Function, id: string, ...args: any[]) {
         this.pushId(id);
+        let pending = false;
         try {
             const result = fn(...args);
+            // Awaited requests must retain their complete written-call path until the function settles.
+            if (result instanceof Promise) {
+                pending = true;
+                return result.then(value => value === undefined ? NaN : value).finally(() => this.popId());
+            }
             // Falling off the end of a Pine function (e.g. an `if` with no `else` whose
             // test was false) yields `na`, not an absent value.
             return result === undefined ? NaN : result;
         } finally {
-            this.popId();
+            if (!pending) this.popId();
         }
     }
 
