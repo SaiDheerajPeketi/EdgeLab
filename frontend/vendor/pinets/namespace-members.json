@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "bcf31b62a11af27f96f07d685282241d83a5c756819f17a91859e527166a7835",
+  "namespaceSourcesSha256": "3b704eb1330ccf57b6293ce15578b721556b882d9957c669b815d929b8674bac",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -25,6 +25,14 @@
       "sha256": "ccaa0107c821aec508835f6f81b65056f2829ce7b995d0e9958a40d373e26fa3"
     },
     {
+      "source": "src/namespaces/request/methods/security_lower_tf.ts",
+      "sha256": "4f69a22057947424716e0090ed0e393b62d72a46d1e3e8b36738a47a8678ee34"
+    },
+    {
+      "source": "src/namespaces/request/methods/security.ts",
+      "sha256": "ea98a016766ce7d97caed073fadb0efe27a065a823bbd4b6f953eb7d18fbdce9"
+    },
+    {
       "source": "src/namespaces/Str.ts",
       "sha256": "d5beb401daaae094c6218ed271441a15ad2dca2c888f30a12edaf67b8d8494f7"
     },
@@ -43,6 +51,10 @@
     {
       "source": "src/namespaces/strategy/utils.ts",
       "sha256": "906d9a688239ae9cf7fa8805fc2a2ad7a27edc6662e9ba8c59eb0b65a0d588ba"
+    },
+    {
+      "source": "src/namespaces/Ticker.ts",
+      "sha256": "2d680d19546a6a0d33add2be70a2d8d5132cf51fc65f6dfd08da0013a6523dfb"
     }
   ],
   "namespaces": {

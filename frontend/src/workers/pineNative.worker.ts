@@ -116,6 +116,19 @@ function chartProvider(request: PineRequest) {
       return { ...info };
     },
   };
+  // Native request shortcuts must validate the original full identity before decoding it.
+  // An immutable provider-owned callback is captured by every request namespace factory.
+  Object.defineProperty(provider, "_edgelabRequestContext", { value: (requestedSymbol: unknown, requestedTimeframe: unknown) => {
+    const requested = requestedSymbol === "" ? symbol : requestedSymbol;
+    const rawTimeframe = requestedTimeframe === "" ? context.timeframe : String(requestedTimeframe ?? "");
+    let tf: string | undefined;
+    try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Unavailable context, including invalid timeframes. */ }
+    if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol) || tf !== timeframe) {
+      reject(String(requested), rawTimeframe);
+      throw failure!;
+    }
+    return { symbol, timeframe };
+  } });
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
   return {
     provider,

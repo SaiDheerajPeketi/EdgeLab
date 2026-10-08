@@ -494,3 +494,42 @@ test("opaque bridge rejects forged packed cells, option indices, fill references
   expect(harness.endpointRequests).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem("workspace-secret"))).toBe("private-value");
 });
+
+test("production request identity103 rejects unavailable contexts without substituting chart prices", async ({ page, harness }) => {
+  const snapshot = [10, 11, 12, 13, 14, 15].map((close, index) => ({
+    time: 1_700_000_040 + index * 60, open: close - 1, high: close + 1, low: close - 2, close, volume: 10,
+  }));
+  const context = { symbol: "CHART:TEST", timeframe: "1", mintick: 0.01, pointvalue: 1 };
+  const exactValues = snapshot.map(bar => bar.close);
+  for (const version of [5, 6] as const) {
+    const indicatorSource = (body: string) => `//@version=${version}\nindicator("Request identity103")\n${body}`;
+    const execute = (source: string) => run(page, { ...runtimeRequest(source), bars: snapshot, context });
+    const exact = indicatorSource('plot(request.security(syminfo.tickerid,timeframe.period,close),"Owned")');
+    const initial = await execute(exact);
+    expect(initial.ok, JSON.stringify(initial.error)).toBe(true);
+    expect(initial.value.source).toBe(exact);
+    expect(initial.value.plots.find((plot: any) => plot.name === "Owned").points.map((point: any) => point.value)).toEqual(exactValues);
+    const unavailable = [
+      indicatorSource('plot(request.security("OTHER:TEST","1",close),"Remote")'),
+      indicatorSource('remote=request.security_lower_tf("OTHER:TEST","1",close)\nplot(array.size(remote),"Remote")'),
+      indicatorSource('plot(request.security(ticker.new("CHART","TEST",session.extended),"1",close),"Remote")'),
+      indicatorSource('plot(request.security(ticker.heikinashi(syminfo.tickerid),"1",close),"Remote")'),
+      indicatorSource('plot(request.security(ticker.renko(syminfo.tickerid,"ATR",10),"1",close),"Remote")'),
+      `//@version=${version}\nstrategy("Foreign strategy",initial_capital=1000)\nremote=request.security("OTHER:TEST","1",close)\nif bar_index==0\n    strategy.entry("Foreign",strategy.long,qty=remote)\nplot(remote,"Remote")`,
+    ];
+    for (const source of unavailable) {
+      const outcome = await execute(source);
+      expect(outcome.ok).toBe(false);
+      expect(outcome.error?.code, JSON.stringify(outcome.error)).toBe("UNAVAILABLE_DATA");
+      expect(outcome.value).toBeUndefined();
+      await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+    }
+    const followUp = await execute(exact);
+    expect(followUp.ok, JSON.stringify(followUp.error)).toBe(true);
+    expect(followUp.value.plots.find((plot: any) => plot.name === "Owned").points.map((point: any) => point.value)).toEqual(exactValues);
+  }
+  expect(harness.assetRequests).toContain(harness.workerPath);
+  expect(harness.endpointRequests).toEqual([]);
+  await expect(page.locator("#parent-secret")).toHaveText("Parent workspace secret");
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+});

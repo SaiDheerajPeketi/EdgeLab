@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-primitive-shadowing-101",
+  "patch": "edgelab-request-identity-103",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -123,10 +123,28 @@
       "file": "overrides/transpiler/pineToJS/inputs/constEval.ts",
       "upstreamSha256": "57b02ac714966d71a5000e83e597959e15fc365127af843ca98fca0d05997f21",
       "sha256": "1b940ba1e1ff43360e7b95f026f640ae02a60258899a651e6db9aca97bd0736c"
+    },
+    {
+      "source": "src/namespaces/request/methods/security.ts",
+      "file": "overrides/namespaces/request/methods/security.ts",
+      "upstreamSha256": "06e8d41952b525ecf3285f9017441846f81701f12eb6275e5f9f12fd78d6425c",
+      "sha256": "ea98a016766ce7d97caed073fadb0efe27a065a823bbd4b6f953eb7d18fbdce9"
+    },
+    {
+      "source": "src/namespaces/request/methods/security_lower_tf.ts",
+      "file": "overrides/namespaces/request/methods/security_lower_tf.ts",
+      "upstreamSha256": "485ac978a33ae3b9101fd51d6acea92c8e465fa118c1f5434d13e2959fb9ed0a",
+      "sha256": "4f69a22057947424716e0090ed0e393b62d72a46d1e3e8b36738a47a8678ee34"
+    },
+    {
+      "source": "src/namespaces/Ticker.ts",
+      "file": "overrides/namespaces/Ticker.ts",
+      "upstreamSha256": "b632873dae6ffbb8851bfbd20089ecee83251abba24548e8b6854dc4b85d6b0b",
+      "sha256": "2d680d19546a6a0d33add2be70a2d8d5132cf51fc65f6dfd08da0013a6523dfb"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "0b1e03bea1881cf0d084b5f54dd9c69bf521da61c2a68f1e5d40cff03562e19c"
+    "sha256": "1638a639e5d3b95faeac414cc0900313c40ed6afbe509853e53c5d756be59a8b"
   }
 }
