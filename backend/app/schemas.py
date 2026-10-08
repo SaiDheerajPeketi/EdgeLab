@@ -227,6 +227,31 @@ class ChartSettingsRead(BaseModel):
     active: AppStorageRead
 
 
+class ChartTemplateOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["save", "delete", "activate"]
+    name: StrictStr
+    settings: dict[str, Any] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str):
+        name = " ".join(value.split())
+        if not name:
+            raise ValueError("A chart template name is required.")
+        return name
+
+    @model_validator(mode="after")
+    def validate_settings(self):
+        if self.action == "save":
+            if self.settings is None:
+                raise ValueError("Saving a chart template requires settings.")
+        elif "settings" in self.model_fields_set:
+            raise ValueError("Settings are only accepted when saving a chart template.")
+        return self
+
+
 class SettingsPreferencesUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

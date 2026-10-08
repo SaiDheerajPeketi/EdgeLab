@@ -88,3 +88,5 @@ The first command covers the FastAPI application and services. The second runs t
 ## Matching application source
 
 The browser build generates `/source/` with the matching frontend/backend application inputs, verified original Pine sources and reviewed overrides, build/run instructions and SHA-256 checksums. It verifies the offer after compilation. The public footer, settings and Pine editor link to the download. Generated offers stay out of Git and Docker build inputs; Docker regenerates them from the same checkout used to build both application images. Rebuild both images after changing either application. Credentials, personal records, datasets, internal plans and Git history are excluded. This application-source download does not grant access to paid user-data exports.
+
+`POST /api/settings/chart/templates` accepts save, delete, and activate commands for the authenticated owner. The template list and selection commit in one transaction with conditional retries, preserving unrelated presets and unknown metadata. Malformed stored bundles require recovery, and activating a missing template is rejected.

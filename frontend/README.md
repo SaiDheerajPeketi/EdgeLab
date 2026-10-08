@@ -212,3 +212,5 @@ With historical `calc_on_order_fills=true`, fixed or partial-percentage exit gen
 ## Matching application source
 
 The browser build generates `/source/` with the matching frontend/backend application inputs, verified original Pine sources and reviewed overrides, build/run instructions and SHA-256 checksums. It verifies the offer after compilation. The public footer, settings and Pine editor link to the download. Generated offers stay out of Git and Docker build inputs; Docker regenerates them from the same checkout used to build both application images. Rebuild both images after changing either application. Credentials, personal records, datasets, internal plans and Git history are excluded. This application-source download does not grant access to paid user-data exports.
+
+Chart settings templates use acknowledged, atomic save/delete/selection commands. Failed operations retain the current chart and editable name with retry feedback; a late reply cannot apply a template over newer chart edits or close a reopened dialog. Other template actions are blocked while one is pending.

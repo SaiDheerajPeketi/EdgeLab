@@ -20,6 +20,15 @@ async function setup(page: Page) {
     { name: "Evening", settings: { textSize: 16, watermarkText: "Evening" }, updatedAt: "2026-09-15T11:00:00Z" },
   ];
   const values: Record<string, unknown> = { "chart-settings-presets.v1": presets, "active-chart-settings-preset.v1": "Morning" };
+  await page.route("**/api/settings/chart/templates", async (route) => {
+    const { action, name, settings } = route.request().postDataJSON();
+    const current = values["chart-settings-presets.v1"] as typeof presets;
+    if (action === "save") values["chart-settings-presets.v1"] = [{ name, settings, updatedAt: "2026-10-08T12:00:00Z" }, ...current.filter((entry) => entry.name !== name)];
+    if (action === "delete") values["chart-settings-presets.v1"] = current.filter((entry) => entry.name !== name);
+    values["active-chart-settings-preset.v1"] = action === "delete" ? (values["active-chart-settings-preset.v1"] === name ? (values["chart-settings-presets.v1"] as typeof presets)[0]?.name ?? null : values["active-chart-settings-preset.v1"]) : name;
+    const item = (key: string) => ({ namespace: "edgelab", key, value: values[key], updated_at: "2026-10-08T12:00:00Z" });
+    await route.fulfill({ json: { active: item("active-chart-settings-preset.v1"), presets: item("chart-settings-presets.v1") } });
+  });
   await page.route("**/api/app-storage/edgelab/*", async (route) => {
     const key = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-1)!);
     if (route.request().method() === "PUT") values[key] = route.request().postDataJSON().value;

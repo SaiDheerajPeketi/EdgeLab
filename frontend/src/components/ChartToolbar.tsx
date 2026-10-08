@@ -69,19 +69,18 @@ import {
   type DrawingMappingPolicy,
 } from "../lib/chartWorkspace";
 import {
-  deleteChartSettingsPreset,
   hydrateChartSettingsPresets,
   loadActiveChartSettingsPresetName,
   loadChartSettingsPresets,
   normalizeChartSettingsPresetName,
-  persistActiveChartSettingsPresetName,
-  saveChartSettingsPreset,
   sanitizeChartVisualSettings,
   subscribeChartSettingsPresets,
   type ChartLineStyle,
   type ChartSettingsPreset,
   type ChartVisualSettings,
 } from "../lib/chartSettings";
+import { confirmChartSettingsTemplate, type ChartTemplateAction } from "../lib/chartSettingsTemplates";
+import { assertAppDataAccess, captureAppDataAccess } from "../lib/appDataBarrier";
 import {
   CHART_PANE_LAYOUTS,
   type ChartPaneLayoutDefinition,
@@ -457,6 +456,21 @@ export function ChartToolbar({
   });
   const [settingsActivePresetName, setSettingsActivePresetName] = useState<string | null>(() => loadActiveChartSettingsPresetName());
   const settingsNameEdited = useRef(false);
+  const [templatePending, setTemplatePending] = useState<ChartTemplateAction | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateNotice, setTemplateNotice] = useState<string | null>(null);
+  const templateOperationRef = useRef<object | null>(null);
+  const templateMountedRef = useRef(true);
+  const templateDraftSignature = JSON.stringify([chartSettings, settingsPresetName, activePaneLabel, symbol, timeframe, paneLayout, syncSettings.style, settingsOpen]);
+  const templateDraftRef = useRef({ signature: templateDraftSignature, revision: 0 });
+  if (templateDraftRef.current.signature !== templateDraftSignature) {
+    templateDraftRef.current = { signature: templateDraftSignature, revision: templateDraftRef.current.revision + 1 };
+  }
+  useEffect(() => {
+    templateMountedRef.current = true;
+    return () => { templateMountedRef.current = false; };
+  }, []);
+
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const suppressCommandFocusOpenRef = useRef(false);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
@@ -636,14 +650,14 @@ export function ChartToolbar({
       }
       const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
       setSettingsPresets(nextPresets);
-      setSettingsActivePresetName(nextName);
-      if (!settingsNameEdited.current) setSettingsPresetName(nextName);
+      if (!templateOperationRef.current) setSettingsActivePresetName(nextName);
+      if (!templateOperationRef.current && !settingsNameEdited.current) setSettingsPresetName(nextName);
     });
     const unsubscribe = subscribeChartSettingsPresets((nextPresets) => {
       const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
       setSettingsPresets(nextPresets);
-      setSettingsActivePresetName((current) => nextPresets.some((preset) => preset.name === current) ? current : null);
-      if (!settingsNameEdited.current) setSettingsPresetName((current) =>
+      if (!templateOperationRef.current) setSettingsActivePresetName((current) => nextPresets.some((preset) => preset.name === current) ? current : null);
+      if (!templateOperationRef.current && !settingsNameEdited.current) setSettingsPresetName((current) =>
         nextPresets.some((preset) => preset.name === current) ? current : nextName,
       );
     });
@@ -876,47 +890,75 @@ export function ChartToolbar({
     window.requestAnimationFrame(() => buttons?.[nextIndex]?.focus());
   }
 
+  async function changeTemplate(action: ChartTemplateAction, name: string) {
+    if (templateOperationRef.current) return;
+    const operation = {};
+    const access = captureAppDataAccess();
+    const revision = templateDraftRef.current.revision;
+    const presetName = normalizeChartSettingsPresetName(name);
+    const submitted = sanitizeChartVisualSettings(chartSettings);
+    templateOperationRef.current = operation;
+    setTemplatePending(action);
+    setTemplateError(null);
+    setTemplateNotice(null);
+    const current = () => {
+      if (!templateMountedRef.current || templateOperationRef.current !== operation) return false;
+      try { assertAppDataAccess(access); return true; } catch { return false; }
+    };
+    try {
+      const { presets, activeName } = await confirmChartSettingsTemplate(action, presetName, action === "save" ? submitted : undefined);
+      if (!current()) return;
+      const latestPresets = loadChartSettingsPresets();
+      const targetSettings = (values: ChartSettingsPreset[]) => values.find((entry) => entry.name === presetName)?.settings;
+      const unchanged = templateDraftRef.current.revision === revision &&
+        (action === "delete" || (loadActiveChartSettingsPresetName(latestPresets) === activeName && JSON.stringify(targetSettings(latestPresets)) === JSON.stringify(targetSettings(presets))));
+      // A later queued edit may already have rebased this acknowledged bundle.
+      setSettingsPresets(latestPresets);
+      if (action === "delete") {
+        setSettingsActivePresetName((active) => active === presetName ? null : active);
+        if (unchanged && !settingsNameEdited.current) setSettingsPresetName(loadActiveChartSettingsPresetName(latestPresets) ?? "Default");
+        setTemplateNotice(`Deleted ${presetName}.`);
+      } else if (unchanged) {
+        settingsNameEdited.current = false;
+        setSettingsPresetName(presetName);
+        setSettingsActivePresetName(presetName);
+        if (action === "activate") {
+          const preset = presets.find((entry) => entry.name === presetName)!;
+          onChartSettingsChange(preset.settings);
+          setTemplateNotice(`Using ${presetName}.`);
+        } else {
+          setSettingsOpen(false);
+        }
+      } else {
+        setTemplateNotice(action === "save" ? `Saved ${presetName}. Your newer changes are still unsaved.` : `Selected ${presetName}. Your newer chart changes were kept. Select it again to apply.`);
+      }
+    } catch (error) {
+      if (!current()) return;
+      setTemplateError(error instanceof Error && "requiresReload" in error ? error.message : action === "save" ? "Couldn't save the template. Your changes are still here. Try Save Template again." : action === "delete" ? "Couldn't delete the template. It has been kept. Try Delete again." : "Couldn't switch templates. Your current chart settings were kept. Try again.");
+    } finally {
+      if (templateOperationRef.current === operation) {
+        templateOperationRef.current = null;
+        if (templateMountedRef.current) setTemplatePending(null);
+      }
+    }
+  }
+
   const settingsPanel = settingsOpen ? (
     <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={(reason) => { setSettingsOpen(false); if (reason === "escape") settingsTriggerRef.current?.focus({ preventScroll: true }); }} align="right" mobileSheet preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
       activePresetName={settingsActivePresetName}
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
-      onDeletePreset={(name) => {
-        const nextPresets = deleteChartSettingsPreset(name);
-        const nextName =
-          normalizeChartSettingsPresetName(name) === settingsPresetName
-            ? loadActiveChartSettingsPresetName(nextPresets) ?? "Default"
-            : settingsPresetName;
-        setSettingsPresets(nextPresets);
-        if (normalizeChartSettingsPresetName(name) === settingsActivePresetName) setSettingsActivePresetName(null);
-        if (!settingsNameEdited.current) setSettingsPresetName(nextName);
-      }}
-      onLoadPreset={(name) => {
-        const nextPresets = refreshSettingsPresets(name);
-        const preset = nextPresets.find((item) => item.name === name);
-        if (!preset) {
-          return;
-        }
-        settingsNameEdited.current = false;
-        setSettingsPresetName(preset.name);
-        setSettingsActivePresetName(preset.name);
-        persistActiveChartSettingsPresetName(preset.name);
-        onChartSettingsChange(preset.settings);
-      }}
-      onPresetNameChange={(name) => { settingsNameEdited.current = true; setSettingsPresetName(name); }}
+      onDeletePreset={(name) => { void changeTemplate("delete", name); }}
+      onLoadPreset={(name) => { void changeTemplate("activate", name); }}
+      onPresetNameChange={(name) => { templateDraftRef.current.revision += 1; settingsNameEdited.current = true; setSettingsPresetName(name); setTemplateNotice(null); }}
       onRemoveIndicator={onRemoveIndicator}
-      onReset={onChartSettingsReset}
-      onSavePreset={() => {
-        const presetName = normalizeChartSettingsPresetName(settingsPresetName);
-        const nextPresets = saveChartSettingsPreset(presetName, chartSettings);
-        settingsNameEdited.current = false;
-        setSettingsPresets(nextPresets);
-        setSettingsPresetName(presetName);
-        setSettingsActivePresetName(presetName);
-        setSettingsOpen(false);
-      }}
-      onSettingsChange={onChartSettingsChange}
+      onReset={() => { templateDraftRef.current.revision += 1; setTemplateNotice(null); onChartSettingsReset(); }}
+      onSavePreset={() => { void changeTemplate("save", settingsPresetName); }}
+      onSettingsChange={(settings) => { templateDraftRef.current.revision += 1; setTemplateNotice(null); onChartSettingsChange(settings); }}
+      templateError={templateError}
+      templateNotice={templateNotice}
+      templatePending={templatePending}
       onUpdateIndicatorSettings={onUpdateIndicatorSettings}
       presetName={settingsPresetName}
       presets={settingsPresets}
@@ -1957,8 +1999,14 @@ function ChartSettingsPanel({
   presetName,
   presets,
   settings,
+  templateError,
+  templateNotice,
+  templatePending,
 }: {
   activePresetName: string | null;
+  templateError: string | null;
+  templateNotice: string | null;
+  templatePending: ChartTemplateAction | null;
   indicatorInstances: ChartIndicatorInstance[];
   onClose: () => void;
   onDeletePreset: (name: string) => void;
@@ -2030,6 +2078,7 @@ function ChartSettingsPanel({
                     <button
                       className={`chart-settings-template-chip ${active ? "chart-settings-template-chip-active" : ""}`}
                       key={preset.name}
+                      disabled={templatePending != null}
                       onClick={() => onLoadPreset(preset.name)}
                       type="button"
                     >
@@ -2585,6 +2634,8 @@ function ChartSettingsPanel({
         </div>
       </div>
 
+      {templateError ? <div className="px-4 py-2 text-sm text-[var(--loss-text)]" role="alert">{templateError}</div> : null}
+      {templateNotice || templatePending ? <div className="px-4 py-2 text-sm text-[var(--text-secondary)]" role="status">{templatePending === "save" ? "Saving template…" : templatePending === "delete" ? "Deleting template…" : templatePending === "activate" ? "Switching template…" : templateNotice}</div> : null}
       <div className="chart-settings-footer">
         <div className="chart-settings-template-status">
           <span className="study-manager-label">Template</span>
@@ -2599,6 +2650,7 @@ function ChartSettingsPanel({
         />
         <button
           className="studio-tool-button studio-tool-button-active"
+          disabled={templatePending != null}
           onClick={onSavePreset}
           type="button"
         >
@@ -2607,7 +2659,7 @@ function ChartSettingsPanel({
         </button>
         <button
           className="studio-tool-button"
-          disabled={!activePreset}
+          disabled={!activePreset || templatePending != null}
           onClick={() => { if (activePreset) onDeletePreset(activePreset.name); }}
           title={activePreset ? `Delete ${activePreset.name}` : "No active template"}
           type="button"

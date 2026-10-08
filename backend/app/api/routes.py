@@ -88,6 +88,7 @@ from app.schemas import (
     AppStorageRead,
     ChartSettingsRead,
     ChartSettingsUpdate,
+    ChartTemplateOperation,
     SettingsPreferencesUpdate,
     JournalSettingsUpdate,
     AngelOneInstrument,
@@ -235,7 +236,7 @@ from app.services.rate_limits import build_rate_limiter
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
-from app.services.settings import read_chart_settings, patch_chart_settings, patch_settings_preferences
+from app.services.settings import read_chart_settings, patch_chart_settings, patch_settings_preferences, operate_chart_template
 
 
 router = APIRouter(route_class=app_data_operations.AppDataOperationRoute)
@@ -1840,6 +1841,11 @@ def get_chart_settings(db: Session = Depends(get_db), current_user: Authenticate
 @router.patch("/settings/chart", response_model=ChartSettingsRead)
 def update_chart_settings(payload: ChartSettingsUpdate, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
     return patch_chart_settings(db, current_user.id, payload.model_dump(exclude_unset=True))
+
+
+@router.post("/settings/chart/templates", response_model=ChartSettingsRead)
+def update_chart_template(payload: ChartTemplateOperation, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
+    return operate_chart_template(db, current_user.id, payload.action, payload.name, payload.settings)
 
 
 @router.patch("/settings/preferences", response_model=AppStorageRead)
