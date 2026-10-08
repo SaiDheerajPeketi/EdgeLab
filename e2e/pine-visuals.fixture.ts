@@ -16,6 +16,9 @@ const image = (chart, element) => {
   }
   return { width: canvas.width, height: canvas.height, pixels: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
 };
+export async function prepare(source) {
+  return createPineRuntimeJob({ action: "prepare", source }).promise;
+}
 export async function run(source, bars, options = {}) {
   if (state)
     for (const p of state.placements) {
@@ -26,7 +29,7 @@ export async function run(source, bars, options = {}) {
   main.replaceChildren();
   pane.replaceChildren();
   pane.hidden = true;
-  const result = await createPineRuntimeJob({ action: "run", source, bars, context: { symbol: "TEST", timeframe: "1", mintick: .01, pointvalue: 1 }, mode: "historical" }).promise;
+  const result = await createPineRuntimeJob({ action: "run", source, bars, inputs: options.inputs ?? {}, context: { symbol: "TEST", timeframe: "1", mintick: .01, pointvalue: 1 }, mode: "historical" }).promise;
   const adapted = adaptPineChartResult(result, bars), bounds = options.bounds ?? [80, 120], from = options.from ?? Math.max(0, bars.length - 30), to = options.to ?? bars.length - 1;
   function make(element, candles) {
     element.hidden = false;

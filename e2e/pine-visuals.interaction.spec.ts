@@ -526,3 +526,54 @@ test("native pane-edge characters stay visible after resize and scale inversion 
   const removed = await inspect(); expect(removed.bounds.red).toBeNull(); expect(removed.bounds.green).toBeNull();
   expect(harness.workerRequests).toHaveLength(1); expect(harness.otherRequests).toEqual([]);
 });
+
+
+async function captureArrows83(page: any, name: string, project: string) {
+  const directory = path.join(root, ".artifacts/pine-arrows83"); fs.mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true });
+}
+for (const overlay of [true, false])
+  test("native proportional arrows preserve pixel lengths through pan resize inversion in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
+    const source = program('signal=bar_index==120?1:bar_index==124?2:bar_index==128?4:bar_index==134?-4:bar_index==138?0:na\nplotarrow(signal,"Strength",colorup=#0000ff,colordown=#ff0000,offset=2,minheight=8,maxheight=40)', overlay, false);
+    const output = await run(page, source, bars, { from: 116, to: 142 }), placement = overlay ? 0 : 1;
+    expect(output.drawn).toEqual(["Strength"]); expect(output.plots[0].style).toBe("arrow");
+    const anchors = [bars[120].low, bars[124].low, bars[128].low, bars[134].high];
+    expect(output.placements[placement].range.priceRange).toEqual({ minValue: Math.min(...anchors), maxValue: Math.max(...anchors) });
+    expect(output.adapterWarnings.some((warning: string) => /not drawn|not rendered|omitted/i.test(warning))).toBe(false);
+    const inspect = (index: number) => page.evaluate(input => window.pineVisualFixture.screenMarkerProbe(input.time, { placement: input.placement, radius: 4 }), { time: bars[index + 2].time, placement });
+    const check = async () => {
+      for (const [index, channel, expected] of [[120, "blue", 10], [124, "blue", 20], [128, "blue", 40], [134, "red", 40]] as const) {
+        const sample = await inspect(index), extent = sample.bounds[channel];
+        expect(extent).not.toBeNull(); expect(Math.abs(extent[1] - extent[0] + 1 - expected)).toBeLessThanOrEqual(1);
+      }
+      const zero = await inspect(138); expect(zero.bounds.blue).toBeNull(); expect(zero.bounds.red).toBeNull();
+    };
+    await check();
+    await page.evaluate(() => window.pineVisualFixture.pan(118, 142)); await check();
+    await page.evaluate(() => window.pineVisualFixture.resize()); await check();
+    await page.evaluate(() => window.pineVisualFixture.invertPriceScale()); await check();
+    await captureArrows83(page, overlay ? "overlay-strength" : "pane-strength", info.project.name);
+    const removed = await page.evaluate(() => window.pineVisualFixture.dispose()); expect(removed[placement].stats.cacheEntries).toBe(0);
+    expect((await inspect(128)).bounds.blue).toBeNull(); expect((await inspect(134)).bounds.red).toBeNull();
+    expect(harness.workerRequests).toHaveLength(1); expect(harness.otherRequests).toEqual([]);
+  });
+test("native arrow custom inputs rerun without stale lengths or shifted values", async ({ page, harness }, info) => {
+  const source = program('minimum=input.int(5,"Minimum")\nmaximum=input.int(100,"Maximum")\nshift=input.int(0,"Shift")\nsignal=bar_index==124?1:bar_index==130?-4:na\nplotarrow(signal,"Configured",#0000ff,#ff0000,shift,minimum,maximum)', true, false);
+  const prepared = await page.evaluate(source => window.pineVisualFixture.prepare(source), source);
+  const inputs = Object.fromEntries(prepared.inputDefinitions.map((definition: any) => [definition.id, { Minimum: 12, Maximum: 32, Shift: -2 }[definition.title as "Minimum" | "Maximum" | "Shift"]]));
+  expect(prepared.inputDefinitions).toHaveLength(3);
+  const output = await run(page, source, bars, { from: 118, to: 138, inputs });
+  expect(output.plots[0].options).toMatchObject({ minheight: 12, maxheight: 32, offset: -2 });
+  const inspect = (index: number) => page.evaluate(time => window.pineVisualFixture.screenMarkerProbe(time, { radius: 4 }), bars[index].time);
+  let up = await inspect(122), down = await inspect(128);
+  expect(up.bounds.blue).not.toBeNull(); expect(Math.abs(up.bounds.blue[1] - up.bounds.blue[0] + 1 - 12)).toBeLessThanOrEqual(1);
+  expect(down.bounds.red).not.toBeNull(); expect(Math.abs(down.bounds.red[1] - down.bounds.red[0] + 1 - 32)).toBeLessThanOrEqual(1);
+  await captureArrows83(page, "configured-strength", info.project.name);
+  const revised = Object.fromEntries(prepared.inputDefinitions.map((definition: any) => [definition.id, { Minimum: 3, Maximum: 60, Shift: 2 }[definition.title as "Minimum" | "Maximum" | "Shift"]]));
+  await run(page, source, bars, { from: 118, to: 138, inputs: revised });
+  expect((await inspect(122)).bounds.blue).toBeNull(); expect((await inspect(128)).bounds.red).toBeNull();
+  up = await inspect(126); down = await inspect(132);
+  expect(up.bounds.blue).not.toBeNull(); expect(Math.abs(up.bounds.blue[1] - up.bounds.blue[0] + 1 - 15)).toBeLessThanOrEqual(1);
+  expect(down.bounds.red).not.toBeNull(); expect(Math.abs(down.bounds.red[1] - down.bounds.red[0] + 1 - 60)).toBeLessThanOrEqual(1);
+  expect(harness.workerRequests).toHaveLength(3); expect(harness.otherRequests).toEqual([]);
+});

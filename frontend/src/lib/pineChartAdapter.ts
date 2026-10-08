@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -63,8 +63,9 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       return [];
     }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
-    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers" };
+    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers", arrow: "markers", plotarrow: "markers" };
     const characterPlot = style === "char" || style === "plotchar";
+    const arrowPlot = style === "arrow" || style === "plotarrow";
     const packed = getPackedPinePlot(plot);
     const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
@@ -185,13 +186,35 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       }
     }
     if (pointStyle) warn("Point sizes and join gap/color behavior use local canvas metrics; TradingView pixel and corner-case calibration has not been verified.");
+    let arrow: { minHeight: number; maxHeight: number; maxMagnitude: number } | undefined;
+    if (arrowPlot) {
+      const minHeight = plot.options.minheight === undefined ? 5 : plot.options.minheight;
+      const maxHeight = plot.options.maxheight === undefined ? 100 : plot.options.maxheight;
+      if (typeof minHeight !== "number" || typeof maxHeight !== "number" || !Number.isSafeInteger(minHeight) || !Number.isSafeInteger(maxHeight) || minHeight < 0 || maxHeight < minHeight || optionSets.some((options) =>
+        options.minheight !== undefined && options.minheight !== minHeight || options.maxheight !== undefined && options.maxheight !== maxHeight || options.height !== undefined && !(options.height === null && plot.options.maxheight === undefined) && options.height !== maxHeight)) {
+        warn("Arrow heights require constant nonnegative integer bounds, with maxheight at least minheight."); return [];
+      }
+      if (plot.options.show_last !== undefined && (typeof plot.options.show_last !== "number" || !Number.isSafeInteger(plot.options.show_last) || plot.options.show_last < 0) || optionSets.some((options) => options.show_last !== undefined && options.show_last !== plot.options.show_last)) { warn("Arrow show_last requires a constant nonnegative integer count."); return []; }
+      // One source-snapshot scan: magnitude stays independent of viewport,
+      // offsets, visibility and color. Packed channels never project samples.
+      let maxMagnitude = 0;
+      if (packed) {
+        for (let index = 0; index < Math.min(packed.slots, bars.length); index++) if (packed.kinds[index] === 4) {
+          const value = packed.values[index * packed.arity];
+          if (Number.isFinite(value)) maxMagnitude = Math.max(maxMagnitude, Math.abs(value));
+        }
+      } else for (const point of plot.points) if (barsByTime.has(point.time) && typeof point.value === "number" && Number.isFinite(point.value)) maxMagnitude = Math.max(maxMagnitude, Math.abs(point.value));
+      arrow = { minHeight, maxHeight, maxMagnitude };
+      warn("Arrow length uses the absolute signal relative to its full retained snapshot, capped at maxheight with a minheight floor. TradingView normalization and pixel calibration have not been verified.");
+      if (plot.options.colorup === undefined || plot.options.colordown === undefined) warn("Omitted arrow colors use local green and rose defaults.");
+    }
     const baseColor = color(plot.options.color);
-    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(pointStyle ? { pointStyle: { size: relativeSize as number, join: constantJoin && joinFlag === true } } : {}), ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
+    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(arrow ? { arrow } : {}), ...(pointStyle ? { pointStyle: { size: relativeSize as number, join: constantJoin && joinFlag === true } } : {}), ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
     if (style === "bar") {
       warnings.push("Native OHLC bar widths use local chart pixel cadence; TradingView pixel calibration has not been verified.");
       if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");
     } else if (kind === "candles" && ["color", "wickcolor", "bordercolor"].some((key) => plot.options[key] === undefined)) warnings.push("Omitted native candle colors use local defaults and inheritance; TradingView default color calibration has not been verified.");
-    if (kind === "markers") {
+    if (kind === "markers" && !arrowPlot) {
       const allowedShapes = ["circle", "square", "arrowup", "arrowdown", "triangleup", "triangledown", "labelup", "labeldown", "cross", "xcross", "diamond", "flag"];
       const supported = optionSets.every((options) => {
         const shape = String(options.shape ?? plot.options.shape ?? "circle").toLowerCase().replace(/^shape[._]/, "").replace(/_/g, "");
@@ -205,7 +228,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       } else if (plot.options.size != null || optionSets.some((options) => options.size != null)) warnings.push("Shape sizes and text use local pixel metrics; TradingView font and size calibration has not been verified.");
     }
     if (kind !== "markers" && kind !== "candles" && (packed ? packed.kinds.some((kind) => kind > 1 && kind !== 4) : plot.points.some((point) => point.value !== null && typeof point.value !== "number"))) warn("Non-numeric values are not rendered as a numeric series.");
-    if (visual && (!smallProjection || characterPlot)) return [{ ...common, kind, segments: [], markers: [], visual }];
+    if (visual && (!smallProjection || characterPlot || arrowPlot)) return [{ ...common, kind, segments: [], markers: [], visual }];
     const segments: PineChartPoint[][] = [[]];
     const markers: SeriesMarker<UTCTimestamp>[] = [];
     const breakGaps = ["linebr", "steplinebr", "areabr"].includes(style);

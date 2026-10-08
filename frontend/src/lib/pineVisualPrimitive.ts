@@ -12,7 +12,7 @@ type Sample = { value: number | boolean | null | number[]; options: Record<strin
 type Bounds = { min: number; max: number };
 type MarkerBounds = { bounds: Bounds | null; above: number; below: number };
 type TextLayout = { lines: string[]; width: number; measured: boolean; maxAscent: number; maxDescent: number; glyphs: { ascent: number; descent: number }[] };
-type MarkerGeometry = { character?: string; shape: string; size: number; offset: number; direction: number; shade: string; textColor: string; layout: TextLayout; lineHeight: number; textY: number; labelTop: number; labelHeight: number; min: number; max: number };
+type MarkerGeometry = { arrowHeight?: number; character?: string; shape: string; size: number; offset: number; direction: number; shade: string; textColor: string; layout: TextLayout; lineHeight: number; textY: number; labelTop: number; labelHeight: number; min: number; max: number };
 let markerMetrics: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null | undefined;
 export function pineVisualColor(value: PineScalar | undefined, fallback = "#22d3ee"): string {
   if (value === null) return "rgba(0,0,0,0)";
@@ -104,16 +104,17 @@ function candleValues(plot: PineChartPlot, index: number): readonly number[] | F
 }
 
 function markerLocation(plot: PineChartPlot, sample: Sample | undefined) {
+  if (plot.visual?.arrow) return typeof sample?.value === "number" && sample.value > 0 ? "belowbar" : "abovebar";
   return norm(option(plot.visual!.source, sample, "location"), "location", "abovebar");
 }
-function markerActive(sample: Sample | undefined, location: string) {
-  return !!sample && (typeof sample.value === "number" ? Number.isFinite(sample.value) && (location === "absolute" || sample.value !== 0) : sample.value === true);
+function markerActive(sample: Sample | undefined, location: string, arrow = false) {
+  return !!sample && (!arrow || typeof sample.value === "number") && (typeof sample.value === "number" ? Number.isFinite(sample.value) && (location === "absolute" || sample.value !== 0) : sample.value === true);
 }
 function anchor(plot: PineChartPlot, index: number, sample: Sample | undefined): number | undefined {
   if (!sample || sample.value === null || sample.value === false) return undefined;
   if (plot.kind !== "markers") return typeof sample.value === "number" ? sample.value : undefined;
   const location = markerLocation(plot, sample);
-  if (!markerActive(sample, location)) return undefined;
+  if (!markerActive(sample, location, Boolean(plot.visual?.arrow))) return undefined;
   if (location === "absolute") return typeof sample.value === "number" ? sample.value : undefined;
   if (sample.value === 0) return undefined;
   const bar = plot.visual!.bars[index];
@@ -305,7 +306,8 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       let previousText: string | undefined, previousSize = 0;
       // Stream packed option variants without decoding or caching historical samples.
       // Keep only one conservative pixel reach per plot, independently of pan/zoom.
-      for (const options of pinePlotOptionSets(source)) {
+      if (plot.visual!.arrow) reach = 3;
+      else for (const options of pinePlotOptionSets(source)) {
         const sample: Sample = { value: true, options };
         const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
         reach = Math.max(reach, size);
@@ -772,7 +774,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           const sample = this.sample(plot, index), value = anchor(plot, index, sample);
           if (plot.kind === "markers") {
             const location = markerLocation(plot, sample);
-            if (!markerActive(sample, location)) continue;
+            if (!markerActive(sample, location, Boolean(plot.visual?.arrow))) continue;
             const px = x(index);
             if (px === null || !Number.isFinite(px)) continue;
             if (location === "top" || location === "bottom") {
@@ -986,6 +988,21 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   /** Shared vertical geometry keeps drawing and directional autoscale margins in agreement. */
   private markerGeometry(plot: PineChartPlot, sample: Sample, ctx?: CanvasRenderingContext2D): MarkerGeometry | null {
     const source = plot.visual!.source;
+    const arrow = plot.visual!.arrow;
+    if (arrow) {
+      const value = sample.value;
+      if (typeof value !== "number" || !Number.isFinite(value) || value === 0 || !arrow.maxMagnitude) return null;
+      const up = value > 0, colorKey = up ? "colorup" : "colordown";
+      // Native per-bar undefined colors become null in the worker. Only an
+      // absent authored directional color permits the host default.
+      const pointColor = sample.options.color;
+      const shade = pineVisualColor(pointColor === null && source.options[colorKey] === undefined ? undefined : pointColor !== undefined ? pointColor : source.options[colorKey], up ? "#22c55e" : "#fb7185");
+      if (!painted(shade)) return null;
+      const arrowHeight = Math.max(arrow.minHeight, Math.min(arrow.maxHeight, Math.abs(value) / arrow.maxMagnitude * arrow.maxHeight));
+      if (!arrowHeight) return null;
+      const offset = up ? 4 : -4, direction = up ? 1 : -1, end = offset + direction * arrowHeight;
+      return { arrowHeight, shape: up ? "arrowup" : "arrowdown", size: 6, offset, direction, shade, textColor: "transparent", layout: this.markerTextLayout(6, "", ctx), lineHeight: 0, textY: 0, labelTop: 0, labelHeight: 0, min: Math.min(offset, end), max: Math.max(offset, end) };
+    }
     const shape = characterSource(source) ? "char" : norm(option(source, sample, "shape"), "shape", "circle").replace(/_/g, "");
     const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
     const location = norm(option(source, sample, "location"), "location", "abovebar");
@@ -1023,12 +1040,20 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private shape(ctx: CanvasRenderingContext2D, plot: PineChartPlot, sample: Sample, x: number, anchorY: number, paneHeight: number) {
     const geometry = this.markerGeometry(plot, sample, ctx);
     if (!geometry) return;
-    const { character: char, shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight } = geometry;
+    const { arrowHeight, character: char, shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight } = geometry;
     const y = anchorY + offset;
     ctx.font = `${size + 3}px sans-serif`;
     ctx.fillStyle = shade; ctx.strokeStyle = shade; ctx.lineWidth = 1;
     if (painted(shade)) {
-      if (shape === "char") {
+      if (arrowHeight !== undefined) {
+        const head = Math.min(size, arrowHeight), tail = y + direction * arrowHeight, shoulder = y + direction * head;
+        // One silhouette avoids painting semi-transparent heads twice at the shaft.
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - size / 2, shoulder);
+        ctx.lineTo(x - 1, shoulder); ctx.lineTo(x - 1, tail);
+        ctx.lineTo(x + 1, tail); ctx.lineTo(x + 1, shoulder);
+        ctx.lineTo(x + size / 2, shoulder); ctx.closePath(); ctx.fill();
+      }
+      else if (shape === "char") {
         if (char?.trim()) {
           const glyph = this.markerTextLayout(size, char, ctx).glyphs[0];
           ctx.textAlign = "center"; ctx.textBaseline = "middle";

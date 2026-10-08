@@ -251,6 +251,62 @@ function bindPlotOptions(context: Context) {
   } });
 }
 
+/** Preserve signed arrow channels separately from the native engine's generic shapes. */
+function bindArrowPlotOptions(context: Context) {
+  const pine = context.pine as unknown as Record<string, unknown>;
+  const descriptor = Object.getOwnPropertyDescriptor(pine, "plotarrow");
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve arrow options.");
+  const original = descriptor.value;
+  const signature = ["series", "title", "colorup", "colordown", "offset", "minheight", "maxheight", "editable", "show_last", "display", "format", "precision", "force_overlay"];
+  const constants = new WeakMap<object, Record<string, unknown>>();
+  Object.defineProperty(pine, "plotarrow", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+    const last = args.at(-1) as { __callsiteId?: unknown } | undefined;
+    const sentinel = last && typeof last === "object" && typeof last.__callsiteId === "string" ? last : undefined;
+    const values = sentinel ? args.slice(0, -1) : args;
+    const fields: Record<string, unknown> = {};
+    values.forEach((argument, index) => {
+      if (argument && typeof argument === "object" && !Array.isArray(argument) && (Object.getPrototypeOf(argument) === Object.prototype || Object.getPrototypeOf(argument) === null)) {
+        if (index !== values.length - 1) error("UNSUPPORTED_ARROW_OPTION", "Named arrow options must follow positional arguments.");
+        Object.assign(fields, argument);
+      } else {
+        if (index >= signature.length) error("UNSUPPORTED_ARROW_OPTION", "Arrows received unsupported extra arguments.");
+        fields[signature[index]] = argument;
+      }
+    });
+    if (!Object.prototype.hasOwnProperty.call(fields, "series") || Object.keys(fields).some(name => !signature.includes(name))) error("UNSUPPORTED_ARROW_OPTION", "Arrows require a numeric series and only support documented options.");
+    const series = fields.series, options: Record<string, unknown> = {};
+    const value = resolvedSetting(series);
+    if (value !== null && typeof value !== "number") error("UNSUPPORTED_ARROW_OPTION", "Arrow signals must be numbers or na, rather than boolean conditions.");
+    for (const name of signature.slice(1)) {
+      if (!Object.prototype.hasOwnProperty.call(fields, name)) continue;
+      let value = fields[name];
+      for (let depth = 0; depth < 4; depth++) {
+        const scalar = value && typeof value === "object" && "__value" in value ? (value as { __value: unknown }).__value : value;
+        const resolved = resolvedSetting(scalar);
+        if (resolved === value) break;
+        value = resolved;
+      }
+      if (["minheight", "maxheight", "show_last", "precision", "offset"].includes(name) && (!Number.isSafeInteger(value) || (name !== "offset" && (value as number) < 0))) error("UNSUPPORTED_ARROW_OPTION", `Arrow ${name} must resolve to a valid integer.`);
+      if (["editable", "force_overlay"].includes(name) && typeof value !== "boolean") error("UNSUPPORTED_ARROW_OPTION", `Arrow ${name} must resolve to a boolean.`);
+      if (["title", "display", "format"].includes(name) && (typeof value !== "string" || value.length > 4096)) error("UNSUPPORTED_ARROW_OPTION", `Arrow ${name} must resolve to a bounded string.`);
+      if (["colorup", "colordown"].includes(name) && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string") error("UNSUPPORTED_ARROW_OPTION", `Arrow ${name} must resolve to a color or na.`);
+      options[name] = value;
+    }
+    const flags = Object.fromEntries(Object.entries(options).filter(([name]) => name !== "colorup" && name !== "colordown"));
+    if (Number(options.maxheight ?? 100) < Number(options.minheight ?? 5)) error("UNSUPPORTED_ARROW_OPTION", "Arrow maxheight must be at least minheight.");
+    const forwarded: unknown[] = [series, options];
+    if (sentinel) forwarded.push(sentinel);
+    const result = Reflect.apply(original, this, forwarded) as { options?: Record<string, unknown> };
+    if (!result?.options) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the arrow channel.");
+    const before = constants.get(result);
+    if (before && (Object.keys(before).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, before[name])))) error("UNSUPPORTED_ARROW_OPTION", "Arrow options other than colors must remain constant throughout the snapshot.");
+    if (!before) constants.set(result, flags);
+    result.options.style = "arrow";
+    return result;
+  } });
+}
+
 /** Preserve the current twelve-argument plotbar signature around PineTS's
  * positional optional-argument loss. Original OHLC Series stay intact. */
 function bindBarPlotOptions(context: Context) {
@@ -606,6 +662,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       if (quantityStep !== undefined) Object.defineProperty(context, "_edgelabQuantityStep", { value: quantityStep });
       bindDeclarationLayer(context, strategyDeclaration);
       bindPlotOptions(context);
+      bindArrowPlotOptions(context);
       barplots.set(context, bindBarPlotOptions(context));
       bindGradientFillOptions(context);
       backgrounds.set(context, bindBackgroundOptions(context));
