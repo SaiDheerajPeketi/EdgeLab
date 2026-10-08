@@ -1,3 +1,4 @@
+import { expectSettingsValue, selectSettingsOption, settingsValue } from "./support/settings-select";
 import { expect, test, type Page } from "@playwright/test";
 import { UI_COMPATIBILITY_PATHS, UI_COMPATIBILITY_ROUTE_PARITY, UI_COMPATIBILITY_VIEWPORTS, type CompatibilityRouteParity, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
 import { expectStableScreenshot, installDeterminism, seedApprovedSession } from "./support/app";
@@ -212,7 +213,7 @@ async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, p
 
 async function createUnsavedSettingsDraft(page: Page) {
   const density = page.getByLabel("Workspace density");
-  await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
+  await selectSettingsOption(density, (await settingsValue(density)) === "compact" ? "comfortable" : "compact");
   await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
   return page.evaluate(() => sessionStorage.getItem("edgelab.compatibility.settings-draft.v1"));
 }
@@ -274,7 +275,7 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     expect(journalSettings).not.toBeNull();
     await page.getByLabel("Currency", { exact: true }).fill(journalDefaultsCanary.default_currency);
     await page.getByLabel("Broker label", { exact: true }).fill(journalDefaultsCanary.default_broker);
-    await page.getByRole("combobox", { name: "Default entry type", exact: true }).selectOption(journalDefaultsCanary.default_entry_type);
+    await selectSettingsOption(page.getByRole("combobox", { name: "Default entry type", exact: true }), journalDefaultsCanary.default_entry_type);
     await page.getByRole("switch", { name: "Require account for taken trades", exact: true }).setChecked(false);
     await page.getByRole("button", { name: "Apply journal defaults", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: /^Journal defaults saved$/ })).toBeVisible();
@@ -289,7 +290,7 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await expect(page.locator('[data-setting-control="default-quantity"]').getByRole("status")).toHaveText("Saved");
   } else if (contract.primaryAction === "save-settings") {
     const density = page.getByLabel("Workspace density");
-    await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
+    await selectSettingsOption(density, (await settingsValue(density)) === "compact" ? "comfortable" : "compact");
     await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
@@ -328,7 +329,7 @@ async function expectJournalWriteCanary(page: Page, contract: CompatibilityRoute
   } else if (contract.primaryAction === "save-journal-settings") {
     await expect(page.getByLabel("Currency", { exact: true })).toHaveValue(journalDefaultsCanary.default_currency);
     await expect(page.getByLabel("Broker label", { exact: true })).toHaveValue(journalDefaultsCanary.default_broker);
-    await expect(page.getByRole("combobox", { name: "Default entry type", exact: true })).toHaveValue(journalDefaultsCanary.default_entry_type);
+    await expectSettingsValue(page.getByRole("combobox", { name: "Default entry type", exact: true }), journalDefaultsCanary.default_entry_type);
     await expect(page.getByRole("switch", { name: "Require account for taken trades", exact: true })).not.toBeChecked();
     await expect(page.getByRole("button", { name: "Apply journal defaults", exact: true })).toBeDisabled();
   } else if (contract.primaryAction === "save-trade-review") {

@@ -1,3 +1,4 @@
+import { selectSettingsOption } from "./support/settings-select";
 import { expect, test, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import fs from "node:fs";
@@ -68,7 +69,7 @@ async function open(page: Page, failInitialStatus = false) {
 const calibration = (page: Page) => page.locator('[data-setting-control="asset-calibration"]');
 const rootInput = (page: Page) => page.locator('[data-setting-control="dataset-root"] input');
 async function category(page: Page, value: string, name: string) {
-  if (page.viewportSize()!.width < 1024) await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption(value);
+  if (page.viewportSize()!.width < 1024) await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), value);
   else await page.getByRole("button", { name: new RegExp("^" + name + "(?: |$)") }).click();
 }
 async function run(page: Page, expression: string) { await page.evaluate(expression); }
@@ -87,11 +88,11 @@ test("instrument edits are guarded and survive equivalent catalogs and instrumen
   await run(page, "fixture.catalog.instruments[0].timezone='America/New_York';fixture.refreshCatalog()");
   await expect(currency).toHaveValue("EUR");
   await expect(calibration(page).getByLabel("Time zone", { exact: true })).toHaveValue("America/New_York");
-  await page.getByRole("combobox", { name: "Instrument", exact: true }).selectOption("gbpusd");
+  await selectSettingsOption(page.getByRole("combobox", { name: "Instrument", exact: true }), "gbpusd");
   await calibration(page).getByLabel("P&L multiplier", { exact: true }).fill("3");
-  await page.getByRole("combobox", { name: "Instrument", exact: true }).selectOption("eurusd");
+  await selectSettingsOption(page.getByRole("combobox", { name: "Instrument", exact: true }), "eurusd");
   await expect(currency).toHaveValue("EUR");
-  await page.getByRole("combobox", { name: "Instrument", exact: true }).selectOption("gbpusd");
+  await selectSettingsOption(page.getByRole("combobox", { name: "Instrument", exact: true }), "gbpusd");
   await expect(calibration(page).getByLabel("P&L multiplier", { exact: true })).toHaveValue("3");
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);

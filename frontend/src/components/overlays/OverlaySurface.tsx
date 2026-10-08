@@ -105,8 +105,8 @@ export function OverlaySurface({
         return;
       }
       const viewport = currentViewport(ownerWindow);
-      const measuredHeight =
-        surfaceRef.current?.getBoundingClientRect().height || estimatedHeight;
+      // Entry transforms change painted bounds, not the final layout height.
+      const measuredHeight = surfaceRef.current?.offsetHeight || estimatedHeight;
       setGeometry(
         computeOverlayGeometry({
           align,
@@ -257,7 +257,11 @@ export function computeOverlayGeometry({
   );
   const placement: OverlayPlacement =
     measuredHeight <= spaceBelow || spaceBelow >= spaceAbove ? "below" : "above";
-  const maxHeight = placement === "below" ? spaceBelow : spaceAbove;
+  // A scroll or responsive reflow can move the anchor outside the viewport.
+  const maxHeight = Math.min(
+    placement === "below" ? spaceBelow : spaceAbove,
+    Math.max(0, viewport.height - VIEWPORT_MARGIN * 2),
+  );
   const renderedHeight = Math.min(measuredHeight, maxHeight);
   const desiredTop =
     placement === "below" ? anchor.bottom + gap : anchor.top - gap - renderedHeight;

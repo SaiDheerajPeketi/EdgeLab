@@ -1,3 +1,4 @@
+import { expectSettingsValue, selectSettingsOption } from "./support/settings-select";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { betaSessionResponse, certifyUiState, gotoStable, installDeterminism } from "./support/app";
@@ -22,13 +23,13 @@ const savedStatus = (page: Page, text: string) => page.getByRole("status").filte
 async function fillDefaults(page: Page, value = journalDefaultsCanary) {
   await broker(page).fill(value.default_broker);
   await currency(page).fill(value.default_currency);
-  await entry(page).selectOption(value.default_entry_type);
+  await selectSettingsOption(entry(page), value.default_entry_type);
   await requireAccount(page).setChecked(value.require_account_for_taken_trades);
 }
 async function expectDefaults(page: Page, value = journalDefaultsCanary) {
   await expect(broker(page)).toHaveValue(value.default_broker);
   await expect(currency(page)).toHaveValue(value.default_currency);
-  await expect(entry(page)).toHaveValue(value.default_entry_type);
+  await expectSettingsValue(entry(page), value.default_entry_type);
   if (value.require_account_for_taken_trades) await expect(requireAccount(page)).toBeChecked();
   else await expect(requireAccount(page)).not.toBeChecked();
 }

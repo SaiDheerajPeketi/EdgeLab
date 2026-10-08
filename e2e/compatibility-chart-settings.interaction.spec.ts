@@ -1,3 +1,4 @@
+import { expectSettingsValue, selectSettingsOption } from "./support/settings-select";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -101,8 +102,8 @@ async function fixture(page: Page, fallback: boolean, setup = true) {
 }
 type State = Awaited<ReturnType<typeof fixture>>;
 function hold(state: State, key = "chart") { let release!: () => void; state.gates.set(key, new Promise<void>((resolve) => { release = resolve; })); return () => { state.gates.delete(key); release(); }; }
-async function expectValues(page: Page, values: Draft = initial) { for (const field of Object.keys(labels) as Field[]) await expect(control(page, field)).toHaveValue(values[field]); }
-async function edit(page: Page, values: Partial<Draft>) { for (const [field, value] of Object.entries(values) as Array<[Field, string]>) { if (["timeHoursFormat", "dateFormat", "gridMode"].includes(field)) await control(page, field).selectOption(value); else await control(page, field).fill(value); } }
+async function expectValues(page: Page, values: Draft = initial) { for (const field of Object.keys(labels) as Field[]) await expectSettingsValue(control(page, field), values[field]); }
+async function edit(page: Page, values: Partial<Draft>) { for (const [field, value] of Object.entries(values) as Array<[Field, string]>) { if (["timeHoursFormat", "dateFormat", "gridMode"].includes(field)) await selectSettingsOption(control(page, field), value); else await control(page, field).fill(value); } }
 async function switchRenderer(page: Page, state: State, fallback: boolean, category: string, hot = false) {
   state.fallback = fallback;
   if (hot) await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); else await page.reload({ waitUntil: "domcontentloaded" });
@@ -200,9 +201,9 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
         await expect(page.getByRole("heading", { name: "Effective regional behavior", exact: true })).toBeVisible();
         await page.getByRole("button", { name: category === "chart" ? "Chart" : "Appearance", exact: true }).click();
       } else {
-        await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption("global");
+        await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), "global");
         await expect(page.getByRole("heading", { name: "Effective regional behavior", exact: true })).toBeVisible();
-        await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption(category);
+        await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), category);
       }
       await expectValues(page);
       expect(dialogs).toEqual([]);
@@ -287,8 +288,8 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
       return;
     }
     const density = page.getByLabel("Settings density", { exact: true });
-    await expect(density).toHaveValue("comfortable"); await edit(page, { textSize: "16", candleUpColor: "#44bb88" });
-    state.failPreferenceWrite = true; await density.selectOption("compact");
+    await expectSettingsValue(density, "comfortable"); await edit(page, { textSize: "16", candleUpColor: "#44bb88" });
+    state.failPreferenceWrite = true; await selectSettingsOption(density, "compact");
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.density)).toBe("compact");
     await expect(densityRow(page).getByRole("button", { name: "Retry", exact: true })).toBeVisible();
     expect(state.preferenceWrites).toEqual([{ owner: state.owner, body: { density: "compact" } }]); expect(state.writes).toEqual([]);
@@ -298,10 +299,10 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     expect(await preferencesConsumer(page)).toEqual({ density: "comfortable", includeDiagnosticsByDefault: false });
     state.preferenceAck = undefined; await densityRow(page).getByRole("button", { name: "Retry", exact: true }).click();
     await expect.poll(() => preferencesConsumer(page)).toEqual({ density: "compact", includeDiagnosticsByDefault: false });
-    await reset(page).click(); await expect(density).toHaveValue("comfortable"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("comfortable");
+    await reset(page).click(); await expectSettingsValue(density, "comfortable"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("comfortable");
     await expect(control(page, "textSize")).toHaveValue("16"); await expect(control(page, "candleUpColor")).toHaveValue("#44bb88"); expect(state.writes).toEqual([]);
     expect(state.stores.get(state.owner)?.preferences).toEqual(initialPreferences);
-    await undo(page).click(); await expect(density).toHaveValue("compact"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("compact");
+    await undo(page).click(); await expectSettingsValue(density, "compact"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("compact");
     expect(state.preferenceWrites.map(({ body }) => body)).toEqual([{ density: "compact" }, { density: "compact" }, { density: "compact" }, { density: "comfortable" }, { density: "compact" }]);
     await apply(page, category).click(); await expect(saved(page, category)).toBeVisible(); expect(state.writes).toEqual([{ owner: state.owner, body: { textSize: 16, candleUpColor: "#44bb88" } }]);
     expect(state.stores.get(state.owner)?.preferences).toEqual({ ...initialPreferences, density: "compact" });
@@ -314,8 +315,8 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     const loadRetry = page.getByRole("button", { name: "Retry loading preferences", exact: true });
     await expect(loadRetry).toBeVisible(); await expect(page.getByLabel("Settings density", { exact: true })).toBeDisabled();
     await edit(page, { gridMode: "none" }); await apply(page, category).click(); await expect(saved(page, category)).toBeVisible();
-    expect(state.preferenceWrites).toEqual([]); state.failPreferenceRead = 0; await loadRetry.click(); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("comfortable");
-    await expect(control(page, "gridMode")).toHaveValue("none"); expect(state.writes).toEqual([{ owner: state.owner, body: { gridMode: "none" } }]);
+    expect(state.preferenceWrites).toEqual([]); state.failPreferenceRead = 0; await loadRetry.click(); await expectSettingsValue(page.getByLabel("Settings density", { exact: true }), "comfortable");
+    await expectSettingsValue(control(page, "gridMode"), "none"); expect(state.writes).toEqual([{ owner: state.owner, body: { gridMode: "none" } }]);
   });
 
   test(`${title} pending hot renderer switches preserve later edits and return-to-original until a separate apply`, async ({ page }, info) => {
@@ -324,16 +325,16 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     await gotoStable(page, path, { waitForNetworkIdle: false }); await expectValues(page);
     const release = hold(state); await edit(page, { textSize: "16" }); await apply(page, category).click(); await expect.poll(() => state.writes.length).toBe(1);
     await expect(apply(page, category)).toBeDisabled(); await edit(page, { textSize: initial.textSize, gridMode: "none" });
-    await switchRenderer(page, state, !fallback, category, true); await expect(control(page, "textSize")).toHaveValue(initial.textSize); await expect(control(page, "gridMode")).toHaveValue("none"); await expect(apply(page, category)).toBeDisabled();
+    await switchRenderer(page, state, !fallback, category, true); await expect(control(page, "textSize")).toHaveValue(initial.textSize); await expectSettingsValue(control(page, "gridMode"), "none"); await expect(apply(page, category)).toBeDisabled();
     expect(state.writes).toHaveLength(1); release(); await expect(apply(page, category)).toBeEnabled(); await expect(saved(page, category)).toHaveCount(0);
-    await expect(control(page, "textSize")).toHaveValue(initial.textSize); await expect(control(page, "gridMode")).toHaveValue("none");
+    await expect(control(page, "textSize")).toHaveValue(initial.textSize); await expectSettingsValue(control(page, "gridMode"), "none");
     await apply(page, category).click(); await expect(saved(page, category)).toBeVisible();
     expect(state.writes.map(({ body }) => body)).toEqual([{ textSize: 16 }, { textSize: 14, gridMode: "none" }]);
     await switchRenderer(page, state, fallback, category); await expectValues(page, { ...initial, gridMode: "none" });
     if (category === "appearance") {
       const density = page.getByLabel("Settings density", { exact: true }), releaseDensity = hold(state, "preferences");
-      await density.selectOption("compact"); await expect.poll(() => state.preferenceWrites.length).toBe(1); await density.selectOption("comfortable"); await switchRenderer(page, state, !fallback, category, true);
-      await expect(density).toHaveValue("comfortable"); expect(state.preferenceWrites).toHaveLength(1); releaseDensity();
+      await selectSettingsOption(density, "compact"); await expect.poll(() => state.preferenceWrites.length).toBe(1); await selectSettingsOption(density, "comfortable"); await switchRenderer(page, state, !fallback, category, true);
+      await expectSettingsValue(density, "comfortable"); expect(state.preferenceWrites).toHaveLength(1); releaseDensity();
       await expect.poll(() => state.preferenceWrites.length).toBe(2); await expect.poll(() => preferencesConsumer(page)).toEqual({ density: "comfortable", includeDiagnosticsByDefault: false });
       expect(state.preferenceWrites.map(({ body }) => body)).toEqual([{ density: "compact" }, { density: "comfortable" }]);
     }
@@ -357,11 +358,11 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     expect(state.writes).toEqual([{ owner: firstOwner, body: { textSize: 16 } }, { owner: firstOwner, body: { textSize: 17 } }]);
     if (category === "appearance") {
       await control(page, "textSize").fill(initial.textSize); await setOwner(page, state, firstOwner);
-      const releasePreference = hold(state, "preferences"); await page.getByLabel("Settings density", { exact: true }).selectOption("compact"); await expect.poll(() => state.preferenceWrites.length).toBe(1);
-      await setOwner(page, state, firstOwner + 1); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("comfortable"); releasePreference();
+      const releasePreference = hold(state, "preferences"); await selectSettingsOption(page.getByLabel("Settings density", { exact: true }), "compact"); await expect.poll(() => state.preferenceWrites.length).toBe(1);
+      await setOwner(page, state, firstOwner + 1); await expectSettingsValue(page.getByLabel("Settings density", { exact: true }), "comfortable"); releasePreference();
       await expect.poll(() => state.stores.get(firstOwner)?.preferences.density).toBe("compact"); expect(await preferencesConsumer(page)).toEqual({ density: "comfortable", includeDiagnosticsByDefault: false });
-      await setOwner(page, state, firstOwner); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("compact");
-      await recoverFixtureAccount(page); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("compact");
+      await setOwner(page, state, firstOwner); await expectSettingsValue(page.getByLabel("Settings density", { exact: true }), "compact");
+      await recoverFixtureAccount(page); await expectSettingsValue(page.getByLabel("Settings density", { exact: true }), "compact");
     }
   });
 

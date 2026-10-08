@@ -1,3 +1,4 @@
+import { expectSettingsValue, selectSettingsOption } from "./support/settings-select";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -91,7 +92,7 @@ type State = Awaited<ReturnType<typeof fixture>>;
 
 async function expectValues(page: Page, values: Values = initial) {
   for (const field of ["sizingMode", "quantity", "riskPercent", "riskBase", "commissionMode", "feeMode"] as Field[]) {
-    await expect(control(page, field)).toHaveValue(String(values[field]));
+    await expectSettingsValue(control(page, field), String(values[field]));
   }
   for (const [mode, fixed, percent] of [["commissionMode", "commissionFixed", "commissionPercent"], ["feeMode", "feeFixed", "feePercent"]] as Field[][]) {
     if (values[mode] === "FIXED") await expect(control(page, fixed)).toHaveValue(String(values[fixed]));
@@ -201,7 +202,7 @@ for (const fallback of [true, false]) {
     await auditPanel(page);
     await capturePanel(page, renderer, info);
     const release = hold(state, "sizingMode");
-    await control(page, "sizingMode").selectOption("quantity");
+    await selectSettingsOption(control(page, "sizingMode"), "quantity");
     await expect.poll(() => state.writes.length).toBe(1);
     await expect(saved(page, "sizingMode")).toHaveCount(0);
     await captureState(page, "saving", "sizingMode", fallback, info);
@@ -284,14 +285,14 @@ for (const fallback of [true, false]) {
       await page.clock.runFor(600);
       await expect.poll(() => cached(page, field)).toBe(value);
     }
-    await control(page, "commissionMode").selectOption("PERCENT");
+    await selectSettingsOption(control(page, "commissionMode"), "PERCENT");
     await page.clock.runFor(1);
     await expect(saved(page, "commissionMode")).toBeVisible();
     await expect(control(page, "commissionPercent")).toHaveValue(String(initial.commissionPercent));
     await control(page, "commissionPercent").fill("0.55");
     await page.clock.runFor(600);
     await expect.poll(() => cached(page, "commissionPercent")).toBe("0.55");
-    await control(page, "feeMode").selectOption("FIXED");
+    await selectSettingsOption(control(page, "feeMode"), "FIXED");
     await page.clock.runFor(1);
     await expect(saved(page, "feeMode")).toBeVisible();
     await expect(control(page, "feeFixed")).toHaveValue(String(initial.feeFixed));
@@ -310,10 +311,10 @@ for (const fallback of [true, false]) {
     const state = await fixture(page, fallback);
     await gotoStable(page, path, { waitForNetworkIdle: false });
     await expectValues(page);
-    await control(page, "riskBase").selectOption("CURRENT_BALANCE");
+    await selectSettingsOption(control(page, "riskBase"), "CURRENT_BALANCE");
     await expect(saved(page, "riskBase")).toBeVisible();
     await undo(page).click();
-    await expect(control(page, "riskBase")).toHaveValue("INITIAL_BALANCE");
+    await expectSettingsValue(control(page, "riskBase"), "INITIAL_BALANCE");
     await expect.poll(() => state.writes.length).toBe(2);
     await expect(saved(page, "riskBase")).toBeVisible();
     await control(page, "lineConfirmation").setChecked(true);
@@ -342,12 +343,12 @@ for (const fallback of [true, false]) {
     exactWrites(state, { quantity: "62000" });
     expect(await cached(page, "quantity")).toBe(initial.quantity);
     expect(await mirror(page, "quantity")).toBe(initial.quantity);
-    await control(page, "riskBase").selectOption("CURRENT_BALANCE");
+    await selectSettingsOption(control(page, "riskBase"), "CURRENT_BALANCE");
     await expect.poll(() => state.stores.get(state.owner)?.[keys.riskBase]).toBe("CURRENT_BALANCE");
     await expect(retry(page)).toBeVisible();
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(control(page, "quantity")).toHaveValue("62000");
-    await expect(control(page, "riskBase")).toHaveValue("CURRENT_BALANCE");
+    await expectSettingsValue(control(page, "riskBase"), "CURRENT_BALANCE");
     await expect(retry(page)).toBeVisible();
     expect(state.writes).toHaveLength(2);
     state.failWrites.clear();

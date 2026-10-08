@@ -221,3 +221,25 @@ test("mobile sheet geometry fills the visual viewport and tracks keyboard shrink
     cleanup();
   }
 });
+
+
+test("resizing or scrolling an anchor outside the viewport keeps the entire popup visible", async () => {
+  const { cleanup, module } = await loadOverlayGeometry();
+  try {
+    for (const viewport of [
+      { height: 640, left: 0, top: 0, width: 360 },
+      { height: 320, left: 14, top: 240, width: 195 },
+    ]) for (const top of [-800, 1_500]) {
+      const geometry = module.computeOverlayGeometry({
+        align: "left", gap: 8, measuredHeight: 1_000, minWidth: 180,
+        anchor: { top, bottom: top + 44, left: 320, right: 672, width: 352 },
+        viewport,
+      });
+      assert.ok(geometry.maxHeight <= viewport.height - 16);
+      assert.ok(geometry.top >= viewport.top + 8);
+      assert.ok(geometry.top + Math.min(1_000, geometry.maxHeight) <= viewport.top + viewport.height - 8);
+      assert.ok(geometry.left >= viewport.left + 8);
+      assert.ok(geometry.left + geometry.width <= viewport.left + viewport.width - 8);
+    }
+  } finally { cleanup(); }
+});

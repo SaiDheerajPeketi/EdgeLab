@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ThemedSelect } from "../ThemedSelect";
 import { AlertCircle, Check, LoaderCircle, RotateCcw } from "lucide-react";
 
 export type SaveState = "idle" | "saving" | "saved" | "error" | "conflict";
@@ -9,7 +10,7 @@ export function SaveStatus({ state, message, onRetry }: { state: SaveState; mess
   return (
     <span className={`inline-flex min-h-6 items-center gap-1.5 text-xs ${failed ? "text-[var(--loss-text)]" : "text-[var(--text-secondary)]"}`} role={failed ? "alert" : "status"}>
       {state === "saving" ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : null}
-      {state === "saved" ? <Check aria-hidden="true" className="h-3.5 w-3.5 text-emerald-300" /> : null}
+      {state === "saved" ? <Check aria-hidden="true" className="h-3.5 w-3.5 text-[var(--profit-text)]" /> : null}
       {failed ? <AlertCircle aria-hidden="true" className="h-3.5 w-3.5" /> : null}
       <span>{message ?? (state === "saving" ? "Saving…" : state === "saved" ? "Saved" : state === "conflict" ? "Changed elsewhere" : "Save failed")}</span>
       {failed && onRetry ? <button type="button" className="underline underline-offset-2 hover:text-[var(--text-primary)]" onClick={onRetry}>Retry</button> : null}
@@ -38,7 +39,7 @@ export function SettingsSection({
           <p className="ui-resilient-text mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]" dir="auto">{description}</p>
         </div>
         {onReset ? (
-          <button type="button" onClick={onReset} className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+          <button type="button" onClick={onReset} className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]">
             <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
             Reset section{dirty ? " · Unsaved" : ""}
           </button>
@@ -75,14 +76,14 @@ export function SettingRow({
   learnMore?: { href: string; label: string };
 }) {
   return (
-    <div id={`setting-${controlId}`} data-setting-control={controlId} tabIndex={-1} className="scroll-mt-28 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:gap-8">
+    <div id={`setting-${controlId}`} data-setting-control={controlId} tabIndex={-1} className="scroll-mt-28 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ui-focus)] sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:gap-8">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h3 className="ui-resilient-text min-w-0 text-sm font-medium text-[var(--text-primary)]" dir="auto">{label}</h3>
           {scope === "System" ? <span className="text-xs text-[var(--text-secondary)]">Managed by system</span> : null}
         </div>
         <p className="ui-resilient-text mt-1 text-sm leading-5 text-[var(--text-secondary)]" dir="auto">{description}</p>
-        {learnMore ? <a href={learnMore.href} className="mt-1 inline-block text-xs text-cyan-300 underline-offset-2 hover:underline">{learnMore.label}</a> : null}
+        {learnMore ? <a href={learnMore.href} className="mt-1 inline-block text-xs text-[var(--text-accent)] underline-offset-2 hover:underline">{learnMore.label}</a> : null}
         {effective ? <p className="ui-resilient-text mt-2 text-xs text-[var(--text-secondary)]" dir="auto">Effective: {effective}</p> : null}
         {validation ? <p className="ui-resilient-text mt-2 text-xs text-[var(--loss-text)]" dir="auto" id={`setting-${controlId}-validation`} role="alert">{validation}</p> : null}
         <SaveStatus state={saveState} message={saveMessage} onRetry={onRetry} />
@@ -94,10 +95,26 @@ export function SettingRow({
 
 export function SettingsToggle({ checked, disabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} className={`relative ml-auto block h-7 w-12 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "border-cyan-400/60 bg-cyan-400/30" : "border-[var(--ui-border-strong)] bg-black/30"}`}>
-      <span aria-hidden="true" className={`absolute top-1 h-[18px] w-[18px] rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} className="ml-auto flex h-11 w-12 items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-50">
+      <span aria-hidden="true" className={`relative block h-7 w-12 rounded-full border transition-colors motion-reduce:transition-none ${checked ? "border-[var(--ui-focus)] bg-[var(--ui-selection)]" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"}`}>
+        <span className={`absolute top-1 h-[18px] w-[18px] rounded-full bg-[var(--text-primary)] transition-transform motion-reduce:transition-none ${checked ? "translate-x-6" : "translate-x-1"}`} />
+      </span>
     </button>
   );
+}
+
+export function SettingsSelect({ ariaLabel, value, onChange, options, disabled = false, compatibility = false, nativeClassName = fieldClassName, className = "" }: {
+  ariaLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string; disabled?: boolean }[];
+  disabled?: boolean;
+  compatibility?: boolean;
+  nativeClassName?: string;
+  className?: string;
+}) {
+  if (compatibility) return <select aria-label={ariaLabel} className={`${nativeClassName} ${className}`} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>;
+  return <ThemedSelect ariaLabel={ariaLabel} className={`h-11 w-full min-w-0 ${className}`} disabled={disabled} value={value} onChange={onChange} options={options} portal />;
 }
 
 export const fieldClassName = "settings-field min-h-10 w-full min-w-0 rounded-md border px-3 text-start text-sm outline-none disabled:cursor-not-allowed disabled:opacity-55";

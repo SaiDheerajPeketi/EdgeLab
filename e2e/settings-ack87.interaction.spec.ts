@@ -1,3 +1,4 @@
+import { selectSettingsOption } from "./support/settings-select";
 import { test as base, expect } from "@playwright/test";
 import { build } from "esbuild";
 import fs from "node:fs";
@@ -109,7 +110,7 @@ const journalRow = page => page.locator('[data-setting-control="journal-defaults
 const noteRow = page => page.locator('[data-setting-control="note-template"]');
 const diagRow = page => page.locator('[data-setting-control="diagnostic-sharing"]');
 async function privacy(page) {
-  if (page.viewportSize().width < 1024) await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption("privacy-security");
+  if (page.viewportSize().width < 1024) await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), "privacy-security");
   else await page.getByRole("button", { name: /^Privacy & security/ }).click();
   await expect(page.getByRole("switch", { name: "Include diagnostics by default", exact: true })).toBeVisible();
 }
