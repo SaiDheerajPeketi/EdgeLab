@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
-// EdgeLab modification: preserve bounded input-dependent activation metadata (2026-10-08).
+// EdgeLab modification: preserve bounded activation and enum-alias input metadata (2026-10-08).
 
 import { Identifier, Literal, ObjectExpression, Property } from '../ast';
 import { ConstEnv, ConstType, ConstValue, dottedName, evalConst, finalizeConst, SOURCE_BUILTINS } from './constEval';
@@ -125,6 +125,7 @@ type Sym =
           scope: Scope;
           nonConst: boolean;
           inputDerived: boolean;
+          persistent: boolean;
           /** Default of the input call this variable is initialized with (`x = input.string("A")`). */
           inputDefault?: ConstValue;
           inputId?: string;
@@ -252,10 +253,10 @@ class InputAnalyzer {
 
     // ── declarations ────────────────────────────────────────────────────
 
-    private declareValue(scope: Scope, name: string, init: any, varType?: string | null): void {
+    private declareValue(scope: Scope, name: string, init: any, varType?: string | null, persistent = false): void {
         // An explicitly `series`/`simple` variable is never folded, nor is one reassigned anywhere.
         const nonConst = this.reassigned.has(name) || /\b(series|simple)\b/.test(varType ?? '');
-        scope.vars.set(name, { kind: 'value', name, init, scope, nonConst, inputDerived: containsInputCall(init) });
+        scope.vars.set(name, { kind: 'value', name, init, scope, nonConst, persistent, inputDerived: containsInputCall(init) });
     }
 
     private declarePattern(scope: Scope, pattern: any, kind: 'loop' | 'param'): void {
@@ -285,7 +286,7 @@ class InputAnalyzer {
                     const name = decl.id?.type === 'Identifier' ? decl.id.name : null;
                     this.visit(decl.init, { ...ctx, target: name ? this.pineName(name) : ctx.target });
                     if (name) {
-                        this.declareValue(ctx.scope, name, decl.init, decl.varType ?? decl.id?.varType ?? null);
+                        this.declareValue(ctx.scope, name, decl.init, decl.varType ?? decl.id?.varType ?? null, node.kind === 'var' || node.kind === 'varip');
                         const sym = ctx.scope.vars.get(name);
                         const inputDefault = this.inputDefaults.get(decl.init);
                         if (sym?.kind === 'value') {
@@ -668,13 +669,28 @@ class InputAnalyzer {
      * The default must be selectable: within `minval`..`maxval`, and one of
      * `options` when given. `input.enum` fields must all come from one enum.
      */
-    /** `E.b` for an enum field reference, also through a constant ternary (`true ? E.b : E.a`). */
-    private enumField(node: any, scope: Scope): string | null {
+    /** Resolve member identity before folding its display title, including constant aliases. */
+    private enumField(node: any, scope: Scope, seen = new Set<Sym>()): string | null {
+        if (seen.size > 256) throw new Error('Enum input alias chain exceeds the supported limit.');
         if (node?.type === 'ConditionalExpression') {
             const cond = this.foldCondition(node.test, scope);
-            return cond === undefined ? null : this.enumField(cond ? node.consequent : node.alternate, scope);
+            return cond === undefined ? null : this.enumField(cond ? node.consequent : node.alternate, scope, seen);
         }
-        return dottedName(node);
+        if (node?.type === 'Identifier') {
+            const sym = scope.resolve(node.name);
+            if (sym?.kind !== 'value' || sym.nonConst || sym.persistent || sym.inputDerived || seen.has(sym)) return null;
+            seen.add(sym);
+            const field = this.enumField(sym.init, sym.scope, seen);
+            seen.delete(sym);
+            return field;
+        }
+        const field = dottedName(node);
+        if (!field || !this.enums.has(field)) return null;
+        const enumName = field.slice(0, field.lastIndexOf('.'));
+        const declaration = scope.resolve(enumName);
+        // A local variable with the same name must not resolve as the outer enum.
+        if (declaration?.kind !== 'value' || declaration.nonConst || declaration.init?.type !== 'ObjectExpression') return null;
+        return declaration.init.properties?.some((property: any) => `${enumName}.${property.key?.name}` === field && property.value?.type === 'Literal' && property.value.value === this.enums.get(field)) ? field : null;
     }
 
     private checkDefvalConstraints(call: any, fn: string, raw: Record<string, { node: any }>, values: Record<string, unknown>, scope: Scope): void {
@@ -684,7 +700,12 @@ class InputAnalyzer {
             const fields = [defNode, ...(raw.options?.node?.type === 'ArrayExpression' ? raw.options.node.elements : [])].map((n) =>
                 this.enumField(n, scope),
             );
-            if (fields.some((f) => !f || !this.enums.has(f))) return;
+            if (raw.options && raw.options.node?.type !== 'ArrayExpression') {
+                throw new Error(`input.enum options must be a tuple of constant enum members.${at(startPos(raw.options.node))}`);
+            }
+            if (fields.some((f) => !f || !this.enums.has(f))) {
+                throw new Error(`input.enum defval and options must be constant members of a declared enum.${at(startPos(defNode))}`);
+            }
             const enumNames = new Set(fields.map((f) => f!.slice(0, f!.lastIndexOf('.'))));
             if (enumNames.size > 1) {
                 throw new Error(

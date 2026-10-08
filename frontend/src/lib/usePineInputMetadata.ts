@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { createPineRuntimeJob } from "./pineRuntime";
 import type { PinePrepareResult } from "./pineProtocol";
 
-/** Refresh older saved activation metadata through the isolated compiler. */
+/** Refresh older saved input metadata through the isolated compiler. */
 export function usePineInputMetadata(source: string | undefined, prepared: PinePrepareResult | undefined): PinePrepareResult | undefined {
-  const legacy = Boolean(source && prepared?.inputDefinitions.some((item) => item.active !== undefined && !item.activeCondition));
+  const legacy = Boolean(source && prepared?.inputDefinitions.some((item) => (item.active !== undefined && !item.activeCondition) || (item.type === "enum" && !item.options?.length)));
   const [refreshed, setRefreshed] = useState<PinePrepareResult>();
   useEffect(() => {
     if (!source || !legacy) return;
