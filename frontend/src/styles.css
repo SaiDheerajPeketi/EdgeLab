@@ -2912,7 +2912,7 @@ button:disabled {
   }
 
   .fib-level-editor {
-    @apply grid w-[min(780px,calc(100vw-48px))] gap-2 rounded border border-cyan-300/15 bg-black/25 p-2;
+    @apply grid min-w-0 max-w-full w-[min(780px,calc(100vw-48px))] gap-2 rounded border border-cyan-300/15 bg-black/25 p-2;
   }
 
   .fib-level-editor-header {
@@ -2972,7 +2972,7 @@ button:disabled {
   }
 
   .fib-level-value {
-    @apply h-7 rounded border border-white/10 bg-black/30 px-2 text-xs font-bold tabular-nums text-slate-100 outline-none focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
+    @apply h-7 min-w-0 w-full rounded border border-white/10 bg-black/30 px-2 text-xs font-bold tabular-nums text-slate-100 outline-none focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
   }
 
   .fib-level-style {

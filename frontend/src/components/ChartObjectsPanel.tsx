@@ -260,7 +260,7 @@ export function ChartObjectsPanel({
                   }}
                   onClick={() => onSelectDrawing(drawing.id)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
+                    if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                       event.preventDefault();
                       onSelectDrawing(drawing.id);
                     }

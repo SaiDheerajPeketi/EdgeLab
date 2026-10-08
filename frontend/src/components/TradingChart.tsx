@@ -3620,6 +3620,7 @@ export function TradingChart({
             )}
             {!captureMode && selectedDrawing && floatingToolbarPosition && isNeutralTool && (
               <FloatingDrawingToolbar
+                key={selectedDrawing.id}
                 drawing={selectedDrawing}
                 onChange={updateSelectedDrawing}
                 onDelete={() => {
@@ -5591,30 +5592,18 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
   </section>;
 }
 
-function FloatingIndicatorToolbar({
-  indicator,
-  onChange,
-  onClose,
-  onRemove,
-  onPositionChange,
-  onToggleVisibility,
-  position,
-}: {
-  indicator: ChartIndicatorInstance;
-  onChange: (settings: Partial<IndicatorSettings>) => void;
-  onClose: () => void;
-  onRemove: () => void;
-  onPositionChange: (position: { x: number; y: number }) => void;
-  onToggleVisibility: () => void;
-  position: { x: number; y: number };
-}) {
+function useFloatingToolbarPlacement(
+  position: { x: number; y: number },
+  onPositionChange?: (position: { x: number; y: number }) => void,
+) {
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const [fittedPosition, setFittedPosition] = useState(position);
   const placementRef = useRef({ position, onPositionChange });
   placementRef.current = { position, onPositionChange };
   const [availableHeight, setAvailableHeight] = useState<number>();
   const placeToolbarRef = useRef<() => void>();
   // Controls can grow after preparation or validation. Measure the actual menu,
-  // and keep every field reachable within the chart rather than assuming 96px.
+  // and keep every field reachable within the chart instead of using a fixed estimate.
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     const boundary = toolbar?.offsetParent;
@@ -5635,7 +5624,8 @@ function FloatingIndicatorToolbar({
         x: clamp(current.x, 12, Math.max(12, boundary.clientWidth - toolbar.offsetWidth - 12)),
         y: clamp(current.y, top, Math.max(top, bottom - Math.min(toolbar.offsetHeight, heightLimit))),
       };
-      if (next.x !== current.x || next.y !== current.y) publish(next);
+      setFittedPosition(previous => previous.x === next.x && previous.y === next.y ? previous : next);
+      if (next.x !== current.x || next.y !== current.y) publish?.(next);
     };
     const observer = new ResizeObserver(place);
     observer.observe(boundary); observer.observe(toolbar);
@@ -5654,6 +5644,27 @@ function FloatingIndicatorToolbar({
     };
   }, []);
   useLayoutEffect(() => { placeToolbarRef.current?.(); }, [position.x, position.y]);
+  return { toolbarRef, fittedPosition, availableHeight };
+}
+
+function FloatingIndicatorToolbar({
+  indicator,
+  onChange,
+  onClose,
+  onRemove,
+  onPositionChange,
+  onToggleVisibility,
+  position,
+}: {
+  indicator: ChartIndicatorInstance;
+  onChange: (settings: Partial<IndicatorSettings>) => void;
+  onClose: () => void;
+  onRemove: () => void;
+  onPositionChange: (position: { x: number; y: number }) => void;
+  onToggleVisibility: () => void;
+  position: { x: number; y: number };
+}) {
+  const { toolbarRef, fittedPosition, availableHeight } = useFloatingToolbarPlacement(position, onPositionChange);
   const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
   const lineStyle = defaultIndicatorLineStyle(indicator.kind, settings);
   const lineWidth = defaultIndicatorLineWidth(indicator.kind, settings);
@@ -5709,7 +5720,7 @@ function FloatingIndicatorToolbar({
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}
       role="group"
-      style={{ left: position.x, top: position.y, maxHeight: availableHeight }}
+      style={{ left: fittedPosition.x, top: fittedPosition.y, maxHeight: availableHeight }}
     >
       <div
         className="indicator-floating-title indicator-floating-title-draggable"
@@ -6115,6 +6126,7 @@ function FloatingDrawingToolbar({
   onDelete: () => void;
   position: { x: number; y: number };
 }) {
+  const { toolbarRef, fittedPosition, availableHeight } = useFloatingToolbarPlacement(position);
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
@@ -6210,11 +6222,12 @@ function FloatingDrawingToolbar({
   return (
     <div
       aria-label="Drawing settings"
-      className="chart-object-floating-toolbar"
+      className="chart-object-floating-toolbar overflow-y-auto overscroll-contain"
+      ref={toolbarRef}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}
       role="group"
-      style={{ left: position.x, top: position.y }}
+      style={{ left: fittedPosition.x, top: fittedPosition.y, maxHeight: availableHeight }}
     >
       {canLabel && (
         <input
@@ -6407,6 +6420,7 @@ function FibLevelEditor({
   const [presets, setPresets] = useState<FibPreset[]>(() => loadFibPresets());
   const [presetName, setPresetName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [inputRevision, setInputRevision] = useState(0);
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   useEffect(() => {
@@ -6491,6 +6505,7 @@ function FibLevelEditor({
       return;
     }
     setSelectedPresetId(preset.id);
+    setInputRevision(current => current + 1);
     onChange({
       fibExtendLeft: preset.extendLeft,
       fibExtendRight: preset.extendRight,
@@ -6545,13 +6560,15 @@ function FibLevelEditor({
           </button>
           <button
             className="fib-icon-button"
-            onClick={() =>
+            onClick={() => {
+              setInputRevision(current => current + 1);
+              setSelectedPresetId("");
               onChange({
                 fibExtendLeft: false,
                 fibExtendRight: true,
                 fibLevels: normalizeFibLevels(DEFAULT_FIB_LEVELS, drawing.color),
-              })
-            }
+              });
+            }}
             title="Reset default levels"
             type="button"
           >
@@ -6603,18 +6620,15 @@ function FibLevelEditor({
                 onChange={(color) => updateLevel(level.id, { color })}
                 value={level.color}
               />
-              <input
-                aria-label="Fib ratio"
+              <NumericDraftInput
+                label="Fib ratio"
                 className="fib-level-value"
-                onChange={(event) =>
-                  updateLevel(level.id, {
-                    label: event.target.value,
-                    value: Number(event.target.value),
-                  })
-                }
-                step="0.001"
-                type="number"
-                value={formatFibLevelInput(level.value)}
+                min={-2}
+                max={4.236}
+                onChange={(value) => updateLevel(level.id, { label: String(value), value })}
+                resetKey={`${drawing.id}:${inputRevision}`}
+                step={0.001}
+                value={level.value}
               />
               <ThemedSelect
                 ariaLabel="Fib level line style"
