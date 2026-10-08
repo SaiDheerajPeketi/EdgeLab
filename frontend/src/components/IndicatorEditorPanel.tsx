@@ -44,7 +44,7 @@ import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult, type PineSourceSnapshot } from "../lib/pineProtocol";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
-import { pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
+import { loadPineCatalogOriginal, pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
 import { PineCatalogBrowser } from "./PineCatalogBrowser";
 import { PineInputControl } from "./PineInputControl";
@@ -102,6 +102,9 @@ export function IndicatorEditorPanel({
   const [runState, setRunState] = useState<{ detail: string; status: "idle" | "running" | "success" | "error" }>({ detail: "", status: "idle" });
   const [historyRevision, setHistoryRevision] = useState<number | null>(null);
   const [catalogOrigin, setCatalogOrigin] = useState<PineCatalogProvenance | undefined>();
+  const [originalRecovery, setOriginalRecovery] = useState<{ busy: boolean; loaded: PineCatalogImport | null; error: string | null }>({ busy: false, loaded: null, error: null });
+  const originalRecoveryRef = useRef<{ controller: AbortController; draft: unknown } | null>(null);
+  const originalRecoveryButtonRef = useRef<HTMLButtonElement | null>(null);
   const [quantSemanticsWarning, setQuantSemanticsWarning] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PinePrepareResult | null>(null);
   const [inputRecovery, setInputRecovery] = useState<Record<string, string>>({});
@@ -129,6 +132,14 @@ export function IndicatorEditorPanel({
   const unchangedMigration = useMemo(() => Boolean(catalogOrigin?.migration && sourceSha256(source) === catalogOrigin.migration.sourceSha256), [source, catalogOrigin?.migration?.sourceSha256]);
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
   const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, sourceSnapshot, symbol, timeframe]);
+  const catalogDraftRef = useRef(catalogDraftIdentity);
+  catalogDraftRef.current = catalogDraftIdentity;
+  useEffect(() => {
+    originalRecoveryRef.current?.controller.abort();
+    originalRecoveryRef.current = null;
+    setOriginalRecovery({ busy: false, loaded: null, error: null });
+    return () => { originalRecoveryRef.current?.controller.abort(); originalRecoveryRef.current = null; };
+  }, [catalogDraftIdentity]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = usePineInputMetadata(pine ? source : undefined, prepared?.source === source ? prepared : undefined);
   const effectivePineInputs = usePineInputMigration(prepared?.source === source ? prepared : undefined, currentPrepared, inputs, inputRecovery, (migration) => {
@@ -206,6 +217,7 @@ export function IndicatorEditorPanel({
   useEffect(() => {
     const onAuthChange = () => {
       if (currentOwner()) return;
+      originalRecoveryRef.current?.controller.abort(); originalRecoveryRef.current = null;
       invalidateExecution(); setPrepared(null); closeRef.current();
     };
     const unsubscribe = subscribeAuthSession(onAuthChange);
@@ -224,6 +236,42 @@ export function IndicatorEditorPanel({
     setHistoryRevision(null);
     setRunState({ detail: "", status: "idle" });
     setQuantSemanticsWarning(null);
+  }
+
+  async function recoverOriginal() {
+    if (!catalogOrigin || !currentOwner()) return;
+    originalRecoveryRef.current?.controller.abort();
+    const pending = { controller: new AbortController(), draft: catalogDraftIdentity };
+    originalRecoveryRef.current = pending;
+    setOriginalRecovery({ busy: true, loaded: null, error: null });
+    try {
+      const loaded = await loadPineCatalogOriginal(catalogOrigin, pending.controller.signal);
+      if (originalRecoveryRef.current === pending && catalogDraftRef.current === pending.draft && currentOwner() && !pending.controller.signal.aborted) {
+        setOriginalRecovery({ busy: false, loaded, error: null });
+      }
+    } catch (cause) {
+      if (originalRecoveryRef.current === pending && catalogDraftRef.current === pending.draft && currentOwner() && !pending.controller.signal.aborted) {
+        setOriginalRecovery({ busy: false, loaded: null, error: `${cause instanceof Error ? cause.message : "The archived original could not be loaded."} Your draft is unchanged. Try again.` });
+      }
+    }
+  }
+
+  function keepOriginalDraft() {
+    originalRecoveryRef.current?.controller.abort(); originalRecoveryRef.current = null;
+    setOriginalRecovery({ busy: false, loaded: null, error: null });
+    window.requestAnimationFrame(() => originalRecoveryButtonRef.current?.focus());
+  }
+
+  function openOriginalDraft() {
+    const loaded = originalRecovery.loaded, pending = originalRecoveryRef.current;
+    if (!loaded || !pending || pending.controller.signal.aborted || pending.draft !== catalogDraftRef.current || !currentOwner()) return;
+    originalRecoveryRef.current = null;
+    setSelectedId(""); changeSource(loaded.source); setInputs({}); setStrategySettings({}); setHistoryRevision(null);
+    setCatalogOrigin(loaded.provenance);
+    setCompletionOpen(false);
+    setOriginalRecovery({ busy: false, loaded: null, error: null });
+    setRunState({ detail: "Original source opened as an unsaved draft. Saved scripts and chart copies are unchanged.", status: "success" });
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   async function save(clearIncompatibleQuantSemantics = false) {
@@ -481,6 +529,15 @@ export function IndicatorEditorPanel({
               <p>Base source hash <span className="font-mono" title={catalogOrigin.sourceSha256}>{catalogOrigin.sourceSha256.slice(0, 12)}</span></p>
               {catalogOrigin.migration ? <p>Migration v{catalogOrigin.migration.version} · hash <span className="font-mono" title={catalogOrigin.migration.sourceSha256}>{catalogOrigin.migration.sourceSha256.slice(0, 12)}</span></p> : null}
               <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={pineCatalogProvenanceLicenseUrl(catalogOrigin)} target="_blank" rel="noreferrer">GPL licence</a></div>
+              <button className="studio-tool-button mt-2 min-h-11 w-full justify-center" disabled={originalRecovery.busy} onClick={() => void recoverOriginal()} ref={originalRecoveryButtonRef} type="button">{originalRecovery.busy ? "Loading original…" : "Recover original source"}</button>
+              {originalRecovery.busy ? <div className="mt-2"><p role="status">Verifying the archived source for this revision…</p><button className="studio-tool-button mt-2 min-h-11" onClick={keepOriginalDraft} type="button">Cancel recovery</button></div> : null}
+              {originalRecovery.error ? <p className="mt-2 text-[var(--loss-text)]" role="alert">{originalRecovery.error}</p> : null}
+              {originalRecovery.loaded ? <div className="mt-3 space-y-3">
+                <p>Review the archived original below. Opening it replaces your unsaved editor changes with a new draft. Your saved scripts and chart copies stay unchanged.</p>
+                {catalogOrigin.originalPineVersion < 5 ? <p>Original Pine v{catalogOrigin.originalPineVersion} is preserved as written. It needs an explicit migration before it can run here.</p> : null}
+                <pre aria-label="Archived original source" className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--ui-inset)] p-2 font-mono text-[11px] leading-5 text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" tabIndex={0}>{originalRecovery.loaded.source}</pre>
+                <div className="flex flex-wrap gap-2"><button className="studio-tool-button studio-tool-button-active min-h-11" onClick={openOriginalDraft} type="button">Open original as new draft</button><button className="studio-tool-button min-h-11" onClick={keepOriginalDraft} type="button">Keep my draft</button></div>
+              </div> : null}
             </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
             <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setStrategySettings(version.strategySettings ?? {}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setStrategySettings(selectedScript.strategySettings ?? {}); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>

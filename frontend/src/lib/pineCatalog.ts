@@ -178,6 +178,25 @@ export async function loadPineCatalogSource(catalog: PineCatalogManifest, id: st
     license: entry.license, originUrl: entry.originUrl, lastFetchedAt: validated.lastFetchedAt } };
 }
 
+/** Recover an immutable saved base directly; the current catalog selection is irrelevant. */
+export async function loadPineCatalogOriginal(provenance: PineCatalogProvenance, signal?: AbortSignal): Promise<PineCatalogImport> {
+  const origin = sanitizePineCatalogProvenance(provenance);
+  if (!origin) throw new Error("Invalid Pine catalog provenance.");
+  const root = origin.collection === "expanded-v2" ? ROOT : LEGACY_ROOT;
+  const catalog = validatePineCatalogManifest(JSON.parse(await readText(`${root}/${origin.upstreamCommit}/manifest.json`, signal, 80_000)));
+  if (catalog.upstreamCommit !== origin.upstreamCommit || catalogRoot(catalog) !== root) throw new Error("The archived Pine catalog does not match the saved original.");
+  const entry = catalog.entries.find((item) => item.id === origin.catalogId);
+  if (!entry || entry.path !== origin.path || entry.sourceSha256 !== origin.sourceSha256 || entry.upstreamBlobSha1 !== origin.upstreamBlobSha1
+    || entry.pineVersion !== origin.originalPineVersion || entry.author !== origin.author || entry.license !== origin.license
+    || entry.originUrl !== origin.originUrl || catalog.lastFetchedAt !== origin.lastFetchedAt) throw new Error("The archived Pine source does not match the saved provenance.");
+  const original = await loadPineCatalogSource(catalog, origin.catalogId, signal);
+  for (const [key, value] of Object.entries(origin)) {
+    // A derivative pin identifies the edited base, not the original being recovered.
+    if (key !== "migration" && original.provenance[key as keyof PineCatalogProvenance] !== value) throw new Error("The archived Pine source does not match the saved provenance.");
+  }
+  return original;
+}
+
 /** An explicit import verifies both the original and the separately pinned derivative. */
 export async function loadPineCatalogMigration(catalog: PineCatalogManifest, id: string, signal?: AbortSignal): Promise<PineCatalogImport> {
   const migration = pineCatalogMigration(catalog, id);
