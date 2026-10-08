@@ -143,7 +143,7 @@ export function SettingsIntegrations() {
       <SettingRow controlId="broker-connections" label="Broker connections" description="Review supported providers and their connection requirements before connecting." scope="Personal" validation={error}>
         <div className="space-y-3">
           {loadState === "loading" ? <p className="flex items-center gap-2 text-sm text-[var(--text-secondary)]" role="status"><LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />Loading provider status…</p> : null}
-          {loadState === "error" ? <button type="button" onClick={() => void load()} disabled={busy != null} className="min-h-9 text-sm font-semibold text-[var(--accent-primary)] hover:underline">Retry status check</button> : null}
+          {loadState === "error" ? <button type="button" onClick={() => void load()} disabled={busy != null} className="min-h-9 text-sm font-semibold text-[var(--interaction)] hover:underline">Retry status check</button> : null}
           {providers.map((provider) => (
             <div key={provider.provider_id} className="rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -165,7 +165,7 @@ export function SettingsIntegrations() {
           ))}
 
           {providers.some((provider) => provider.availability === "available" || provider.availability === "offline-fixture") ? (
-            <form className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.03] p-3" onSubmit={(event) => { event.preventDefault(); void addConnection(); }}>
+            <form className="rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] p-3" onSubmit={(event) => { event.preventDefault(); void addConnection(); }}>
               <p className="text-sm font-medium text-[var(--text-primary)]">Create broker connection</p>
               <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Credentials are encrypted server-side and never returned. The first refresh verifies provider connectivity and discovers accounts.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -173,7 +173,7 @@ export function SettingsIntegrations() {
                 <label className="text-xs font-medium text-[var(--text-secondary)]">Connection name<input disabled={actionsDisabled} value={connectionName} onChange={(event) => setConnectionName(event.target.value)} maxLength={120} className={`${fieldClassName} mt-1`} /></label>
                 <label className="text-xs font-medium text-[var(--text-secondary)] sm:col-span-2">{selectedProvider === "offline-fixture" ? "Fixture token" : selectedProvider === "ninjatrader" ? "API key" : "Access token"}<input disabled={formDisabled} value={credential} onChange={(event) => setCredential(event.target.value)} type="password" autoComplete="new-password" className={`${fieldClassName} mt-1`} /></label>
               </div>
-              <button type="submit" disabled={busy != null || loadState !== "ready" || !connectionName.trim() || (!setup && !credential.trim()) || !connectable.some(provider => provider.provider_id === (setup?.provider ?? selectedProvider))} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-semibold text-[#061017] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-45">
+              <button type="submit" disabled={busy != null || loadState !== "ready" || !connectionName.trim() || (!setup && !credential.trim()) || !connectable.some(provider => provider.provider_id === (setup?.provider ?? selectedProvider))} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--interaction)] px-4 text-sm font-semibold text-[var(--on-interaction)] hover:bg-[var(--interaction-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:opacity-45">
                 {busy === "create" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Database aria-hidden="true" className="h-4 w-4" />}
                 {busy === "create" ? "Connecting…" : setup ? "Retry connection setup" : "Save credential and create connection"}
               </button>
@@ -193,7 +193,7 @@ export function SettingsIntegrations() {
                 {connection.revoked_at ? <span className="text-xs text-[var(--text-secondary)]">Revoked {formatDate(connection.revoked_at)}</span> : (
                   <div className="flex gap-2">
                     <button type="button" onClick={() => void run(`refresh-${connection.id}`, () => refreshBrokerConnection(connection.id))} disabled={actionsDisabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[var(--ui-border-subtle)] px-2.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--ui-hover)] disabled:opacity-45 sm:min-h-9"><RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${busy === `refresh-${connection.id}` ? "animate-spin motion-reduce:animate-none" : ""}`} />Refresh</button>
-                    <button type="button" onClick={() => setConfirmAction(`connection-${connection.id}`)} disabled={actionsDisabled} className="min-h-11 rounded-md px-2.5 text-xs font-medium text-[var(--loss-text)] hover:bg-rose-400/10 disabled:opacity-45 sm:min-h-9">Revoke</button>
+                    <button type="button" onClick={() => setConfirmAction(`connection-${connection.id}`)} disabled={actionsDisabled} className="min-h-11 rounded-md px-2.5 text-xs font-medium text-[var(--loss-text)] hover:bg-[var(--loss-soft)] disabled:opacity-45 sm:min-h-9">Revoke</button>
                   </div>
                 )}
               </div>
@@ -217,7 +217,7 @@ export function SettingsIntegrations() {
                 {secret.state === "active" ? <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
                   <button type="button" disabled={actionsDisabled} onClick={() => void run(`verify-${secret.id}`, () => verifyIntegrationSecret(secret.id))} className="min-h-11 rounded px-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] sm:min-h-8">Verify</button>
                   <button type="button" disabled={actionsDisabled} onClick={() => void run(`rotate-${secret.id}`, () => rotateIntegrationSecret(secret.id))} className="min-h-11 rounded px-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] sm:min-h-8">Re-encrypt</button>
-                  <button type="button" disabled={actionsDisabled} onClick={() => setConfirmAction(`secret-${secret.id}`)} className="grid h-11 w-11 place-items-center rounded text-[var(--loss-text)] hover:bg-rose-400/10 sm:h-8 sm:w-8" aria-label={`Revoke ${secret.provider} credential`}><Trash2 aria-hidden="true" className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={actionsDisabled} onClick={() => setConfirmAction(`secret-${secret.id}`)} className="grid h-11 w-11 place-items-center rounded text-[var(--loss-text)] hover:bg-[var(--loss-soft)] sm:h-8 sm:w-8" aria-label={`Revoke ${secret.provider} credential`}><Trash2 aria-hidden="true" className="h-3.5 w-3.5" /></button>
                 </div> : null}
               </div>
               {confirmAction === `secret-${secret.id}` ? <ConfirmDanger message="Connections using this credential will no longer be able to decrypt it." busy={busy != null || loadState !== "ready"} pending={busy === `revoke-secret-${secret.id}`} onCancel={() => setConfirmAction(null)} onConfirm={() => void run(`revoke-secret-${secret.id}`, () => revokeIntegrationSecret(secret.id))} /> : null}
@@ -234,7 +234,7 @@ function Capability({ label, enabled }: { label: string; enabled: boolean }) {
 }
 
 function ConfirmDanger({ message, busy, pending, onCancel, onConfirm }: { message: string; busy: boolean; pending: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return <div aria-label="Confirm revocation" className="mt-3 border-t border-rose-400/20 pt-3" role="region"><p className="text-xs leading-5 text-[var(--loss-text)]">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded px-3 text-xs text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] sm:min-h-9">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 rounded bg-rose-700 px-3 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-45 sm:min-h-9">{pending ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
+  return <div aria-label="Confirm revocation" className="mt-3 border-t border-[var(--ui-border-strong)] pt-3" role="region"><p className="text-xs leading-5 text-[var(--loss-text)]">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded px-3 text-xs text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] sm:min-h-9">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 rounded bg-[var(--danger-action)] px-3 text-xs font-semibold text-[var(--on-danger-action)] hover:bg-[var(--danger-action-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:opacity-45 sm:min-h-9">{pending ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
 }
 
 function formatDate(value: string) {

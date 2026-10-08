@@ -249,7 +249,7 @@ export function ThemedDatePicker({
         type="button"
       >
         <CalendarDays aria-hidden="true" size={15} />
-        <span className={selected ? "" : "text-slate-500"}>
+        <span className={selected ? "" : "text-[var(--text-muted)]"}>
           {selected ? formatDateDisplay(selected) : placeholder}
         </span>
       </button>

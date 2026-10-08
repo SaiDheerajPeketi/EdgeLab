@@ -17,7 +17,7 @@ The first viewport must show EdgeLab doing real work. Dense screens preserve the
 ## Foundations
 
 - Background: `--ui-canvas`; operating surface: `--ui-surface`; inset data well: `--ui-inset`; floating and modal layers use their named elevation tokens.
-- Accent roles are interaction, selection, information, profit, loss, warning, and neutral. Purple is excluded.
+- Accent roles are interaction, selection, information, profit, loss, warning, and neutral. Purple is excluded. Strong destructive actions use `--danger-action`, `--danger-action-hover`, and `--on-danger-action`; their labels and confirmation remain explicit.
 - Instrument Sans is the interface voice. JetBrains Mono is limited to data, code, timestamps, and measurement.
 - Spacing follows a 4px base. Interactive touch targets are at least 44px on coarse pointers. The pane grid supports one through sixteen charts without changing the control language.
 - Radius reflects role: 6–10px for operating controls, 12–16px for bounded surfaces, pills only for compact status or segmented controls.
