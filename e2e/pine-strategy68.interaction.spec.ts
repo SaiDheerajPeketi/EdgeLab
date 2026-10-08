@@ -79,18 +79,13 @@ test("production opaque worker preserves full exits and cancellation across late
     const request = { action: "run", source: scenario.source, inputs: {}, bars: scenario.bars, mode: "historical", context: context68 };
     const output = await page.evaluate(request => (window as any).strategy68Host.run(request), request);
     outcomes.push({ name: scenario.name, request, output });
-    if (scenario.error) {
-      expect(output, scenario.name).toMatchObject({ ok: false, error: { code: scenario.error } });
-      expect(output.error.message).toMatch(/fixed quantities or partial percentages/);
-    } else {
-      expect(output.ok, `${scenario.name}: ${JSON.stringify(output.error)}`).toBe(true);
-      expect(output.value.source).toBe(scenario.source);
-      expect(ledger68(output.value), scenario.name).toEqual({ ...scenario.expected, pending: scenario.expected.pending ?? [] });
-      for (const plot of output.value.plots) expect(plot.points.map((point: any) => point.time)).toEqual(scenario.bars.map(bar => bar.time));
-      for (const trade of output.value.strategy.closedTrades) {
-        expect(trade.entry_time).toBe(scenario.bars[trade.entry_bar_index].time);
-        expect(trade.exit_time).toBe(scenario.bars[trade.exit_bar_index].time);
-      }
+    expect(output.ok, `${scenario.name}: ${JSON.stringify(output.error)}`).toBe(true);
+    expect(output.value.source).toBe(scenario.source);
+    expect(ledger68(output.value), scenario.name).toEqual({ ...scenario.expected, pending: scenario.expected.pending ?? [] });
+    for (const plot of output.value.plots) expect(plot.points.map((point: any) => point.time)).toEqual(scenario.bars.map(bar => bar.time));
+    for (const trade of output.value.strategy.closedTrades) {
+      expect(trade.entry_time).toBe(scenario.bars[trade.entry_bar_index].time);
+      expect(trade.exit_time).toBe(scenario.bars[trade.exit_bar_index].time);
     }
     await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
   }

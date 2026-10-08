@@ -137,9 +137,9 @@ plot(strategy.position_size,"Position")`;
   const partial = await run(partialSource, bars.slice(0, 2));
   expect(partial.ok, JSON.stringify(partial.error)).toBe(true);
   expect(partial.value.source).toBe(partialSource);
-  expect(partial.value.strategy.closedTrades.map((trade: any) => [trade.entry_id, trade.size, trade.profit])).toEqual([["A", 2, 10], ["B", 1, 5]]);
-  expect(partial.value.strategy.metrics.netprofit).toBe(15);
-  expect(partial.value.strategy.openTrades[0]).toMatchObject({ entry_id: "B", size: 1 });
+  expect(partial.value.strategy.closedTrades.map((trade: any) => [trade.entry_id, trade.size, trade.profit])).toEqual([["A", 1, 5], ["B", 1, 5]]);
+  expect(partial.value.strategy.metrics.netprofit).toBe(10);
+  expect(partial.value.strategy.openTrades.map((t:any)=>[t.entry_id,t.size]).sort(([a],[b])=>a.localeCompare(b))).toEqual([["A",1],["B",1]]);
 
   const reservedSource = `${header}
 varip bool placed=false

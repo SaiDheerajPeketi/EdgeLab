@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and persistent full-percentage exits.
+// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and per-entry persistent exits and quantity-grid tolerances.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -221,6 +221,11 @@ export function qtyStep(context: any): number {
     if (typeof ownedStep === 'number' && Number.isFinite(ownedStep) && ownedStep > 0) return ownedStep;
     const mincontract = context.pine?.syminfo?.mincontract;
     return typeof mincontract === 'number' && mincontract > 0 ? mincontract : 1e-6;
+}
+
+/** A valid quantity-grid unit must never be mistaken for floating-point dust. */
+export function quantityTolerance(context: any): number {
+    return Math.min(1e-9, qtyStep(context) * 1e-6);
 }
 
 /**
@@ -471,7 +476,9 @@ function fillEntryOrder(context: any, order: Order, fillPrice: number, currentTi
     }
 
     // Execute the order using the pre-calculated qty
+    const previousTrades = new Set(strategy.opentrades);
     executeOrder(context, order, fillPrice, currentTime);
+    for (const trade of strategy.opentrades) if (!previousTrades.has(trade)) (trade as any)._entry_creation_bar = order.bar;
     order.status = 'filled';
     order.fill_price = fillPrice;
     order.fill_bar = context.idx;
@@ -898,7 +905,7 @@ function executeOrder(context: any, order: Order, fillPrice: number, fillTime: n
         // row — xlsx 2021-10-02: longs 5 + 0.263108 at the same fill).
         if (remainingQty > 0) {
             const baseQty = (order as any)._base_qty;
-            if (baseQty !== undefined && remainingQty > baseQty + 1e-9) {
+            if (baseQty !== undefined && remainingQty > baseQty + quantityTolerance(context)) {
                 openTrade(context, order.id, direction, baseQty, fillPrice, fillTime, order.comment, /* isReversalOpen */ true);
                 openTrade(context, order.id, direction, remainingQty - baseQty, fillPrice, fillTime, order.comment, /* isReversalOpen */ true);
             } else {
@@ -946,14 +953,15 @@ function consumeLedger(
     strategy: StrategyState,
     physical: Trade,
     qty: number,
+    tolerance: number,
 ): Array<{ qty: number; entry_price: number; entry_time: number; entry_bar_index: number; entry_comment?: string; commission: number }> {
     const out: Array<{ qty: number; entry_price: number; entry_time: number; entry_bar_index: number; entry_comment?: string; commission: number }> =
         [];
     let need = qty;
     const queue: any[] = (strategy as any)._ledger_entries ?? [];
     for (const rec of queue) {
-        if (need <= 1e-9) break;
-        if (rec.entry_id !== physical.entry_id || rec.qty <= 1e-9) continue;
+        if (need <= tolerance) break;
+        if (rec.entry_id !== physical.entry_id || rec.qty <= tolerance) continue;
         const take = Math.min(rec.qty, need);
         const commShare = rec.qty > 0 ? rec.commission * (take / rec.qty) : 0;
         out.push({
@@ -968,8 +976,8 @@ function consumeLedger(
         rec.commission -= commShare;
         need -= take;
     }
-    (strategy as any)._ledger_entries = queue.filter((r) => r.qty > 1e-9);
-    if (need > 1e-9) {
+    (strategy as any)._ledger_entries = queue.filter((r) => r.qty > tolerance);
+    if (need > tolerance) {
         const physQty = Math.abs(physical.size);
         out.push({
             qty: need,
@@ -1027,7 +1035,7 @@ export function closePartialPosition(context: any, qtyToClose: number, exitPrice
             const rawExitCommission = computeLegCommission(context, strategy, qtyClosed, exitPrice);
             const exitCommTotal = halveFlat ? rawExitCommission / 2 : rawExitCommission;
 
-            const slices = consumeLedger(strategy, trade, qtyClosed);
+            const slices = consumeLedger(strategy, trade, qtyClosed, quantityTolerance(context));
             for (const s of slices) {
                 const exitCommShare = exitCommTotal * (s.qty / qtyClosed);
                 const priceChange = tradeDirection === 1 ? exitPrice - s.entry_price : s.entry_price - exitPrice;
@@ -1077,7 +1085,7 @@ export function closePartialPosition(context: any, qtyToClose: number, exitPrice
         // float hair short of the trade's size (fractional margin-call
         // remainders), treat it as a full close instead of leaving a
         // ~1e-15 ghost portion open.
-        if (qtyClosing >= tradeQty - 1e-9) {
+        if (qtyClosing >= tradeQty - quantityTolerance(context)) {
             // Fully close this physical lot.
             trade.status = 'closed';
             trade.exit_price = exitPrice;
@@ -1115,7 +1123,7 @@ export function closePartialPosition(context: any, qtyToClose: number, exitPrice
     // position_avg_price alive on a ghost position — the script captures
     // stale TP/SL prices from it and the next entry gets phantom-exited at
     // its own entry price (QA pyramiding xlsx, 2021-11-09 BTCUSDC).
-    if (Math.abs(newSize) < 1e-9) newSize = 0;
+    if (Math.abs(newSize) < quantityTolerance(context)) newSize = 0;
 
     strategy.position_size = newSize;
     updateMaxContractsHeld(strategy);
@@ -1807,9 +1815,9 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
             let lastFill = NaN;
             let closedAny = false;
             for (const ev of events) {
-                if (capRemaining <= 1e-9) break;
+                if (capRemaining <= quantityTolerance(context)) break;
                 const remaining = remainingMatchingQty();
-                if (remaining <= 1e-9) break;
+                if (remaining <= quantityTolerance(context)) break;
                 const qtyThis = Math.min(ev.qty === Infinity ? remaining : ev.qty, capRemaining, remaining);
                 // Slippage (closing side direction) applies to the stop and trailing legs;
                 // the take-profit leg is a limit order and fills at its price.
@@ -1850,7 +1858,7 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
             // its qty cap is exhausted; otherwise it stays pending so the
             // surviving trades' brackets remain active on later bars (TV
             // brackets persist until filled or replaced).
-            if (closedAny && (remainingMatchingQty() <= 1e-9 || capRemaining <= 1e-9)) {
+            if (closedAny && (remainingMatchingQty() <= quantityTolerance(context) || capRemaining <= quantityTolerance(context))) {
                 order.status = 'filled';
                 order.fill_price = lastFill;
                 order.fill_bar = context.idx;
@@ -1903,7 +1911,7 @@ export function applyPendingCloseMarginCall(context: any): void {
         exitComment: 'Margin call',
     });
 
-    if (Math.abs(strategy.position_size) > 1e-9) {
+    if (Math.abs(strategy.position_size) > quantityTolerance(context)) {
         for (const o of strategy.pending_orders) {
             if (o.status === 'pending' && (o.category ?? 'entry') === 'entry' && !o._isReversalEntry && parseDirection(o.direction) === pending.dir) {
                 o.status = 'cancelled';
@@ -2050,7 +2058,7 @@ export function processMarginCall(context: any, checkpoint: 'open' | 'extreme' |
         // Single-piece margin calls can never fire this (D2 < 0
         // algebraically) — only calls that consume the whole front piece
         // and span into deeper lots qualify, and even then rarely.
-        if (checkpoint === 'extreme' && qtyToLiquidate >= frontQty - 1e-9 && Math.abs(strategy.position_size) > 1e-9) {
+        if (checkpoint === 'extreme' && qtyToLiquidate >= frontQty - quantityTolerance(context) && Math.abs(strategy.position_size) > quantityTolerance(context)) {
             const freedMargin = computeRequiredMargin(frontQty, adversePrice, marginPct, pointValue);
             const u1 = frontQty * (adversePrice - frontEntry) * positionDir * pointValue;
             const d2 = deficit - freedMargin + u1;
@@ -2059,7 +2067,7 @@ export function processMarginCall(context: any, checkpoint: 'open' | 'extreme' |
                 const trunc6 = (x: number) => Math.trunc(x * 1e6) / 1e6;
                 const cover2 = trunc6(d2 / (adversePrice * pointValue * marginFrac));
                 const q2 = Math.min(Math.abs(strategy.position_size), 4 * cover2);
-                if (q2 > 1e-9) {
+                if (q2 > quantityTolerance(context)) {
                     (strategy as any)._pending_close_mc = {
                         qty: q2,
                         price: closeP,
@@ -2556,57 +2564,52 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         result = await calculate(); lastCalculation = cursor; stamp();
     };
     type Event = { at: number; price: number; order: any; kind: 'entry' | 'activate' | 'trail-activate' | 'market-exit' | 'profit' | 'loss' | 'trailing'; trade?: any };
+    const quantityEpsilon = quantityTolerance(context);
+    const eligibleTrades = (order: Order) => strategy.opentrades.filter(trade =>
+        (!order.from_entry || trade.entry_id === order.from_entry && ((trade as any)._entry_creation_bar ?? trade.entry_bar_index) <= order.bar)
+        && (!order._intended_trade_ids || order._intended_trade_ids.includes(trade.id)));
+    const eligiblePendingEntry = (order: Order) => !!order.from_entry && strategy.pending_orders.some(entry =>
+        entry.status === 'pending' && (entry.category ?? 'entry') === 'entry' && entry.id === order.from_entry && entry.bar <= order.bar);
     const reserveExits = () => {
         const exits = strategy.pending_orders.filter(order => order.status === 'pending' && order.category === 'exit' &&
             ['profit', 'loss', 'limit', 'stop', 'trail_price', 'trail_points'].some(key => order[key] !== undefined));
         const available = new Map(strategy.opentrades.map(trade => [trade.id, Math.abs(trade.size)]));
-        // Existing generations keep their reservations. Removed/replaced orders
-        // release their allocations; a new generation can use the freed quantity.
+        // Retained generations keep their reservations; cancelled/replaced generations release them.
         for (const order of exits) {
             const allocation = historicalExitReservations.get(order);
             if (!allocation) continue;
             for (const [id, quantity] of allocation) {
                 const reserved = Math.min(quantity, available.get(id) ?? 0);
-                if (reserved <= 1e-9) allocation.delete(id);
+                if (reserved <= quantityEpsilon) allocation.delete(id);
                 else { allocation.set(id, reserved); available.set(id, available.get(id)! - reserved); }
             }
-            if (!allocation.size && (order.from_entry || !strategy.position_size)) order.status = 'cancelled';
-            (order as any)._historical_exit_dormant = !allocation.size;
         }
-        // An unscoped full-position exit, including explicit 100%, covers later entries until flat.
+        // A call creates a separate bracket for each eligible physical entry. Each
+        // generation captures a lot once, so consumed partial capacity never refills
+        // itself from that lot's remainder. Unscoped calls can capture later lots;
+        // scoped calls can capture later fills of entries created by the call's bar.
         for (const order of exits) {
-            const allocation = historicalExitReservations.get(order);
-            if (!allocation || order.status !== 'pending' || order.from_entry) continue;
-            const seen = historicalExitSeenTrades.get(order)!;
-            for (const trade of strategy.opentrades) {
-                if (seen.has(trade.id)) continue;
-                if (order.qty > 0 || (order.qty_percent !== undefined && order.qty_percent !== 100))
-                    fail('Persistent exits with fixed quantities or partial percentages for later entries are unavailable with order-fill recalculation.');
-                seen.add(trade.id);
-                const quantity = available.get(trade.id) ?? 0;
-                if (quantity > 1e-9) { allocation.set(trade.id, quantity); available.set(trade.id, 0); (order as any)._historical_exit_dormant = false; }
-            }
-        }
-        for (const order of exits) {
-            if (order.status !== 'pending' || historicalExitReservations.has(order)) continue;
-            let matching = strategy.opentrades.filter(trade => !order.from_entry || trade.entry_id === order.from_entry);
-            if (order._intended_trade_ids) matching = matching.filter(trade => order._intended_trade_ids.includes(trade.id));
-            if (!matching.length) continue; // Wait for the matching pending entry to fill.
-            const total = matching.reduce((sum, trade) => sum + Math.abs(trade.size), 0);
-            const base = matching.reduce((sum, trade) => sum + (trade._entry_qty ?? Math.abs(trade.size)), 0);
-            let remaining = order.qty > 0 ? Math.min(order.qty, total) : order.qty_percent > 0 && order.qty_percent !== 100 ? Math.min(total, partialCloseQty(context, base, order.qty_percent)) : total;
-            const allocation = new Map<string, number>();
+            let allocation = historicalExitReservations.get(order);
+            const matching = eligibleTrades(order);
+            if (!allocation && !matching.length) continue;
+            if (!allocation) historicalExitReservations.set(order, allocation = new Map());
+            let seen = historicalExitSeenTrades.get(order);
+            if (!seen) historicalExitSeenTrades.set(order, seen = new Set());
             for (const trade of matching) {
-                const quantity = Math.min(remaining, available.get(trade.id) ?? 0);
-                if (quantity > 1e-9) {
+                if (seen.has(trade.id)) continue;
+                seen.add(trade.id);
+                const requested = order.qty > 0 ? floorQty(context, order.qty)
+                    : order.qty_percent > 0 && order.qty_percent !== 100
+                        ? partialCloseQty(context, trade._entry_qty ?? Math.abs(trade.size), order.qty_percent)
+                        : Math.abs(trade.size);
+                const quantity = Math.min(requested, available.get(trade.id) ?? 0);
+                if (quantity > quantityEpsilon) {
                     allocation.set(trade.id, quantity);
                     available.set(trade.id, available.get(trade.id)! - quantity);
-                    remaining -= quantity;
                 }
             }
-            historicalExitReservations.set(order, allocation);
-            historicalExitSeenTrades.set(order, new Set(matching.map(trade => trade.id)));
-            if (!allocation.size) order.status = 'cancelled';
+            (order as any)._historical_exit_dormant = !allocation.size;
+            if (!allocation.size && (order.from_entry ? !eligiblePendingEntry(order) : !strategy.position_size)) order.status = 'cancelled';
         }
     };
     const candidates = (): Event[] => {
@@ -2647,8 +2650,9 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 }
                 if (!hasTrail && !hasFixedExit) fail('Historical trailing exits require trail_offset and trail_price or trail_points.');
             }
-            let matching = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry);
-            if (order._intended_trade_ids) matching = matching.filter(t => order._intended_trade_ids.includes(t.id));
+            const matching = order._historical_conditional_exit ? eligibleTrades(order)
+                : strategy.opentrades.filter(t => (!order.from_entry || t.entry_id === order.from_entry)
+                    && (!order._intended_trade_ids || order._intended_trade_ids.includes(t.id)));
             const conditional = hasFixedExit || hasTrail;
             if (!matching.length) continue; // A bracket may be waiting on an entry later on this path.
             if (!conditional && order._historical_conditional_exit) {
@@ -2661,7 +2665,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 continue;
             }
             for (const trade of matching) {
-                if (!(historicalExitReservations.get(order)?.get(trade.id)! > 1e-9)) continue;
+                if (!(historicalExitReservations.get(order)?.get(trade.id)! > quantityEpsilon)) continue;
                 const direction = Math.sign(trade.size), entry = trade._bracket_entry ?? trade.entry_price;
                 const relativeProfit = order.profit === undefined ? undefined : entry + direction * order.profit * mintick;
                 const relativeLoss = order.loss === undefined ? undefined : entry - direction * order.loss * mintick;
@@ -2731,8 +2735,9 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                     if (historicalExitReservations.has(exit)) exit.status = 'cancelled';
             }
         } else {
-            let matching = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry);
-            if (order._intended_trade_ids) matching = matching.filter(t => order._intended_trade_ids.includes(t.id));
+            const matching = order._historical_conditional_exit ? eligibleTrades(order)
+                : strategy.opentrades.filter(t => (!order.from_entry || t.entry_id === order.from_entry)
+                    && (!order._intended_trade_ids || order._intended_trade_ids.includes(t.id)));
             const matchingQty = matching.reduce((sum, t) => sum + Math.abs(t.size), 0);
             const allocation = historicalExitReservations.get(order);
             if (kind === 'market-exit' && !exitRemaining.has(order)) exitRemaining.set(order, order.qty > 0 ? Math.min(order.qty, matchingQty) : order.qty_percent > 0 ? Math.min(matchingQty, partialCloseQty(context, matchingQty, order.qty_percent)) : matchingQty);
@@ -2747,10 +2752,11 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             const left = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry).reduce((sum, t) => sum + Math.abs(t.size), 0);
             if (trade) {
                 allocation!.set(trade.id, remaining - qty);
-                if (remaining - qty <= 1e-9) allocation!.delete(trade.id);
+                if (remaining - qty <= quantityEpsilon) allocation!.delete(trade.id);
             } else exitRemaining.set(order, remaining - qty);
-            if (trade && !allocation!.size && !order.from_entry && left > 1e-9) (order as any)._historical_exit_dormant = true;
-            if (left <= 1e-9 || (trade ? !allocation!.size && !!order.from_entry : exitRemaining.get(order)! <= 1e-9)) {
+            const waitingForScopedEntry = trade && eligiblePendingEntry(order);
+            if (trade && !allocation!.size && (left > quantityEpsilon || waitingForScopedEntry)) (order as any)._historical_exit_dormant = true;
+            if (left <= quantityEpsilon && !waitingForScopedEntry || (trade ? !allocation!.size && !!order.from_entry && !waitingForScopedEntry : exitRemaining.get(order)! <= quantityEpsilon)) {
                 order.status = 'filled'; order.fill_price = price; order.fill_bar = context.idx; order.fill_time = time;
             }
         }

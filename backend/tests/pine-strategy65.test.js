@@ -291,7 +291,7 @@ plot(strategy.position_avg_price,"Average")`;
 
 
 for (const quantity of ["qty_percent=75", "qty=3"]) {
-  test(`partial exit ${quantity} spans both lots and preserves the one-unit remainder`, async () => {
+  test(`partial exit ${quantity} allocates its size separately to both entry lots`, async () => {
     const source = `//@version=6
 strategy("Partial two lots",initial_capital=10000,pyramiding=2,calc_on_order_fills=true)
 varip int executions=-1
@@ -306,16 +306,18 @@ if strategy.position_size==4 and not placed
 plot(executions,"Executions")
 plot(strategy.position_size,"Position")`;
     const result = await execute(source, { bars: bars.slice(0, 2) });
+    // strategy.exit creates a separate bracket per eligible entry. The whole-unit
+    // grid floors 75% of each two-unit entry to one; qty3 caps each at its two units.
+    const size = quantity === "qty_percent=75" ? 1 : 2;
     assert.deepEqual(result.strategy.closedTrades.map((trade) => [trade.entry_id, trade.entry_price, trade.exit_price, trade.size, trade.profit]), [
-      ["A", 100, 105, 2, 10], ["B", 100, 105, 1, 5],
+      ["A", 100, 105, size, size * 5], ["B", 100, 105, size, size * 5],
     ]);
-    assert.equal(result.strategy.metrics.netprofit, 15);
-    assert.equal(result.strategy.metrics.position_size, 1);
-    assert.equal(result.strategy.openTrades.length, 1);
-    assert.equal(result.strategy.openTrades[0].entry_id, "B");
-    assert.equal(result.strategy.openTrades[0].size, 1);
+    assert.equal(result.strategy.metrics.netprofit, size * 10);
+    assert.equal(result.strategy.metrics.position_size, 4 - size * 2);
+    assert.deepEqual(result.strategy.openTrades.map(t => [t.entry_id, t.size]).sort(([a],[b]) => a.localeCompare(b)),
+      size === 1 ? [["A",1],["B",1]] : []);
     assert.deepEqual(values(result, "Executions"), [0, 5]);
-    assert.deepEqual(values(result, "Position"), [0, 1]);
+    assert.deepEqual(values(result, "Position"), [0, 4 - size * 2]);
   });
 }
 
@@ -461,13 +463,13 @@ test("earlier take-profit reserves nineteen units so a later oversized stop clos
   assert.equal(result.strategy.pendingOrders[0].limit, 110);
 });
 
-test("equal-scope reservations allocate across physical lots before the later stop", async () => {
+test("an oversized per-entry take-profit reserves both lots before a later stop", async () => {
   const source = reservedSource('    strategy.entry("A",strategy.long,qty=10)\n    strategy.entry("B",strategy.long,qty=10)',
     '    strategy.exit("TP",limit=110,qty=19)\n    strategy.exit("SL",stop=90,qty=20)');
   const result = await execute(source, { bars: reservationBars });
-  assert.deepEqual(result.strategy.closedTrades.map((trade) => [trade.entry_id, trade.exit_price, trade.size, trade.profit]), [["B", 90, 1, -10]]);
-  assert.deepEqual(result.strategy.openTrades.map((trade) => [trade.entry_id, trade.size]).sort(([a], [b]) => a.localeCompare(b)), [["A", 10], ["B", 9]]);
-  assert.equal(result.strategy.metrics.netprofit, -10);
+  assert.deepEqual(result.strategy.closedTrades, []);
+  assert.deepEqual(result.strategy.openTrades.map((trade) => [trade.entry_id, trade.size]).sort(([a], [b]) => a.localeCompare(b)), [["A", 10], ["B", 10]]);
+  assert.equal(result.strategy.metrics.netprofit, 0);
 });
 
 test("canceling the earlier take-profit releases its reservation to a new stop", async () => {
@@ -531,13 +533,13 @@ if bar_index==1 and calls==3
     strategy.exit("X",profit=5,qty=3)
 plot(calls,"Calls")`;
 
-test("a three-unit exit retains its consumed allocation across separate fill bars", async () => {
+test("a three-unit exit caps each physical entry across separate fill bars", async () => {
   const result = await execute(crossbarPrefix, { bars: crossbarBars });
   assert.deepEqual(result.strategy.closedTrades.map((trade) => [trade.entry_id, trade.entry_price, trade.exit_price, trade.size, trade.profit, trade.exit_bar_index]), [
-    ["A", 100, 105, 2, 10, 2], ["B", 110, 115, 1, 5, 3],
+    ["A", 100, 105, 2, 10, 2], ["B", 110, 115, 2, 10, 3],
   ]);
-  assert.equal(result.strategy.metrics.netprofit, 15);
-  assert.deepEqual(result.strategy.openTrades.map((trade) => [trade.entry_id, trade.entry_price, trade.size]), [["B", 110, 1]]);
+  assert.equal(result.strategy.metrics.netprofit, 20);
+  assert.deepEqual(result.strategy.openTrades.map((trade) => [trade.entry_id, trade.entry_price, trade.size]), []);
   assert.deepEqual(result.strategy.pendingOrders, []);
   assert.deepEqual(values(result, "Calls"), [1, 3, 2, 2]);
 });

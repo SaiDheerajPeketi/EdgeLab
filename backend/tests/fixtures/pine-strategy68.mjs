@@ -44,8 +44,8 @@ export const cases68 = [
   { name: "replacement full exit preserves a new generation's price", source: program68({ after: '    strategy.exit("X",profit=10,qty_percent=100)\n' }), bars: bars68, expected: { closed: [rows[0],["B",110,120,2,20,1,3],["C",110,120,2,20,2,3]], open: [], position: [0,4,4,0], profit: 50 } },
   { name: "earlier reserved quantity remains unavailable to full exit", source: program68({ before: '    strategy.exit("Reserved","A",profit=100,qty=1)\n' }), bars: bars68, expected: { closed: [["A",100,105,1,5,1,2],...rows.slice(1)], open: [["A",100,1]], position: [0,4,5,1], profit: 25, pending: ["Reserved"] } },
   { name: "scoped full percentage excludes a later same-ID entry", source: program68({ scope: '"B",', laterId: "B" }), bars: bars68, expected: { closed: [rows[1]], open: [["A",100,2],["B",112,2]], position: [0,4,4,4], profit: 10 } },
-  { name: "positive fixed qty still wins over explicit 100 percent", source: program68({ sizing: "qty=1,qty_percent=100" }), bars: bars68, error: "UNSUPPORTED_ORDER_FILL_CONTEXT" },
-  { name: "partial percentages still refuse unverified later-entry sizing", source: program68({ sizing: "qty_percent=50" }), bars: bars68, error: "UNSUPPORTED_ORDER_FILL_CONTEXT" },
+  { name: "positive fixed qty wins over explicit 100 percent for each entry", source: program68({ sizing: "qty=1,qty_percent=100" }), bars: bars68, expected: {closed:[["A",100,105,1,5,1,2],["B",110,115,1,5,1,3],["C",110,115,1,5,2,3]],open:[["A",100,1],["B",110,1],["C",110,1]],position:[0,4,5,3],profit:15} },
+  { name: "partial percentages cover later entries without consuming old remainders", source: program68({ sizing: "qty_percent=50" }), bars: bars68, expected: {closed:[["A",100,105,1,5,1,2],["B",110,115,1,5,1,3],["C",110,115,1,5,2,3]],open:[["A",100,1],["B",110,1],["C",110,1]],position:[0,4,5,3],profit:15} },
 ];
 const reopen = `//@version=6
 strategy("Exit lifetime",initial_capital=10000,calc_on_order_fills=true)
@@ -64,7 +64,7 @@ cases68.push({ name: "flat completion retires the exit before a reopened positio
 export function ledger68(result) {
   return {
     closed: result.strategy.closedTrades.map(t => [t.entry_id,t.entry_price,t.exit_price,t.size,t.profit,t.entry_bar_index,t.exit_bar_index]),
-    open: result.strategy.openTrades.map(t => [t.entry_id,t.entry_price,t.size]),
+    open: result.strategy.openTrades.map(t => [t.entry_id,t.entry_price,t.size]).sort((a,b)=>a[0].localeCompare(b[0])||a[1]-b[1]),
     position: result.plots.find(p => p.name === "Position").points.map(p => p.value),
     profit: result.strategy.metrics.netprofit,
     pending: result.strategy.pendingOrders.map(o => o.id),

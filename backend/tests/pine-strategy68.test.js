@@ -37,14 +37,6 @@ import { cases68, context68, ledger68 } from "./fixtures/pine-strategy68.mjs";
 for (const scenario of cases68) {
   test(scenario.name, async () => {
     const request = { id: "strategy68", action: "run", source: scenario.source, bars: scenario.bars, inputs: {}, context: context68 };
-    if (scenario.error) {
-      await assert.rejects(pine.executePineRequest(request), error => {
-        assert.equal(error.code, scenario.error);
-        assert.match(error.message, /fixed quantities or partial percentages/);
-        return true;
-      });
-      return;
-    }
     const result = await pine.executePineRequest(request);
     assert.equal(result.source, scenario.source);
     assert.deepEqual(ledger68(result), { ...scenario.expected, pending: scenario.expected.pending ?? [] });

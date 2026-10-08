@@ -158,7 +158,7 @@ export default defineConfig({
         deviceScaleFactor: 1,
         viewport: { height: 1000, width: 1440 },
       },
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/, /pine-strategy70\.interaction\.spec\.ts/],
     },
     {
       name: "tablet",
@@ -168,7 +168,7 @@ export default defineConfig({
         hasTouch: true,
         viewport: { height: 1112, width: 834 },
       },
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/, /pine-strategy70\.interaction\.spec\.ts/],
     },
     {
       name: "mobile",
@@ -179,7 +179,7 @@ export default defineConfig({
         isMobile: true,
         viewport: { height: 844, width: 390 },
       },
-      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/],
+      testIgnore: [/performance\.spec\.ts/, /public-checkout48\.interaction\.spec\.ts/, /pine-layering\.interaction\.spec\.ts/, /pine-study-geometry51\.interaction\.spec\.ts/, /landing-continuity52\.interaction\.spec\.ts/, /pine-bars53\.interaction\.spec\.ts/, /pine-copy55\.interaction\.spec\.ts/, /pine-history56\.interaction\.spec\.ts/, /pine-live58\.interaction\.spec\.ts/, /pine-context59\.interaction\.spec\.ts/, /landing-sculpture60\.interaction\.spec\.ts/, /replay-session61\.interaction\.spec\.ts/, /pine-catalog62\.interaction\.spec\.ts/, /pine-strategy64\.interaction\.spec\.ts/, /public-fallback67\.interaction\.spec\.ts/, /pine-strategy68\.interaction\.spec\.ts/, /pine-instrument69\.interaction\.spec\.ts/, /pine-strategy70\.interaction\.spec\.ts/],
     },
     {
       name: "tradingDesktop",
