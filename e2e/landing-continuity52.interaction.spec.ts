@@ -280,3 +280,46 @@ test("large actual WebGL model rotates with readable current public copy", async
     await capture(page, "hero-viewport-desktop1440", { gpu, coverage, viewport: page.viewportSize() });
   }
 });
+
+
+test("focused controls stay visible across completed scroll exits and reduced-motion changes", async ({ page }, info) => {
+  await openLanding(page);
+  const heroActions = page.locator('[data-marketing-reveal="hero-actions"]');
+  const sculpture = page.locator('[data-marketing-flow]').filter({ has: page.locator('[data-market-sculpture]') });
+  const privacy = page.getByRole('link', { name: 'privacy summary', exact: true });
+  const privacyParagraph = privacy.locator('..');
+  const footer = page.locator('[data-marketing-reveal="footer"]');
+  const cases = [
+    { ancestor: heroActions, control: heroActions.getByRole('link').first(), below: true },
+    { ancestor: sculpture, control: sculpture.getByRole('button', { name: 'Rotate scene left', exact: true }), below: true },
+    { ancestor: privacyParagraph, control: privacy, below: true },
+    { ancestor: footer, control: footer.getByRole('link', { name: 'Privacy', exact: true }), below: false },
+  ];
+  const evidence = [];
+  for (const { ancestor, control, below } of cases) {
+    // Exercise the real completed exit, then focus without moving the viewport.
+    // Focus must win even if scroll stays stopped outside the trigger range.
+    await page.evaluate((toBottom) => window.scrollTo(0, toBottom ? document.documentElement.scrollHeight : 0), below);
+    await expect.poll(async () => (await pose(ancestor)).opacity).toBe(0);
+    const hidden = await pose(ancestor);
+    await control.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+    expect(await control.evaluate((node) => document.activeElement === node)).toBe(true);
+    const focused = await pose(ancestor);
+    expect(focused.opacity).toBe(1);
+    expect(focused.x).toBe(0);
+    expect(focused.y).toBe(0);
+    await page.waitForTimeout(850);
+    expect((await pose(ancestor)).opacity).toBe(1);
+    await control.evaluate((node) => (node as HTMLElement).blur());
+    await expect.poll(async () => (await pose(ancestor)).opacity).toBe(0);
+    evidence.push({ hidden, focused, blurred: await pose(ancestor) });
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const { ancestor } of cases) {
+    await expect.poll(async () => (await pose(ancestor)).opacity).toBe(1);
+    expect((await pose(ancestor)).y).toBe(0);
+  }
+  await sculpture.scrollIntoViewIfNeeded();
+  await sculpture.getByRole('button', { name: 'Decisions', exact: true }).click();
+  await capture(page, 'focus-guard71-' + info.project.name, { evidence, reduced: await pose(sculpture) }, sculpture);
+});

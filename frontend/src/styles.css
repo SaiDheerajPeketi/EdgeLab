@@ -6,7 +6,10 @@
   src: url("@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2") format("woff2-variations");
 }
 
-.landing-motion-content:focus-within {
+.landing-motion-content:focus-within,
+[data-marketing-reveal]:focus-within,
+[data-marketing-flow]:focus-within,
+.landing-story :is(h2, h3, p):focus-within {
   opacity: 1 !important;
   transform: none !important;
 }
@@ -18,7 +21,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-motion-content {
+  .landing-motion-content,
+  [data-marketing-reveal],
+  [data-marketing-flow],
+  .landing-story :is(h2, h3, p) {
     opacity: 1 !important;
     transform: none !important;
   }
