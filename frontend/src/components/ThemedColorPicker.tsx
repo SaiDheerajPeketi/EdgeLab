@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -71,13 +72,14 @@ export function ThemedColorPicker({
   const errorId = `${pickerId}-error`;
   const rgb = hexToRgb(normalizedValue);
 
-  useEffect(() => {
-    if (!isEditing) {
+  useLayoutEffect(() => {
+    // Keep our own typing acknowledgments intact, but replace stale focused
+    // drafts before blur can send them back over an incoming preset color.
+    if (!isEditing || normalizeHexColor(draft, { allowShorthand: false }) !== normalizedValue) {
       setDraft(normalizedValue);
       setHexError(null);
     }
-    // A new committed value is the only external event that should clear an
-    // invalid draft; blur alone leaves the recovery message visible.
+    // Only a new committed value resets drafts; blur alone preserves errors.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedValue]);
 
