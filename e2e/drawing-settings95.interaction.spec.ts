@@ -161,7 +161,7 @@ test("Fib preset and default reset replace unfinished drafts, including equal ap
   await expect.poll(()=>state.writes.some(w=>w.key==="fib-presets.v1")).toBe(true);
   await ratio.fill(""); await expect(ratio).toHaveValue("");
   await toolbar.getByRole("button",{name:"Fib presets",exact:true}).click();
-  await toolbar.getByRole("button",{name:/Audit levels.*9 levels/}).click();
+  await page.getByRole("menu",{name:"Fib presets",exact:true}).getByRole("menuitemradio",{name:"Apply Audit levels",exact:true}).click();
   await expect(ratio).toHaveValue("0.5");
   await ratio.fill(""); await toolbar.getByTitle("Reset default levels",{exact:true}).click();
   await expect(ratio).toHaveValue("0.5");

@@ -179,6 +179,7 @@ import {
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import { PresetApplyDropdown } from "./PresetApplyDropdown";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
@@ -6007,112 +6008,6 @@ function IndicatorNumberInput({
       <span>{label}</span>
       <NumericDraftInput compact label={label} min={min ?? undefined} max={max} integer={step === 1} step={step} value={value} onChange={onChange} />
     </label>
-  );
-}
-
-function PresetApplyDropdown({
-  ariaLabel,
-  className = "",
-  disabled = false,
-  items,
-  onApply,
-  onDelete,
-  placeholder,
-  selectedId,
-}: {
-  ariaLabel: string;
-  className?: string;
-  disabled?: boolean;
-  items: Array<{ id: string; name: string; sublabel: string }>;
-  onApply: (presetId: string) => void;
-  onDelete: (presetId: string) => void;
-  placeholder: string;
-  selectedId: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
-  const canOpen = !disabled && items.length > 0;
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    function closeOnOutsideClick(event: PointerEvent) {
-      const target = event.target as Node;
-      if (!rootRef.current?.contains(target)) {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [open]);
-
-  return (
-    <div className={`preset-apply-dropdown ${open ? "preset-apply-dropdown-open" : ""} ${className}`} ref={rootRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-label={ariaLabel}
-        className="preset-apply-trigger"
-        disabled={!canOpen}
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <span>{selectedItem?.name ?? placeholder}</span>
-        <ChevronDown className={open ? "rotate-180" : ""} size={13} />
-      </button>
-
-      {open && canOpen && (
-        <div className="preset-apply-menu" role="listbox">
-          {items.map((item) => {
-            const selected = item.id === selectedId;
-            return (
-              <div
-                aria-selected={selected}
-                className={`preset-apply-row ${selected ? "preset-apply-row-active" : ""}`}
-                key={item.id}
-                role="option"
-              >
-                <button
-                  className="preset-apply-option"
-                  onClick={() => {
-                    onApply(item.id);
-                    setOpen(false);
-                  }}
-                  type="button"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{item.name}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                      {item.sublabel}
-                    </span>
-                  </span>
-                  {selected && <Check className="shrink-0 text-cyan-100" size={13} />}
-                </button>
-                <button
-                  aria-label={`Delete ${item.name}`}
-                  className="preset-apply-delete"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDelete(item.id);
-                    if (items.length <= 1) {
-                      setOpen(false);
-                    }
-                  }}
-                  title={`Delete ${item.name}`}
-                  type="button"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 

@@ -2797,7 +2797,7 @@ button:disabled {
   }
 
   .preset-apply-menu {
-    @apply absolute left-0 top-[calc(100%+6px)] z-[80] max-h-64 w-72 overflow-auto rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] p-1 shadow-[var(--elevation-floating)];
+    @apply z-[var(--layer-popover)] max-h-96 overflow-auto rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] p-1 shadow-[var(--elevation-floating)];
   }
 
   .preset-apply-row {
@@ -2809,11 +2809,11 @@ button:disabled {
   }
 
   .preset-apply-option {
-    @apply flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
+    @apply flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] outline-none transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
   }
 
   .preset-apply-delete {
-    @apply grid min-h-10 w-9 shrink-0 place-items-center rounded text-[var(--loss-text)] transition hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)];
+    @apply grid min-h-10 min-w-11 shrink-0 place-items-center rounded text-[var(--loss-text)] outline-none transition hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
   }
 
   .chart-object-floating-picker {
