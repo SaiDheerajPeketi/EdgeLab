@@ -47,6 +47,9 @@ def _utc(value):
 
 def access_snapshot(db, user_id, source_settings, *, refresh=True, paid_only=False):
     mode = deployment_mode(source_settings)
+    if mode == "beta" and not paid_only:
+        # Read approval only after concurrent enrollment changes are serialized.
+        lock_enrollment(db)
     user = db.get(BetaUser, user_id, populate_existing=True)
     if user is None:
         raise HTTPException(status_code=401, detail="Account no longer exists")
