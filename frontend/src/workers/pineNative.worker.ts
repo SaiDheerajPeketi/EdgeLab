@@ -9,7 +9,7 @@ import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineDiagnostic, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -332,6 +332,55 @@ function lineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   return lines;
 }
 
+function boxResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PineBoxDrawing[] {
+  const boxes: PineBoxDrawing[] = [];
+  const extendNames: Record<string, PineBoxDrawing["extend"]> = { n: "none", l: "left", r: "right", b: "both", none: "none", left: "left", right: "right", both: "both" };
+  const sizes: Record<string, number> = { auto: 0, tiny: 8, small: 10, normal: 14, large: 20, huge: 36 };
+  let count = 0, omitted = false;
+  for (const value of Object.values(raw)) {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (plot.options?.style !== "drawing_box") continue;
+    const snapshot = plot.data?.at(-1)?.value;
+    if (!Array.isArray(snapshot)) error("UNSUPPORTED_RESULT", "Native boxes require a final object snapshot.");
+    count += snapshot.length;
+    if (count > PINE_LIMITS.boxes) error("DRAWING_LIMIT", "Pine output exceeds 500 active boxes.");
+    for (const item of snapshot) {
+      const box = item as Record<string, unknown>;
+      if (!box || typeof box !== "object") error("UNSUPPORTED_RESULT", "Invalid native box drawing.");
+      if (box._deleted === true) continue;
+      const xloc = box.xloc === "bi" ? "bar_index" : box.xloc === "bt" ? "bar_time" : undefined;
+      const extend = extendNames[String(box.extend)], borderStyle = String(box.border_style).replace(/^style_/, ""), borderWidth = box.border_width;
+      const textSize = typeof box.text_size === "number" ? box.text_size : sizes[String(box.text_size)];
+      const textWrap = String(box.text_wrap).replace(/^wrap_/, ""), textFormatting = String(box.text_formatting).replace(/^format_/, "").replace("italicbold", "bolditalic");
+      const text = box.text;
+      if (!xloc || !extend || !["solid", "dashed", "dotted"].includes(borderStyle)
+        || typeof borderWidth !== "number" || !Number.isInteger(borderWidth) || borderWidth < 0 || borderWidth > 16
+        || !Number.isInteger(textSize) || textSize < 0 || textSize > 512 || typeof text !== "string" || text.length > 4096
+        || !["left", "center", "right"].includes(String(box.text_halign)) || !["top", "center", "bottom"].includes(String(box.text_valign))
+        || !["none", "auto"].includes(textWrap) || !["default", "monospace"].includes(String(box.text_font_family))
+        || !["none", "bold", "italic", "bolditalic"].includes(textFormatting)) { omitted = true; continue; }
+      const coordinate = (key: string) => {
+        const value = box[key];
+        if (value == null || typeof value === "number" && Number.isNaN(value)) return null;
+        if (typeof value !== "number" || !Number.isFinite(value)) error("UNSUPPORTED_RESULT", "Invalid native box coordinate.");
+        return ["left", "right"].includes(key) && xloc === "bar_time" ? value / 1000 : value;
+      };
+      const left = coordinate("left"), right = coordinate("right");
+      if ([left, right].some(x => x !== null && (xloc === "bar_index" ? !Number.isSafeInteger(x) || x < -10000 || x > bars.length - 1 + 500 : x < 0 || x > 253402300799 || !Number.isSafeInteger(x * 1000)))) { omitted = true; continue; }
+      const shades = ["border_color", "bgcolor", "text_color"].map(key => plainScalar(box[key]));
+      if (shades.some(shade => shade !== null && (typeof shade !== "string" || !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade)))) { omitted = true; continue; }
+      boxes.push({ id: `box:${String(box.id)}`, left, top: coordinate("top"), right, bottom: coordinate("bottom"), xloc, extend,
+        borderColor: shades[0] as string | null, borderStyle: borderStyle as PineBoxDrawing["borderStyle"], borderWidth,
+        bgcolor: shades[1] as string | null, text, textColor: shades[2] as string | null, textSize,
+        textHalign: box.text_halign as PineBoxDrawing["textHalign"], textValign: box.text_valign as PineBoxDrawing["textValign"],
+        textWrap: textWrap as PineBoxDrawing["textWrap"], textFontFamily: box.text_font_family as PineBoxDrawing["textFontFamily"],
+        textFormatting: textFormatting as PineBoxDrawing["textFormatting"], overlay: overlay || box.force_overlay === true });
+    }
+  }
+  if (omitted) diagnostics.push(warning("UNSUPPORTED_BOX_SETTING", "Some boxes use unsupported coordinates or settings and are not drawn. Border widths 0–16, text sizes 0–512 and text up to 4096 characters are supported."));
+  return boxes;
+}
+
 function lineFillResults(raw: Record<string, unknown>, lines: readonly PineLineDrawing[], overlay: boolean, diagnostics: PineDiagnostic[]): PineLineFillDrawing[] {
   const fills: PineLineFillDrawing[] = [], ids = new Set(lines.map(line => line.id));
   let count = 0, omitted = false;
@@ -361,7 +410,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
     if (!drawings.has(plot.options?.style ?? "")) return true;
-    if (!["drawing_line", "linefill"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    if (!["drawing_line", "linefill", "drawing_box"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
   if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
@@ -1085,8 +1134,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const overlay = properties?.overlay === true;
   const lines = lineResults(context.plots, overlay, diagnostics, request.bars!);
   const lineFills = lineFillResults(context.plots, lines, overlay, diagnostics);
+  const boxes = boxResults(context.plots, overlay, diagnostics, request.bars!);
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 

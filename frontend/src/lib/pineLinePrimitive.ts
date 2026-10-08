@@ -1,6 +1,6 @@
 import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, Logical, SeriesAttachedParameter, SeriesType, UTCTimestamp } from "lightweight-charts";
 import type { PineChartPlot } from "./pineChartAdapter";
-import type { PineLineDrawing, PineLineFillDrawing } from "./pineProtocol";
+import type { PineLineDrawing, PineLineFillDrawing, PineBoxDrawing } from "./pineProtocol";
 import { clipFillPolygon, fillLobes, pineGradientColor } from "./pineVisualPrimitive";
 type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
@@ -22,13 +22,16 @@ function visible(line: PineLineDrawing): boolean {
     && (line.x1 !== line.x2 || line.y1 !== line.y2) && (pineGradientColor(line.color)?.[3] ?? 0) > 0;
 }
 
-/** Final active line objects: no synthetic candles, historical copies or per-line chart series. */
+/** Final active drawing objects: no synthetic candles, historical copies or per-line chart series. */
 export class PineLinePrimitive implements ISeriesPrimitive {
   private chart?: IChartApi;
   private series?: ISeriesApi<SeriesType>;
   private requestUpdate?: () => void;
   private readonly onRange = () => this.requestUpdate?.();
   private readonly views: readonly ISeriesPrimitivePaneView[];
+  private textMeasurementContext?: CanvasRenderingContext2D | null;
+  private readonly boxTextBounds = new WeakMap<PineBoxDrawing, { font: string; left: number; right: number }>();
+  private readonly boxTextLayouts = new WeakMap<PineBoxDrawing, { width: number; font: string; lines: string[] }>();
   private readonly lineReferences = new WeakMap<PineChartPlot, Map<string, PineLineDrawing>>();
   constructor(private plots: readonly PineChartPlot[], private options: { allowFillOnlyScale?: boolean; hasScalePeer?: () => boolean } = {}) {
     for (const plot of plots) this.lineReferences.set(plot, new Map(plot.drawing!.lines.map(line => [line.id, line])));
@@ -40,12 +43,12 @@ export class PineLinePrimitive implements ISeriesPrimitive {
   }
   detached() {
     this.chart?.timeScale().unsubscribeVisibleTimeRangeChange(this.onRange);
-    this.chart = undefined; this.series = undefined; this.requestUpdate = undefined; this.plots = [];
+    this.chart = undefined; this.series = undefined; this.requestUpdate = undefined; this.plots = []; this.textMeasurementContext = undefined;
   }
   updateAllViews() { /* Read current chart transforms on every render, including price zoom. */ }
   paneViews() { return this.views; }
   autoscaleInfo(_from: Logical, _to: Logical) { return this.rangeForVisible(); }
-  private logical(plot: PineChartPlot, line: PineLineDrawing, value: number): number | null {
+  private logical(plot: PineChartPlot, line: Pick<PineLineDrawing, "xloc">, value: number): number | null {
     const scale = this.chart!.timeScale(), bars = plot.drawing!.bars;
     const locate = (index: number): number | null => {
       const coordinate = scale.timeToCoordinate(bars[index].time as UTCTimestamp);
@@ -126,6 +129,119 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     if (!vertices.every(point => Number.isFinite(point.y)) || vertices[0].y === vertices[3].y && vertices[1].y === vertices[2].y) return null;
     return vertices;
   }
+  private boxPosition(plot: PineChartPlot, box: PineBoxDrawing) {
+    if (box.left === null || box.right === null || box.top === null || box.bottom === null
+      || box.left === box.right && box.top === box.bottom) return null;
+    const a = this.logical(plot, box, box.left), b = this.logical(plot, box, box.right);
+    return a === null || b === null ? null : { left: Math.min(a, b), right: Math.max(a, b) };
+  }
+  private boxHasBorder(box: PineBoxDrawing) { return box.borderWidth > 0 && (pineGradientColor(box.borderColor)?.[3] ?? 0) > 0; }
+  private boxHasText(box: PineBoxDrawing) { return box.text.trim().length > 0 && (pineGradientColor(box.textColor)?.[3] ?? 0) > 0; }
+  private boxFont(box: PineBoxDrawing) {
+    // Auto uses a stable local 14px default, including an initially empty price scale.
+    const size = box.textSize || 14;
+    const font = `${box.textFormatting.includes("italic") ? "italic " : ""}${box.textFormatting.includes("bold") ? "bold " : ""}${size}px ${box.textFontFamily === "monospace" ? "monospace" : "system-ui, sans-serif"}`;
+    return { size, font };
+  }
+  private overflowingBoxTextVisible(box: PineBoxDrawing, position: { left: number; right: number }): boolean {
+    if (box.textWrap !== "none" || !this.boxHasText(box)) return false;
+    const left = this.coordinate(position.left), right = this.coordinate(position.right);
+    if (left === null || right === null) return false;
+    if (this.textMeasurementContext === undefined) this.textMeasurementContext = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+    const ctx = this.textMeasurementContext;
+    if (!ctx) return false;
+    const { font } = this.boxFont(box);
+    let bounds = this.boxTextBounds.get(box);
+    if (!bounds || bounds.font !== font) {
+      ctx.font = font; ctx.textAlign = box.textHalign;
+      let left = Infinity, right = -Infinity;
+      for (const paragraph of box.text.split("\n")) {
+        const metrics = ctx.measureText(paragraph);
+        if (metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight <= 0) continue;
+        left = Math.min(left, -metrics.actualBoundingBoxLeft); right = Math.max(right, metrics.actualBoundingBoxRight);
+      }
+      bounds = { font, left, right }; this.boxTextBounds.set(box, bounds);
+    }
+    const x = box.textHalign === "left" ? left + 2 : box.textHalign === "right" ? right - 2 : left / 2 + right / 2;
+    return Number.isFinite(bounds.left) && Number.isFinite(bounds.right) && x + bounds.left < this.chart!.timeScale().width() && x + bounds.right > 0;
+  }
+  private drawBox(plot: PineChartPlot, box: PineBoxDrawing, ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const position = this.boxPosition(plot, box);
+    if (!position) return;
+    const left = this.coordinate(position.left), right = this.coordinate(position.right);
+    const a = this.series!.priceToCoordinate(box.top!), b = this.series!.priceToCoordinate(box.bottom!);
+    if (left === null || right === null || a === null || b === null || ![left, right, a, b].every(Number.isFinite)) return;
+    const top = Math.min(a, b), bottom = Math.max(a, b), area = left < right && top < bottom;
+    const clipLeft = Math.max(0, left), clipRight = Math.min(width, right), clipTop = Math.max(0, top), clipBottom = Math.min(height, bottom);
+    if (area && clipRight > clipLeft && clipBottom > clipTop && (pineGradientColor(box.bgcolor)?.[3] ?? 0) > 0) {
+      ctx.fillStyle = box.bgcolor!; ctx.fillRect(clipLeft, clipTop, clipRight - clipLeft, clipBottom - clipTop);
+    }
+    if (this.boxHasBorder(box)) {
+      ctx.save(); ctx.strokeStyle = box.borderColor!; ctx.lineWidth = box.borderWidth;
+      ctx.lineCap = box.borderStyle === "dotted" ? "round" : "butt";
+      ctx.setLineDash(box.borderStyle === "dashed" ? [6 * box.borderWidth, 4 * box.borderWidth] : box.borderStyle === "dotted" ? [0, 2 * box.borderWidth] : []);
+      const pad = box.borderWidth / 2 + 1;
+      const stroke = (x1: number, y1: number, x2: number, y2: number) => {
+        const dx = x2 - x1, dy = y2 - y1;
+        if (!Number.isFinite(dx) || !Number.isFinite(dy) || dx === 0 && dy === 0) return;
+        const horizontal = restrict(0, 1, x1, dx, -pad, width + pad);
+        const clipped = horizontal && restrict(horizontal[0], horizontal[1], y1, dy, -pad, height + pad);
+        if (!clipped || !clipped.every(Number.isFinite)) return;
+        const points = clipped.map(t => ({ x: x1 + dx * t, y: y1 + dy * t }));
+        if (!points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))) return;
+        const phase = Math.hypot(dx, dy) * clipped[0], period = (box.borderStyle === "dashed" ? 10 : 2) * box.borderWidth;
+        ctx.lineDashOffset = Number.isFinite(phase) ? -(phase % period) : 0;
+        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); ctx.lineTo(points[1].x, points[1].y); ctx.stroke();
+      };
+      // Only horizontal borders extend. No invented side is drawn at a clipped edge.
+      const start = box.extend === "left" || box.extend === "both" ? -pad : left;
+      const end = box.extend === "right" || box.extend === "both" ? width + pad : right;
+      stroke(start, top, end, top);
+      if (bottom !== top) stroke(start, bottom, end, bottom);
+      stroke(left, top, left, bottom);
+      if (right !== left) stroke(right, top, right, bottom);
+      ctx.restore();
+    }
+    if (!area || !this.boxHasText(box)) return;
+    const { size, font } = this.boxFont(box);
+    ctx.save(); ctx.font = font; ctx.fillStyle = box.textColor!; ctx.textBaseline = "top"; ctx.textAlign = box.textHalign;
+    const pad = 2, wrapWidth = Math.max(0, right - left - pad * 2);
+    let layout = this.boxTextLayouts.get(box);
+    if (!layout || layout.width !== wrapWidth || layout.font !== font) {
+      const lines: string[] = [];
+      for (const paragraph of box.text.split("\n")) {
+        if (box.textWrap === "none" || wrapWidth === 0) { lines.push(paragraph); continue; }
+        let line = "";
+        for (const word of paragraph.split(/(\s+)/)) {
+          if (!word) continue;
+          if (ctx.measureText(line + word).width <= wrapWidth) { line += word; continue; }
+          if (line) { lines.push(line.trimEnd()); line = ""; }
+          if (/^\s+$/.test(word)) continue;
+          if (ctx.measureText(word).width <= wrapWidth) { line = word; continue; }
+          let advance = 0;
+          for (const character of word) {
+            const next = ctx.measureText(character).width;
+            if (line && advance + next > wrapWidth) { lines.push(line); line = ""; advance = 0; }
+            line += character; advance += next;
+          }
+        }
+        lines.push(line.trimEnd());
+      }
+      layout = { width: wrapWidth, font, lines }; this.boxTextLayouts.set(box, layout);
+    }
+    if (box.textWrap === "auto") {
+      if (clipRight <= clipLeft || clipBottom <= clipTop) { ctx.restore(); return; }
+      ctx.beginPath(); ctx.rect(clipLeft, clipTop, clipRight - clipLeft, clipBottom - clipTop); ctx.clip();
+    }
+    const lineHeight = size * 1.2, blockHeight = layout.lines.length * lineHeight;
+    const y = box.textValign === "top" ? top + pad : box.textValign === "bottom" ? bottom - pad - blockHeight : top / 2 + bottom / 2 - blockHeight / 2;
+    const x = box.textHalign === "left" ? left + pad : box.textHalign === "right" ? right - pad : left / 2 + right / 2;
+    for (let index = 0; index < layout.lines.length; index++) {
+      const baseline = y + index * lineHeight;
+      if (Number.isFinite(x) && Number.isFinite(baseline) && baseline + lineHeight >= 0 && baseline < height) ctx.fillText(layout.lines[index], x, baseline);
+    }
+    ctx.restore();
+  }
   rangeForVisible(): AutoscaleInfo | null {
     if (!this.chart || !this.series) return null;
     const range = this.chart.timeScale().getVisibleLogicalRange();
@@ -151,6 +267,18 @@ export class PineLinePrimitive implements ISeriesPrimitive {
         });
       }
       for (const value of values) if (Number.isFinite(value)) { min = Math.min(min, value); max = Math.max(max, value); }
+    }
+    for (const plot of this.plots) for (const box of plot.drawing!.boxes ?? []) {
+      const position = this.boxPosition(plot, box);
+      if (!position) continue;
+      const area = position.left !== position.right && box.top !== box.bottom;
+      const border = this.boxHasBorder(box), fill = area && (pineGradientColor(box.bgcolor)?.[3] ?? 0) > 0;
+      const text = area && this.boxHasText(box);
+      if (!border && !fill && !text) continue;
+      const left = border && (box.extend === "left" || box.extend === "both") ? -Infinity : position.left;
+      const right = border && (box.extend === "right" || box.extend === "both") ? Infinity : position.right;
+      if ((left > range.to || right < range.from) && !(text && this.overflowingBoxTextVisible(box, position))) continue;
+      min = Math.min(min, box.top!, box.bottom!); max = Math.max(max, box.top!, box.bottom!);
     }
     // Shading does not expand an established scale. A fill-only study can seed
     // a scale from its visible positive-area boundaries; main-chart owners disable this.
@@ -223,6 +351,10 @@ export class PineLinePrimitive implements ISeriesPrimitive {
           }
           ctx.restore();
         }
+      }
+      for (const plot of this.plots) {
+        if ((plot.behindChart !== false) !== behind) continue;
+        for (const box of plot.drawing!.boxes ?? []) this.drawBox(plot, box, ctx, width, height);
       }
       ctx.restore();
     });

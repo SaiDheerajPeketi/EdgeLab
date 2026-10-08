@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-line-fills-122",
+  "patch": "edgelab-box-drawings-123",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -32,7 +32,7 @@
       "source": "src/transpiler/transformers/StatementTransformer.ts",
       "file": "overrides/transpiler/transformers/StatementTransformer.ts",
       "upstreamSha256": "aa23692aff1a4c5edd459fae57f5776a892811ade518fd2d5d1fc73134b460b8",
-      "sha256": "4d29724c08d8ded1e42d2ea5dad2f298432c838a70649d59c9b715383eed5e89"
+      "sha256": "07ee95169dcf7c87a58463c92204306c694df20f15204f360c943c7df4eb23bd"
     },
     {
       "source": "src/Context.class.ts",
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "77e010d229b74bb21881dd02c9c1ee5581f49fa6bf4bc37cc1fcf5bb2c79b92f"
+      "sha256": "7e62a6f4db7b32bfe757c41943686419f1255a78bbeb08e168144ed9b0545893"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -177,10 +177,16 @@
       "file": "overrides/namespaces/linefill/LinefillObject.ts",
       "upstreamSha256": "0283bbc71487a58923e105138ad3958b00d0d58d146b602b3bcfaa7e24b8c96a",
       "sha256": "5036bf4e61640543960e4592738a6d203f7ec5d05af0fc7bbacd578abb2dfddd"
+    },
+    {
+      "source": "src/namespaces/box/BoxHelper.ts",
+      "file": "overrides/namespaces/box/BoxHelper.ts",
+      "upstreamSha256": "ad32f7673eab514d7a8fa9014701d141bfe14ddb8dc0f78acf061685c6730f09",
+      "sha256": "454402d2246c5752b234d171a7731029f1e2b62ebaad2da7743bd6a323bd76f9"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "68b9db01824d1196d9a898dfec558560fcefd8dc93d17f09931ed5a23d1a56f2"
+    "sha256": "1527ab921a635f738c6b0c4ebf80a1a52f5a4ab00e034920019581809c8328ae"
   }
 }

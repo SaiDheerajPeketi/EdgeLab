@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "c4a4d312108b3965d458efb8c8aab6345c1f8814a5491f294641b7f5805665b0",
+  "namespaceSourcesSha256": "d303a2a8bfbda585c9f061f6924f6f87f479a401d0b6d3a41b4470452f4109cb",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -15,6 +15,10 @@
     {
       "source": "src/namespaces/Barstate.ts",
       "sha256": "01482ff7880cf84b9fc74356d10ff0d367f933744d1bb35c8244e01e0fc919d1"
+    },
+    {
+      "source": "src/namespaces/box/BoxHelper.ts",
+      "sha256": "454402d2246c5752b234d171a7731029f1e2b62ebaad2da7743bd6a323bd76f9"
     },
     {
       "source": "src/namespaces/Core.ts",

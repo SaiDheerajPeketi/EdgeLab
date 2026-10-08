@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-07: explicit realtime state and rollback groundwork.
+// EdgeLab modification, 2026-10-09: explicit realtime state, rollback and deferred persistent object copies.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only. Upstream notices retained below.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
@@ -624,8 +624,9 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
                 for (const stmt of hoistingScope) {
                     if (stmt.type !== 'VariableDeclaration') continue;
                     for (const d of stmt.declarations) {
-                        if (!d.init || d.init.type !== 'CallExpression') continue;
-                        const callee = d.init.callee;
+                        const call = d.init?.type === 'ChainExpression' ? d.init.expression : d.init;
+                        if (call?.type !== 'CallExpression') continue;
+                        const callee = call.callee?.type === 'ChainExpression' ? call.callee.expression : call.callee;
                         if (callee?.type !== 'MemberExpression') continue;
 
                         let namespaceName: string | undefined;
@@ -642,9 +643,12 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
                             namespaceName = callee.object.property.name;
                         }
 
-                        if (namespaceName && methodName) {
+                        if (methodName) {
                             const methodPath = `${namespaceName}.${methodName}`;
-                            if (FACTORY_METHODS.includes(methodPath)) {
+                            // Native instance copies are optional-chained after receiver
+                            // resolution. They create objects once, just like namespace copies.
+                            const instanceCopy = methodName === 'copy';
+                            if (FACTORY_METHODS.includes(methodPath) || instanceCopy) {
                                 // Wrap: `const temp = call(...)` → `const temp = () => call(...)`
                                 d.init = {
                                     type: 'ArrowFunctionExpression',
@@ -666,7 +670,15 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
             if (isArrowFunction || isArrayPatternVar) {
                 rightSide = decl.init;
             } else if ((kind === 'var' || kind === 'varip')) {
-                rightSide = ASTFactory.createInitVarCall(targetVarRef, decl.init);
+                // Instance copy calls stay inline instead of entering the hoisting
+                // list. Defer the complete optional-chain expression until this
+                // persistent binding is first initialized, preserving its receiver.
+                const call = decl.init.type === 'ChainExpression' ? decl.init.expression : decl.init;
+                const callee = call?.callee?.type === 'ChainExpression' ? call.callee.expression : call?.callee;
+                const instanceCopy = call?.type === 'CallExpression' && callee?.type === 'MemberExpression'
+                    && !callee.computed && callee.property?.name === 'copy';
+                const initializer = instanceCopy ? { type: 'ArrowFunctionExpression', params: [], body: decl.init, expression: true, async: false } : decl.init;
+                rightSide = ASTFactory.createInitVarCall(targetVarRef, initializer);
             } else if (decl._tupleArity !== undefined) {
                 const toTuple = ASTFactory.createCallExpression(
                     ASTFactory.createMemberExpression(ASTFactory.createContextIdentifier(), ASTFactory.createIdentifier('toTuple')),
