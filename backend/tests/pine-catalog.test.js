@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { readFile, cp, mkdir, writeFile, readdir, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import { buildSync } from "esbuild";
 import { refreshPineCatalog as refreshCollection } from "../../scripts/refresh-pine-catalog.mjs";
@@ -193,6 +194,22 @@ test("concurrent refreshes serialize append operations and retain both revisions
   for (const commit of commits) assert.equal(JSON.parse(await readFile(path.join(output, commit, "manifest.json"), "utf8")).upstreamCommit, commit);
   assert.equal((await readdir(output)).includes(".refresh.lock"), false);
 });
+
+for (const mode of ["delayed", "failed"]) {
+  test(`refresh queue reserves submission order before a ${mode} seed read`, async () => {
+    const output = await copiedOutput(`queued-seed-${mode}`);
+    // Isolate the built-in filesystem seam from every other test in this process.
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./fixtures/pine-catalog72.mjs", import.meta.url)), output, mode], {
+      encoding: "utf8", timeout: 30_000,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(result.stdout);
+    assert.equal(evidence.readsAfterSubmission, 1);
+    const expected = ["5".repeat(40), "6".repeat(40), "7".repeat(40)];
+    assert.deepEqual(evidence.revisions, [catalog.upstreamCommit, ...expected.slice(mode === "failed" ? 1 : 0)]);
+  });
+}
 
 test("a foreign filesystem lock reports busy and is never removed", async () => {
   const output = path.join(directory, "foreign-lock");

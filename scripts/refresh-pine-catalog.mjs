@@ -80,12 +80,15 @@ async function withRefreshLock(outputDir, work) {
 export async function refreshPineCatalog({ commit, collection = "expanded-v2", outputDir, fetchImpl = fetch } = {}) {
   if (!Object.hasOwn(COLLECTIONS, collection)) throw new Error("Unknown Pine catalog collection.");
   const selected = COLLECTIONS[collection];
-  const seed = JSON.parse(await readFile(new URL(`../frontend/src/lib/${selected.seed}`, import.meta.url), "utf8"));
   outputDir ??= fileURLToPath(new URL(`../frontend/public/catalog/pine/${selected.root}`, import.meta.url));
   if (commit !== undefined && (typeof commit !== "string" || !SHA.test(commit))) throw new Error("Commit must be a full lowercase 40-character Git SHA.");
   const root = path.resolve(outputDir);
   const previous = refreshQueues.get(root) ?? Promise.resolve();
-  const pending = previous.catch(() => {}).then(() => withRefreshLock(root, () => refreshLocked({ commit, outputDir: root, fetchImpl, seed })));
+  // Reserve submission order before any filesystem work can yield.
+  const pending = previous.catch(() => {}).then(async () => {
+    const seed = JSON.parse(await readFile(new URL(`../frontend/src/lib/${selected.seed}`, import.meta.url), "utf8"));
+    return withRefreshLock(root, () => refreshLocked({ commit, outputDir: root, fetchImpl, seed }));
+  });
   refreshQueues.set(root, pending);
   try { return await pending; }
   finally { if (refreshQueues.get(root) === pending) refreshQueues.delete(root); }
