@@ -845,3 +845,77 @@ plot(read(${variable})+offset,"Price",color=#ff00ff)`;
     expect(errors).toEqual([]);
   });
 });
+
+
+test.describe("Pine method overloads97", () => {
+  test.use({ serviceWorkers: "allow" });
+  for (const version of [5, 6]) test(`method overload97 v${version} preserves selected bodies through inputs, save and chart`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const state = await fixture(page);
+    let editor = await openEditor(page);
+    const object = version === 5 ? "box" : "current";
+    const source = `//@version=${version}
+indicator("Native methods97",overlay=false)
+type Cell
+    float price
+enum Side
+    up="Signal"
+    down="Signal"
+method add(Cell self,int amount)=>self.price+amount
+method add(Cell self,float amount)=>self.price+100+amount
+method add(Cell self,Side choice,float multiplier=1)=>self.price+(choice==Side.up?11:22)*multiplier
+direction=input.enum(Side.up,"Direction")
+amount=input.int(3,"Amount",minval=1,maxval=20)
+Cell ${object}=Cell.new(close)
+plot(${object}.add(multiplier=2,choice=direction),"Enum",color=#ff00ff)
+plot(${object}.add(amount=amount),"Integer",color=#00ffff)
+plot(${object}.add(0.5),"Float",color=#ffff00)`;
+    await fillSource(editor, source.replace(`${object}.add(0.5)`, `${object}.add(na)`));
+    await editor.getByRole("button", { name: "Check script", exact: true }).click();
+    await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/ambiguous|overload/i);
+    await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await fillSource(editor, source);
+    await check(editor);
+    function expectBodies(result: PineExecutionResult, sideOffset: number, amount: number) {
+      expect(result.plots.map(plot => plot.name)).toEqual(["Enum", "Integer", "Float"]);
+      for (const plot of result.plots) {
+        expect(plot.points.length).toBeGreaterThan(50);
+        const offset = plot.name === "Enum" ? sideOffset : plot.name === "Integer" ? amount : 100.5;
+        for (const point of plot.points) {
+          const candle = bars.find(bar => bar.time === point.time);
+          expect(candle).toBeDefined();
+          expect(typeof point.value).toBe("number");
+          expect(point.value).toBeCloseTo(candle!.close + offset, 8);
+        }
+      }
+    }
+    const direction = editor.getByLabel("Direction", { exact: true });
+    await expect(direction.locator("option")).toHaveText(["Signal", "Signal"]);
+    await run(editor);
+    expectBodies(await nativeRun(page, source), 22, 3);
+    await direction.selectOption("Side.down");
+    await editor.getByLabel("Amount", { exact: true }).fill("7");
+    await run(editor);
+    expectBodies(await nativeRun(page, source), 44, 7);
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+    const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+    expect(saved).toMatchObject({ source, inputs: { in_0: "Side.down", in_1: 7 } });
+    await page.reload();
+    await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+    editor = await openEditor(page);
+    await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+    await expect(editor.getByLabel("Direction", { exact: true })).toHaveValue("Side.down");
+    await expect(editor.getByLabel("Amount", { exact: true })).toHaveValue("7");
+    await run(editor);
+    expectBodies(await nativeRun(page, source), 44, 7);
+    const priorRuns = await page.evaluate(source => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source);
+    await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+    await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+    await expect(page.getByLabel("Native methods97 native Pine pane", { exact: true }).locator("canvas").first()).toBeVisible();
+    await expect.poll(() => page.evaluate(source => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source)).toBeGreaterThan(priorRuns);
+    expectBodies(await nativeRun(page, source), 44, 7);
+    expect(errors).toEqual([]);
+  });
+});

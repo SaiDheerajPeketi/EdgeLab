@@ -174,6 +174,10 @@ test("same enum receiver dispatch uses exact enum argument identities", async ()
     const result = await run(enums + methods + 'plot(Side.a.choose(3,Side.b),"Side argument")\nplot(Side.a.choose(3,Other.a),"Other argument")', {}, version);
     assert.deepEqual(values(result, "Side argument"), [11, 11, 11, 11]);
     assert.deepEqual(values(result, "Other argument"), [22, 22, 22, 22]);
-    await assert.rejects(run(enums + methods + 'Other missing=na\nplot(Side.a.choose(3,missing))', {}, version), /ambiguous enum method.*identity/i);
+    // Declared enum type selects the method even while its value is na:
+    // https://www.tradingview.com/pine-script-docs/language/enums/
+    const missing = await run(enums + methods + 'Other missing=na\nplot(Side.a.choose(3,missing),"Typed missing")', {}, version);
+    assert.deepEqual(values(missing, "Typed missing"), [22, 22, 22, 22]);
+    await assert.rejects(run(enums + methods + 'plot(Side.a.choose(3,na))', {}, version), /ambiguous|overload/i);
   }
 });

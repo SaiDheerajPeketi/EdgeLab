@@ -66,6 +66,14 @@ const UDT_NAMESPACE_NAMES = new Set([
     'splits', 'str', 'strategy', 'syminfo', 'table', 'ta', 'text', 'ticker', 'timeframe', 'volume_row',
 ]);
 
+// Instance methods exported by the pinned collection namespaces. Constructors
+// and private helpers are excluded from native method fallback.
+const COLLECTION_METHOD_NAMES: Record<string, Set<string>> = {
+    array: new Set(('abs avg binary_search binary_search_leftmost binary_search_rightmost clear concat copy covariance every fill first get includes indexof insert join last lastindexof max median min mode percentile_linear_interpolation percentile_nearest_rank percentrank pop push range remove reverse set shift size slice some sort sort_indices standardize stdev sum unshift variance').split(' ')),
+    map: new Set(('clear contains copy get keys put put_all remove size values').split(' ')),
+    matrix: new Set(('add_col add_row avg col columns concat copy det diff eigenvalues eigenvectors elements_count fill get inv is_antidiagonal is_antisymmetric is_binary is_diagonal is_identity is_square is_stochastic is_symmetric is_triangular is_zero kron max median min mode mult pinv pow rank remove_col remove_row reshape reverse row rows set sort submatrix sum swap_columns swap_rows trace transpose').split(' ')),
+};
+
 const TYPED_INPUT_FNS = new Set([
     'bool',
     'color',
@@ -193,6 +201,22 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
     const specializations = new WeakMap<object, Map<string, Fn>>();
     let specializationIndex = 0;
     let hasOrdinaryOverloads = false;
+    const methodBindings = new WeakMap<object, string>();
+    const methodCounts = new Map<string, number>();
+    const orderedArguments = (fn: Fn, actual: Array<string | undefined>, named: Map<string, string | undefined>) =>
+        (fn.node.params ?? []).map((pattern: any, index: number) => actual[index] ?? named.get((pattern.left ?? pattern).name));
+    const acceptsArguments = (fn: Fn, actual: Array<string | undefined>, named: Map<string, string | undefined>, strict: boolean) => {
+        const params = fn.node.params ?? [], args = orderedArguments(fn, actual, named);
+        if (actual.length > params.length || [...named.keys()].some(name => !params.some((pattern: any) => (pattern.left ?? pattern).name === name))) return false;
+        return params.every((pattern: any, index: number) => {
+            const declared = normalize((pattern.left ?? pattern).varType), supplied = args[index];
+            if (index < actual.length && named.has((pattern.left ?? pattern).name)) return false;
+            if (index >= actual.length && !named.has((pattern.left ?? pattern).name)) return pattern.type === 'AssignmentPattern';
+            if (supplied === undefined && strict) return true;
+            if (strict && declared && supplied !== '@na') return declared === supplied || (declared === 'float' && supplied === 'int');
+            return supplied === '@na' || !declared || !(hasEnum(declared) || hasEnum(supplied)) || declared === supplied;
+        });
+    };
     const clone = (node: any): any => {
         if (Array.isArray(node)) return node.map(clone);
         if (!node || typeof node !== 'object') return node;
@@ -359,149 +383,166 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) markUdtReceiver(node.callee, scope);
                 const callee = node.callee?._pineUdtReceiver ? undefined : dottedName(node.callee);
                 const raw = node.arguments ?? [];
-                const userCall = node.callee?.type === 'Identifier' && scope.functionsFor(node.callee.name).some(fn => !fn.node.id?.isMethod);
+                const userCall = node.callee?.type === 'Identifier' && scope.functionsFor(node.callee.name).length > 0;
                 const named = raw.at(-1)?.type === 'ObjectExpression' ? raw.at(-1).properties ?? [] : [];
                 const positional = named.length ? raw.slice(0, -1) : raw;
                 if (userCall && new Set(named.map((property: any) => property.key?.name)).size !== named.length)
                     throw new Error('Duplicate named Pine function argument.');
                 const actual = positional.map((argument: any) => expression(argument, scope));
                 const namedTypes = new Map<string, string | undefined>(named.map((property: any) => [property.key?.name, expression(property.value, scope)]));
-                if (callee === 'input.enum') return actual[0] ?? namedTypes.get('defval');
-                if (callee?.startsWith('str.')) {
-                    const invalid = callee === 'str.tostring'
-                        ? actual.slice(1).some(enumType) || [...namedTypes].some(([name, type]) => name !== 'value' && enumType(type))
-                        : actual.some(enumType) || [...namedTypes.values()].some(enumType);
-                    if (invalid) throw new Error('Enum values require str.tostring() before use as string arguments.');
-                    if (callee === 'str.tostring') return 'string';
+                const dotMethod = node.callee?.type === 'MemberExpression' && !node.callee.computed;
+                const receiver = dotMethod ? expression(node.callee.object, scope) : undefined;
+                const namespaceCall = dotMethod && node.callee.object?.type === 'Identifier'
+                    && UDT_NAMESPACE_NAMES.has(node.callee.object.name) && !node.callee._pineUdtReceiver;
+                const methods = dotMethod && !namespaceCall ? scope.functionsFor(node.callee.property?.name).filter(fn => fn.node.id?.isMethod) : [];
+                const methodArguments = [receiver, ...actual];
+                const matchingMethods = methods.filter(fn => acceptsArguments(fn, methodArguments, namedTypes, true));
+                const customMethod = matchingMethods.length > 0;
+                const collectionKind = receiver?.split('<')[0];
+                const builtinMethod = !customMethod && methods.length > 0 && receiver?.includes('<')
+                    && COLLECTION_METHOD_NAMES[collectionKind!]?.has(node.callee.property?.name);
+                if (builtinMethod) {
+                    if (node._pineOverloadTarget) throw new Error('Pine method calls through untyped functions require a consistent argument signature.');
+                    node._pineBuiltinMethodNamespace = collectionKind;
                 }
-                const primitiveInput = callee?.startsWith('input.') ? DEFVAL_TYPE[callee.slice(6)] : undefined;
-                if (primitiveInput) return primitiveInput;
-                if (!userCall && ['int', 'float', 'bool', 'string', 'color'].includes(callee ?? '')) return callee;
-                if (callee?.startsWith('color.')) return ['color.r', 'color.g', 'color.b', 'color.t'].includes(callee) ? 'float' : 'color';
-                if (!userCall && callee === 'na') return 'bool';
-                if (!userCall && ['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
-                if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
-                    const object = node.callee.object;
-                    if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name) && node.callee.property?.name === 'new') return object.name;
-                    if (node.callee.property?.name === 'copy') {
-                        if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name)) return object.name;
-                        const receiver = expression(object, scope);
-                        if (receiver && objectNames.has(receiver)) return receiver;
+                if ((userCall || customMethod) && new Set(named.map((property: any) => property.key?.name)).size !== named.length)
+                    throw new Error('Duplicate named Pine function argument.');
+                // An eligible user method overrides the built-in signature;
+                // other arities retain the built-in namespace/collection path.
+                if (!customMethod) {
+                    if (callee === 'input.enum') return actual[0] ?? namedTypes.get('defval');
+                    if (callee?.startsWith('str.')) {
+                        const invalid = callee === 'str.tostring'
+                            ? actual.slice(1).some(enumType) || [...namedTypes].some(([name, type]) => name !== 'value' && enumType(type))
+                            : actual.some(enumType) || [...namedTypes.values()].some(enumType);
+                        if (invalid) throw new Error('Enum values require str.tostring() before use as string arguments.');
+                        if (callee === 'str.tostring') return 'string';
                     }
-                }
-                if (callee?.startsWith('math.') || callee?.startsWith('ta.')) {
-                    if (actual.some(enumType)) throw new Error('Enum values cannot be used as numeric function arguments.');
-                    if (['ta.cross', 'ta.crossover', 'ta.crossunder', 'ta.rising', 'ta.falling'].includes(callee)) return 'bool';
-                    if (callee === 'ta.change') return actual[0] ?? namedTypes.get('source');
-                    if (callee === 'math.round' && (actual.length > 1 || namedTypes.has('precision'))) return 'float';
-                    if (['ta.barssince', 'ta.highestbars', 'ta.lowestbars', 'math.floor', 'math.ceil', 'math.round', 'math.round_to_mintick'].includes(callee))
-                        return callee === 'math.round_to_mintick' ? 'float' : 'int';
-                    if (['math.abs', 'math.min', 'math.max'].includes(callee)) {
-                        const operands = [...actual, ...namedTypes.values()];
-                        return operands.length && operands.every(type => type === 'int' || type === 'float')
-                            ? operands.includes('float') ? 'float' : 'int' : undefined;
-                    }
-                    if (['math.avg', 'math.sqrt', 'math.pow', 'math.exp', 'math.log', 'math.log10', 'math.sin', 'math.cos', 'math.tan', 'math.asin', 'math.acos', 'math.atan', 'math.random',
-                        'math.sum', 'ta.sma', 'ta.ema', 'ta.rma', 'ta.wma', 'ta.vwma', 'ta.hma', 'ta.rsi', 'ta.atr', 'ta.tr', 'ta.highest', 'ta.lowest', 'ta.mom', 'ta.roc', 'ta.stdev', 'ta.variance', 'ta.sum', 'ta.cum'].includes(callee)) return 'float';
-                    return undefined;
-                }
-                if (['str.contains', 'str.startswith', 'str.endswith'].includes(callee ?? '')) return 'bool';
-                if (['str.length', 'str.pos'].includes(callee ?? '')) return 'int';
-                if (callee === 'str.tonumber') return 'float';
-                if (['str.upper', 'str.lower', 'str.substring', 'str.replace', 'str.replace_all', 'str.format', 'str.trim', 'str.repeat'].includes(callee ?? '')) return 'string';
-                if (callee === 'array.from') { let type: string | undefined; actual.forEach((value: string | undefined) => { type = join(type, value); }); return type ? 'array<' + type + '>' : undefined; }
-                const generic = /^((?:array|map|matrix)\.new)<(.+)>$/.exec(callee ?? '');
-                if (generic) return generic[1].split('.')[0] + '<' + generic[2] + '>';
-                if (callee === 'array.new' || callee === 'map.new' || callee === 'matrix.new') {
-                    const parameters = node._pineGenericTypes;
-                    if (typeof parameters === 'string') return callee.split('.')[0] + '<' + parameters + '>';
-                }
-                if (callee?.startsWith('array.') || callee?.startsWith('map.') || callee?.startsWith('matrix.')) {
-                    const kind = callee.split('.')[0], method = callee.split('.')[1];
-                    const receiver = actual[0], parts = genericParts(receiver);
-                    if (receiver?.startsWith(kind + '<')) {
-                        if (kind === 'array') {
-                            if (['push', 'unshift', 'includes', 'indexof', 'lastindexof'].includes(method)) compatible(parts[0], actual[1], 'array element');
-                            if (['set', 'insert'].includes(method)) compatible(parts[0], actual[2], 'array element');
-                            if (['get', 'pop', 'shift', 'first', 'last'].includes(method)) return parts[0];
-                        } else if (kind === 'map') {
-                            if (['put', 'get', 'contains', 'remove'].includes(method)) compatible(parts[0], actual[1], 'map key');
-                            if (method === 'put') compatible(parts[1], actual[2], 'map value');
-                            if (['get', 'put', 'remove'].includes(method)) return parts[1];
-                        } else if (kind === 'matrix') {
-                            if (method === 'set') compatible(parts[0], actual[3], 'matrix element');
-                            if (method === 'get') return parts[0];
+                    const primitiveInput = callee?.startsWith('input.') ? DEFVAL_TYPE[callee.slice(6)] : undefined;
+                    if (primitiveInput) return primitiveInput;
+                    if (!userCall && ['int', 'float', 'bool', 'string', 'color'].includes(callee ?? '')) return callee;
+                    if (callee?.startsWith('color.')) return ['color.r', 'color.g', 'color.b', 'color.t'].includes(callee) ? 'float' : 'color';
+                    if (!userCall && callee === 'na') return 'bool';
+                    if (!userCall && ['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
+                    if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
+                        const object = node.callee.object;
+                        if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name) && node.callee.property?.name === 'new') return object.name;
+                        if (node.callee.property?.name === 'copy') {
+                            if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name)) return object.name;
+                            const receiver = expression(object, scope);
+                            if (receiver && objectNames.has(receiver)) return receiver;
                         }
-                        if (['copy', 'slice'].includes(method)) return receiver;
+                    }
+                    if (callee?.startsWith('math.') || callee?.startsWith('ta.')) {
+                        if (actual.some(enumType)) throw new Error('Enum values cannot be used as numeric function arguments.');
+                        if (['ta.cross', 'ta.crossover', 'ta.crossunder', 'ta.rising', 'ta.falling'].includes(callee)) return 'bool';
+                        if (callee === 'ta.change') return actual[0] ?? namedTypes.get('source');
+                        if (callee === 'math.round' && (actual.length > 1 || namedTypes.has('precision'))) return 'float';
+                        if (['ta.barssince', 'ta.highestbars', 'ta.lowestbars', 'math.floor', 'math.ceil', 'math.round', 'math.round_to_mintick'].includes(callee))
+                            return callee === 'math.round_to_mintick' ? 'float' : 'int';
+                        if (['math.abs', 'math.min', 'math.max'].includes(callee)) {
+                            const operands = [...actual, ...namedTypes.values()];
+                            return operands.length && operands.every(type => type === 'int' || type === 'float')
+                                ? operands.includes('float') ? 'float' : 'int' : undefined;
+                        }
+                        if (['math.avg', 'math.sqrt', 'math.pow', 'math.exp', 'math.log', 'math.log10', 'math.sin', 'math.cos', 'math.tan', 'math.asin', 'math.acos', 'math.atan', 'math.random',
+                            'math.sum', 'ta.sma', 'ta.ema', 'ta.rma', 'ta.wma', 'ta.vwma', 'ta.hma', 'ta.rsi', 'ta.atr', 'ta.tr', 'ta.highest', 'ta.lowest', 'ta.mom', 'ta.roc', 'ta.stdev', 'ta.variance', 'ta.sum', 'ta.cum'].includes(callee)) return 'float';
+                        return undefined;
+                    }
+                    if (['str.contains', 'str.startswith', 'str.endswith'].includes(callee ?? '')) return 'bool';
+                    if (['str.length', 'str.pos'].includes(callee ?? '')) return 'int';
+                    if (callee === 'str.tonumber') return 'float';
+                    if (['str.upper', 'str.lower', 'str.substring', 'str.replace', 'str.replace_all', 'str.format', 'str.trim', 'str.repeat'].includes(callee ?? '')) return 'string';
+                    if (callee === 'array.from') { let type: string | undefined; actual.forEach((value: string | undefined) => { type = join(type, value); }); return type ? 'array<' + type + '>' : undefined; }
+                    const generic = /^((?:array|map|matrix)\.new)<(.+)>$/.exec(callee ?? '');
+                    if (generic) return generic[1].split('.')[0] + '<' + generic[2] + '>';
+                    if (callee === 'array.new' || callee === 'map.new' || callee === 'matrix.new') {
+                        const parameters = node._pineGenericTypes;
+                        if (typeof parameters === 'string') return callee.split('.')[0] + '<' + parameters + '>';
+                    }
+                    if (callee?.startsWith('array.') || callee?.startsWith('map.') || callee?.startsWith('matrix.')) {
+                        const kind = callee.split('.')[0], method = callee.split('.')[1];
+                        const receiver = actual[0], parts = genericParts(receiver);
+                        if (receiver?.startsWith(kind + '<')) {
+                            if (kind === 'array') {
+                                if (['push', 'unshift', 'includes', 'indexof', 'lastindexof'].includes(method)) compatible(parts[0], actual[1], 'array element');
+                                if (['set', 'insert'].includes(method)) compatible(parts[0], actual[2], 'array element');
+                                if (['get', 'pop', 'shift', 'first', 'last'].includes(method)) return parts[0];
+                            } else if (kind === 'map') {
+                                if (['put', 'get', 'contains', 'remove'].includes(method)) compatible(parts[0], actual[1], 'map key');
+                                if (method === 'put') compatible(parts[1], actual[2], 'map value');
+                                if (['get', 'put', 'remove'].includes(method)) return parts[1];
+                            } else if (kind === 'matrix') {
+                                if (method === 'set') compatible(parts[0], actual[3], 'matrix element');
+                                if (method === 'get') return parts[0];
+                            }
+                            if (['copy', 'slice'].includes(method)) return receiver;
+                        }
                     }
                 }
                 let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name).filter(fn => !fn.node.id?.isMethod) : [];
+                if (userCall && !functions.length) functions = scope.functionsFor(node.callee.name).filter(fn => fn.node.id?.isMethod);
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
-                    const receiver = expression(node.callee.object, scope);
                     const method = node.callee.property?.name;
                     const parts = genericParts(receiver);
-                    if (receiver?.startsWith('array<')) {
+                    if (!customMethod && receiver?.startsWith('array<')) {
                         if (['push', 'unshift', 'includes', 'indexof', 'lastindexof'].includes(method)) compatible(parts[0], actual[0], 'array element');
                         if (method === 'set') compatible(parts[0], actual[1], 'array element');
                         if (['get', 'pop', 'shift', 'first', 'last'].includes(method)) return parts[0];
                         if (['copy', 'slice'].includes(method)) return receiver;
                     }
-                    if (receiver?.startsWith('map<')) {
+                    if (!customMethod && receiver?.startsWith('map<')) {
                         if (['put', 'get', 'contains', 'remove'].includes(method)) compatible(parts[0], actual[0], 'map key');
                         if (method === 'put') compatible(parts[1], actual[1], 'map value');
                         if (['get', 'put', 'remove'].includes(method)) return parts[1];
                         if (method === 'copy') return receiver;
                     }
-                    functions = scope.functionsFor(method).filter(fn => fn.node.id?.isMethod);
+                    functions = methods;
                     if (functions.length) {
-                        const matching = functions.filter(fn => normalize((fn.node.params[0]?.left ?? fn.node.params[0])?.varType) === receiver);
-                        if (matching.length) functions = matching;
+                        if (matchingMethods.length) functions = matchingMethods;
+                        else if (builtinMethod) return undefined;
                         actual.unshift(receiver);
                     }
                 }
                 if (functions.length) {
                     const ordinaryOverloads = functions.some(fn => fn.node._pineOverloadName);
+                    const methodCall = functions.every(fn => fn.node.id?.isMethod);
+                    const strict = ordinaryOverloads || methodCall;
+                    const callName = node.callee.name ?? node.callee.property?.name;
                     const caller = functionStack.at(-1);
-                    if (ordinaryOverloads && caller?.node.id.name === node.callee?.name) {
+                    if (ordinaryOverloads && caller?.node.id.name === callName) {
                         functions = functions.filter(fn => fn.node._pineOverloadOrdinal <= caller.node._pineOverloadOrdinal);
                     }
-                    const ordered = (fn: Fn) => (fn.node.params ?? []).map((pattern: any, index: number) => actual[index] ?? namedTypes.get((pattern.left ?? pattern).name));
+                    if (methodCall && caller?.node.id.isMethod && caller.node.id.name === callName)
+                        functions = functions.filter(fn => fn.node._pineMethodOrdinal <= caller.node._pineMethodOrdinal);
+                    const ordered = (fn: Fn) => orderedArguments(fn, actual, namedTypes);
                     const present = (fn: Fn, index: number) => index < actual.length || namedTypes.has((fn.node.params[index].left ?? fn.node.params[index]).name);
-                    const candidates = functions.filter(fn => {
-                        const params = fn.node.params ?? [], args = ordered(fn);
-                        if (actual.length > params.length || [...namedTypes.keys()].some(name => !params.some((pattern: any) => (pattern.left ?? pattern).name === name))) return false;
-                        return params.every((pattern: any, index: number) => {
-                            const declared = normalize((pattern.left ?? pattern).varType), supplied = args[index];
-                            if (index < actual.length && namedTypes.has((pattern.left ?? pattern).name)) return false;
-                            if (!present(fn, index)) return pattern.type === 'AssignmentPattern';
-                            if (supplied === undefined && ordinaryOverloads) return true;
-                            if (ordinaryOverloads && declared && supplied !== '@na') return declared === supplied || (declared === 'float' && supplied === 'int');
-                            return supplied === '@na' || !declared || !(hasEnum(declared) || hasEnum(supplied)) || declared === supplied;
-                        });
-                    });
+                    const candidates = functions.filter(fn => acceptsArguments(fn, actual, namedTypes, strict));
                     // Prefer an exact declared signature over an untyped overload.
                     const score = (fn: Fn) => ordered(fn).reduce((total: number, type: string | undefined, index: number) =>
                         total + (normalize((fn.node.params[index].left ?? fn.node.params[index]).varType) === type ? 1 : 0), 0);
                     candidates.sort((left, right) => score(right) - score(left));
-                    if (ordinaryOverloads && candidates.some(fn => ordered(fn).some((type, index) => type === undefined && present(fn, index)))) {
+                    if (strict && candidates.some(fn => ordered(fn).some((type, index) => type === undefined && present(fn, index)))) {
                         unresolvedOverloads.add(node);
                         return undefined;
                     }
-                    if (ordinaryOverloads && !candidates.length && (actual.some(hasEnum) || [...namedTypes.values()].some(hasEnum)
+                    if (strict && !candidates.length && (actual.some(hasEnum) || [...namedTypes.values()].some(hasEnum)
                         || functions.some(fn => fn.node.params.some((pattern: any) => hasEnum(normalize((pattern.left ?? pattern).varType))))))
-                        throw new Error('Incompatible enum types in Pine function overload ' + node.callee.name + '.');
-                    if (ordinaryOverloads && (!candidates.length || (candidates.length > 1 && score(candidates[0]) === score(candidates[1]))))
-                        throw new Error('Cannot resolve Pine function overload ' + node.callee.name + ': incompatible or ambiguous arguments.');
+                        throw new Error('Incompatible enum types in Pine function overload ' + callName + '.');
+                    if (strict && (!candidates.length || (candidates.length > 1 && score(candidates[0]) === score(candidates[1]))))
+                        throw new Error('Cannot resolve Pine function overload ' + callName + ': incompatible or ambiguous arguments.');
                     let fn = candidates[0] ?? functions[0];
                     const args = ordered(fn);
                     if (!fn.node.id?.isMethod) ordinaryCalls.set(node, fn);
                     const originalFn = fn;
                     fn = specialize(fn, args);
-                    if (ordinaryOverloads || fn !== originalFn) {
-                        if (node._pineOverloadTarget && node._pineOverloadTarget !== fn.node._pineOverloadName)
+                    if (ordinaryOverloads || methodCall || fn !== originalFn) {
+                        const target = methodCall ? fn.node._pineMethodBinding : fn.node._pineOverloadName;
+                        if (node._pineOverloadTarget && node._pineOverloadTarget !== target)
                             throw new Error('Pine overload calls through untyped functions require a consistent argument signature.');
-                        node._pineOverloadTarget = fn.node._pineOverloadName;
+                        node._pineOverloadTarget = target;
                         node._pineOverloadParams = fn.node.params.map((pattern: any) => (pattern.left ?? pattern).name);
+                        node._pineMethodCall = methodCall && dotMethod;
                         unresolvedOverloads.delete(node);
                     }
                     if (fn.node.id?.isMethod && (fn.node.params ?? []).some((pattern: any) => enumType(normalize((pattern.left ?? pattern).varType)))) {
@@ -561,6 +602,23 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
             }
         }
         for (const [name, functions] of scope.functions) {
+            const methods = functions.filter(fn => fn.node.id?.isMethod);
+            const methodSignatures = new Set<string>();
+            for (let index = 0; index < methods.length; index++) {
+                const fn = methods[index];
+                const signature = (fn.node.params ?? []).filter((pattern: any) => pattern.type !== 'AssignmentPattern')
+                    .map((pattern: any) => typeof pattern.varType === 'string' ? pattern.varType.trim().replace(/\s+/g, ' ') : '?').join('|');
+                if (methodSignatures.has(signature)) throw new Error('Duplicate required Pine method overload signature for ' + name + '.');
+                methodSignatures.add(signature);
+                if (!methodBindings.has(fn.node)) {
+                    const ordinal = (methodCounts.get(name) ?? 0) + 1;
+                    methodCounts.set(name, ordinal);
+                    methodBindings.set(fn.node, '$M_' + name + (ordinal === 1 ? '' : '$' + ordinal));
+                }
+                fn.node._pineMethodBinding = methodBindings.get(fn.node);
+                fn.node._pineMethodOrdinal = index;
+            }
+            if (methods.length > 1) hasOrdinaryOverloads = true;
             const ordinary = functions.filter(fn => !fn.node.id?.isMethod);
             if (ordinary.length < 2) continue;
             hasOrdinaryOverloads = true;

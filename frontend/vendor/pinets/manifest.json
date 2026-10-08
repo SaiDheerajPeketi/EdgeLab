@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-namespace-shadowing-96",
+  "patch": "edgelab-method-overloads-97",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -14,7 +14,7 @@
       "source": "src/transpiler/pineToJS/codegen.ts",
       "file": "overrides/transpiler/pineToJS/codegen.ts",
       "upstreamSha256": "cd2ed1f31979dece0df5420bde9af785a4eb2798e0b8985834430695ef83f3a5",
-      "sha256": "caed3bcd4a0e468d11eabd4ccb8a211b1b51dc5fccc6bca38309476ed141ac16"
+      "sha256": "5cb73ceb4578a4549303833911cc87215bbc303bd7d062c26fee6ba3f0ea310d"
     },
     {
       "source": "src/transpiler/pineToJS/parser.ts",
@@ -98,7 +98,7 @@
       "source": "src/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "file": "overrides/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "upstreamSha256": "f6a75e0b4a9250a8115c2efecf0a26162cac7f519f43f5ee35ca4974f81bd940",
-      "sha256": "4c83e6c15eb2a7c457ff9922943090d00e6dd77f63f4b8f35c38943ec782e9ed"
+      "sha256": "afaabaaf250f18cdee88ee14f9460428ace7238cc4079662ba862d23138dd383"
     },
     {
       "source": "src/Indicator/scanInputs.ts",

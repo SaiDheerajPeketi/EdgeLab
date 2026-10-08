@@ -834,7 +834,7 @@ export class CodeGenerator {
         if (isMethod) {
             const seen = (this.methodNameCounts.get(node.id.name) ?? 0) + 1;
             this.methodNameCounts.set(node.id.name, seen);
-            jsFnName = seen === 1 ? `$M_${node.id.name}` : `$M_${node.id.name}$${seen}`;
+            jsFnName = node._pineMethodBinding ?? (seen === 1 ? `$M_${node.id.name}` : `$M_${node.id.name}$${seen}`);
         }
 
         this.write('function ');
@@ -1664,6 +1664,16 @@ export class CodeGenerator {
 
     // Generate CallExpression
     generateCallExpression(node) {
+        if (node._pineMethodCall) {
+            // Static method selection uses the ordinary user-call transport:
+            // one explicit receiver, ordered args and a written-call history.
+            node = { ...node, _pineMethodCall: false, arguments: [node.callee.object, ...node.arguments] };
+        } else if (node._pineBuiltinMethodNamespace) {
+            // A different custom signature must not hijack the native method
+            // through Phase 2's receiver-only dispatch.
+            node = { ...node, callee: { ...node.callee, object: { type: 'Identifier', name: node._pineBuiltinMethodNamespace } },
+                arguments: [node.callee.object, ...node.arguments] };
+        }
         const calleePrecedence = this.getPrecedence(node.callee);
         if (node._pineOverloadTarget) {
             this.write(node._pineOverloadTarget);
