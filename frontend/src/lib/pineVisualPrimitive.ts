@@ -230,7 +230,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
-    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.kind === "candles" || plot.visual.plotOffset) {
+    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.kind === "candles" || plot.visual.plotOffset || plot.visual.pointStyle) {
       const range = scale.getVisibleLogicalRange();
       if (!range) return [0, -1];
       const offset = plot.visual.plotOffset ?? plot.visual.backgroundOffset ?? 0;
@@ -251,6 +251,10 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       if (plot.kind === "histogram" && plot.visual.histogramWidth) {
         const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
         if (center !== null && next !== null && next !== center) margin = Math.ceil(plot.visual.histogramWidth / Math.abs(next - center) / 2) + 1;
+      }
+      if (plot.visual.pointStyle) {
+        const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
+        if (center !== null && next !== null && next !== center) margin = Math.ceil((plot.visual.pointStyle.size + 1) / Math.abs(next - center)) + 1;
       }
       const from = locate(Number(range.from) - offset - margin), to = locate(Number(range.to) - offset + margin, true) - 1;
       return valid ? [Math.max(plot.visual.showFrom, from - (neighbors && plot.kind !== "background" ? 1 : 0)), Math.min(bars.length - 1, to + (neighbors && plot.kind !== "background" ? 1 : 0))] : [0, -1];
@@ -365,6 +369,66 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     }
     return result;
   }
+  private pointGeometry(plot: PineChartPlot, from: number, to: number) {
+    const indices = this.indices(plot), lo = this.indexPosition(indices, from), hi = this.indexPosition(indices, to + 1);
+    const joined = plot.visual!.pointStyle!.join;
+    const positions = indices.subarray(joined ? Math.max(0, lo - 1) : lo, joined ? Math.min(indices.length, hi + 1) : hi);
+    const scale = this.chart!.timeScale();
+    return Array.from(positions, (index) => {
+      const sample = this.sample(plot, index), value = numeric(plot, index);
+      const logical = this.logicalPosition(plot, index), x = logical === undefined ? null : scale.logicalToCoordinate(logical as Logical);
+      if (value === undefined || !Number.isFinite(value) || x === null || !Number.isFinite(x)) return undefined;
+      const shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
+      return { x, value, shade, painted: pineGradientColor(shade)?.[3] !== 0 && painted(shade) };
+    }).filter((point) => point !== undefined);
+  }
+  private pointBounds(plot: PineChartPlot, from: number, to: number, width: number) {
+    const geometry = this.pointGeometry(plot, from, to), radius = plot.visual!.pointStyle!.size + 1;
+    let bounds: Bounds | null = null, margin = 0;
+    let previous: typeof geometry[number] | undefined;
+    for (const point of geometry) {
+      if (point.painted && point.x + radius > 0 && point.x - radius < width) { bounds = extend(bounds, point.value); margin = radius; }
+      if (plot.visual!.pointStyle!.join && previous && point.painted && point.x >= 0 && previous.x <= width) {
+        const left = Math.max(0, previous.x), right = Math.min(width, point.x);
+        if (left <= right) {
+          const span = point.x - previous.x;
+          for (const x of [left, right]) {
+            const t = span === 0 ? 1 : Math.max(0, Math.min(1, (x - previous.x) / span));
+            bounds = extend(bounds, previous.value * (1 - t) + point.value * t);
+          }
+        }
+      }
+      previous = point;
+    }
+    return { bounds, margin };
+  }
+  private drawPointPlot(ctx: CanvasRenderingContext2D, plot: PineChartPlot, from: number, to: number, width: number, height: number) {
+    const points = this.pointGeometry(plot, from, to).map((point) => ({ ...point, y: this.series!.priceToCoordinate(point.value) })).filter((point) => point.y !== null && Number.isFinite(point.y));
+    const radius = plot.visual!.pointStyle!.size + 1;
+    ctx.save(); ctx.lineWidth = 1; ctx.lineCap = "butt"; ctx.setLineDash([]);
+    // Join numeric neighbors (including across na) using the destination sample's color.
+    // This gap/color rule is an explicit local policy, independent of symbol size.
+    if (plot.visual!.pointStyle!.join) for (let index = 1; index < points.length; index++) {
+      const point = points[index], previous = points[index - 1];
+      if (!point.painted) continue;
+      const segment = clipStroke({ x: previous.x, y: previous.y! }, { x: point.x, y: point.y! }, width, height);
+      if (segment) { ctx.strokeStyle = point.shade; ctx.beginPath(); ctx.moveTo(segment[0].x, segment[0].y); ctx.lineTo(segment[1].x, segment[1].y); ctx.stroke(); }
+    }
+    for (const point of points) {
+      const y = point.y!;
+      if (!point.painted || point.x + radius <= 0 || point.x - radius >= width || y + radius <= 0 || y - radius >= height) continue;
+      ctx.fillStyle = point.shade; ctx.beginPath();
+      if (plot.visual!.style === "cross") {
+        // Fill both arms once, avoiding doubled alpha at their intersection.
+        for (const [left, top, right, bottom] of [[point.x - radius, y - .5, point.x + radius, y + .5], [point.x - .5, y - radius, point.x + .5, y + radius]]) {
+          const x = Math.max(0, left), yy = Math.max(0, top), end = Math.min(width, right), floor = Math.min(height, bottom);
+          if (end > x && floor > yy) ctx.rect(x, yy, end - x, floor - yy);
+        }
+      } else ctx.arc(point.x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
   private hasVisibleScalePeer() {
     const range = this.chart?.timeScale().getVisibleRange();
     const from = seconds(range?.from), to = seconds(range?.to);
@@ -423,6 +487,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       const guide = plot.visual?.trackPrice;
       if (guide && painted(guide.color)) bounds = extend(bounds, guide.price);
       const [from, to] = ranges[p];
+      if (plot.visual?.pointStyle) {
+        const found = this.pointBounds(plot, from, to, paneWidth);
+        if (found.bounds) { bounds = extend(bounds, found.bounds.min); bounds = extend(bounds, found.bounds.max); }
+        above = Math.max(above, found.margin); below = Math.max(below, found.margin);
+        return;
+      }
       if (plot.kind === "candles") {
         // Neighbor samples are retained only when their actual candle body reaches the pane.
         if (to >= from) for (let index = from; index <= to; index++) {
@@ -540,6 +610,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         let [from, to] = this.visible(plot, true);
         this.from = from; this.to = to;
+        if (plot.visual?.pointStyle) { this.drawPointPlot(ctx, plot, from, to, mediaSize.width, mediaSize.height); continue; }
         if (to < from) continue;
         const x = (index: number) => {
           const scale = this.chart!.timeScale(), center = scale.timeToCoordinate(plot.visual!.bars[index].time as UTCTimestamp);

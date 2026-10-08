@@ -196,3 +196,70 @@ test("packed20k trackprice retains backing and guide redraws retain bounded visi
   f.draw(installed);range(installed);f.pan(15020);f.resize(220,180);f.draw(installed);range(installed);
   assert.ok(installed.primitive.debugStats.decodedSamples<=2);assert.equal(guides(f.commands).length,1);const decoded=installed.primitive.debugStats.decodedSamples;f.draw(installed);range(installed);assert.equal(installed.primitive.debugStats.decodedSamples,decoded);installed.dispose();assert.equal(installed.primitive.debugStats.cacheEntries,0);
 });
+
+
+test("actual circle and cross plots preserve size6 with independent one-pixel joins and native inputs",async()=>{
+  for(const style of ["circles","cross"])for(const joined of [true,false]) {
+    const body='enabled=input.bool(true,"Join")\nsize=input.int(6,"Size")\n'+`plot(bar_index%3==0?100:na,color=#ff000080,linewidth=size,style=plot.style_${style},join=enabled)`;
+    const result=await native(body,bars,{in_0:joined,in_1:6}),oracle=await raw(body,bars,{in_0:joined,in_1:6}),{adapted,f,installed}=install(result);
+    assert.equal(adapted.plots.length,1);assert.deepEqual(adapted.plots[0].visual.pointStyle,{size:6,join:joined});assert.equal(adapted.plots[0].pointsOnly,true);
+    assert.deepEqual(result.plots[0].points.map(p=>p.value),oracle.plots[result.plots[0].id].data.map(p=>Number.isNaN(p.value)?null:p.value));assert.equal(pine.latestPineChartPoint(adapted.plots[0]).value,100);
+    assert.ok(!adapted.adapterWarnings.some(warning=>/not rendered|limited to integer/.test(warning)));
+    const commands=f.draw(installed),strokes=commands.filter(c=>c.kind==="stroke");assert.equal(strokes.length,joined?2:0);assert.ok(strokes.every(c=>c.width===1&&c.color==="#ff000080"));
+    const fills=commands.filter(c=>c.kind==="fill");assert.equal(fills.length,3);
+    if(style==="circles")assert.ok(fills.every(c=>c.path[0].circle[2]===7));
+    else {assert.equal(fills[1].path.length,2);assert.deepEqual(fills[1].path.map(p=>p.rect),[[53,27.5,14,1],[59.5,21,1,14]]);assert.equal(fills.filter(c=>hit(c,60,28)).length,1);}
+    assert.deepEqual(installed.primitive.rangeForVisible().margins,{above:7,below:7});
+  }
+});
+
+test("joined points scale and draw clipped prices between sparse global centers with both offsets",async()=>{
+  const global=Array.from({length:32},(_,index)=>({...bars[0],time:bars[0].time+index*60})),snapshot=[global[0],global[20]];
+  for(const style of ["circles","cross"])for(const offset of [-2,2])for(const joined of [true,false]) {
+    const result=await native(`plot(bar_index==0?0:100,color=#ff0000,linewidth=1,style=plot.style_${style},join=${joined},offset=${offset})`,snapshot);
+    const {f,installed}=install(result,snapshot,{global,from:8+offset,width:80});
+    assert.deepEqual(range(installed),joined?{minValue:40,maxValue:60}:null);
+    const commands=f.draw(installed);assert.equal(commands.filter(c=>c.kind==="fill").length,0);const strokes=commands.filter(c=>c.kind==="stroke");assert.equal(strokes.length,joined?1:0);
+    if(joined)assert.deepEqual(strokes[0].path,[[0,88],[80,68]]);
+    f.pan(4+offset);assert.deepEqual(range(installed),joined?{minValue:20,maxValue:40}:null);installed.dispose();assert.equal(f.listeners.size,0);
+  }
+});
+
+test("wide offscreen point centers still draw partial glyphs and transparent glyphs add no scale",async()=>{
+  for(const style of ["circles","cross"]) {
+    const {f,installed}=install(await native(`plot(bar_index==0?100:na,color=#ff0000,linewidth=40,style=plot.style_${style})`),bars,{from:1.5,width:64});
+    assert.deepEqual(range(installed),{minValue:100,maxValue:100});assert.ok(f.draw(installed).some(c=>c.kind==="fill"));
+    f.pan(3);assert.equal(range(installed),null);assert.equal(f.draw(installed).filter(c=>c.kind==="fill").length,0);
+    for(const shade of ["na","color.new(color.red,100)"]) {
+      const hidden=install(await native(`plot(close,color=${shade},linewidth=6,style=plot.style_${style},join=true)`));assert.equal(range(hidden.installed),null);assert.equal(hidden.f.draw(hidden.installed).length,0);assert.equal(pine.latestPineChartPoint(hidden.adapted.plots[0]).value,97);
+    }
+  }
+});
+
+test("point joins retain source show_last and endpoint-color transparency without inventing hidden glyphs",async()=>{
+  for(const style of ["circles","cross"]) {
+    const body=`plot(bar_index==0?90:bar_index==3?110:na,color=bar_index==3?na:#ff0000,linewidth=6,style=plot.style_${style},join=true)`;
+    const first=install(await native(body));assert.equal(first.f.draw(first.installed).filter(c=>c.kind==="stroke").length,0);assert.equal(first.f.commands.filter(c=>c.kind==="fill").length,1);assert.deepEqual(range(first.installed),{minValue:90,maxValue:90});
+    const later=install(await native(`plot(bar_index==0?90:bar_index==3?110:na,color=bar_index==0?na:#0000ff,linewidth=6,style=plot.style_${style},join=true)`));assert.equal(later.f.draw(later.installed).filter(c=>c.kind==="stroke").length,1);assert.deepEqual(range(later.installed),{minValue:90,maxValue:110});
+    const limited=install(await native(`plot(close,color=#ff0000,linewidth=6,style=plot.style_${style},join=true,show_last=1,offset=-2)`));assert.equal(limited.f.draw(limited.installed).filter(c=>c.kind==="stroke").length,0);assert.equal(limited.f.commands.filter(c=>c.kind==="fill").length,1);assert.deepEqual(range(limited.installed),{minValue:97,maxValue:97});
+    const zero=install(await native(`plot(close,color=#ff0000,style=plot.style_${style},join=true,show_last=0)`));assert.equal(range(zero.installed),null);assert.equal(zero.f.draw(zero.installed).length,0);
+  }
+});
+
+test("point size safety and join guards retain valid bodies and source ownership",async()=>{
+  for(const style of ["circles","cross"]) {
+    for(const size of [0,null,1.5,Infinity]) {const result=await native(`plot(close,style=plot.style_${style})`);result.plots[0].options.linewidth=size;const adapted=pine.adaptPineChartResult(result,bars);assert.equal(adapted.plots.length,0);assert.ok(adapted.adapterWarnings.some(w=>/relative size/.test(w)));}
+    const size=await native(`plot(close,linewidth=6,style=plot.style_${style})`);size.plots[0].points[3].options.linewidth=7;assert.equal(pine.adaptPineChartResult(size,bars).plots.length,0);
+    for(const flag of [null,1,false]) {const result=await native(`plot(close,color=#ff0000,linewidth=6,style=plot.style_${style},join=true)`);result.plots[0].points[3].options.join=flag;const {adapted,f,installed}=install(result);assert.equal(adapted.plots[0].visual.pointStyle.join,false);assert.ok(adapted.adapterWarnings.some(w=>/constant boolean join/.test(w)));assert.equal(f.draw(installed).filter(c=>c.kind==="stroke").length,0);assert.ok(f.commands.some(c=>c.kind==="fill"));}
+  }
+});
+
+test("packed20k point joins retain backing and bounded normal-sized viewport decoding",async()=>{
+  const snapshot=Array.from({length:20000},(_,index)=>({...bars[index%8],time:bars[0].time+index*60}));
+  for(const style of ["circles","cross"]) {
+    const {adapted,f,installed}=install(await native(`plot(bar_index%3==0?close:na,color=#ff000080,linewidth=6,style=plot.style_${style},join=true,offset=2)`,snapshot),snapshot,{from:120,width:160});
+    assert.ok(pine.getPackedPinePlot(adapted.plots[0].visual.source));assert.equal(adapted.plots[0].segments.length,0);assert.equal(f.series.length,1);
+    f.draw(installed);range(installed);assert.ok(installed.primitive.debugStats.decodedSamples<20);f.pan(15020);f.resize(220,180);f.draw(installed);range(installed);assert.ok(installed.primitive.debugStats.decodedSamples<40);
+    installed.dispose();installed.dispose();assert.equal(installed.primitive.debugStats.cacheEntries,0);assert.equal(f.listeners.size,0);assert.equal(f.removed.length,1);
+  }
+});

@@ -30,8 +30,8 @@ export function summary(){
  return {engine:state.result.audit.engineVersion,source:state.result.source,inputs:state.result.inputs,definitions:state.result.inputDefinitions,
  plots:state.result.plots.map(plot=>{const p=getPackedPinePlot(plot),buffers=p?[p.values.buffer,p.kinds.buffer,p.optionIndices.buffer]:[];return {id:plot.id,name:plot.name,style:plot.style,options:plot.options,packed:!!p,slots:p?.slots,bufferCount:new Set(buffers).size,bufferBytes:buffers.reduce((n,b)=>n+b.byteLength,0),
  samples:[0,1,115,120,121,122,125,126,128,130,131,254,255,10023,15023,state.bars.length-1].filter(i=>i<state.bars.length).map(i=>({index:i,point:p?pointAtBar(plot,i):plot.points.find(point=>point.time===state.bars[i].time)}))};}),
- drawn:state.adapted.plots.map(plot=>({id:plot.id,name:plot.name,kind:plot.kind,trackPrice:plot.visual?.trackPrice})),warnings:state.adapted.adapterWarnings,
- geometry:{elementWidth:state.element.clientWidth,plotWidth:state.chart.paneSize().width,axisWidth:state.element.clientWidth-state.chart.paneSize().width,logicalAtLeft:state.chart.timeScale().coordinateToLogical(0),logicalAtRight:state.chart.timeScale().coordinateToLogical(state.chart.paneSize().width-1)},
+ drawn:state.adapted.plots.map(plot=>({id:plot.id,name:plot.name,kind:plot.kind,pointStyle:plot.visual?.pointStyle,trackPrice:plot.visual?.trackPrice})),warnings:state.adapted.adapterWarnings,
+ geometry:{elementWidth:state.element.clientWidth,plotWidth:state.chart.paneSize().width,axisWidth:state.element.clientWidth-state.chart.paneSize().width,logicalAtLeft:state.chart.timeScale().coordinateToLogical(0),logicalAtRight:state.chart.timeScale().coordinateToLogical(state.chart.paneSize().width-1),logicalAtEdgeRight:state.chart.timeScale().coordinateToLogical(state.chart.paneSize().width)},
  visible:state.chart.timeScale().getVisibleLogicalRange(),range:state.installed.primitive?.rangeForVisible(),stats:state.installed.primitive?.debugStats,series:state.installed.series.length};
 }
 function image(){
@@ -63,6 +63,13 @@ export function guidePixels(price){
   if(painted>best.painted)best={painted,left,right,runs,y};
  }
  return {...best,panePixels,dpr:data.ratio};
+}
+export function glyphCoverage(time,price,offset,radius){
+ const scale=state.chart.timeScale(),logical=scale.coordinateToLogical(scale.timeToCoordinate(time)),x=scale.logicalToCoordinate(logical+offset),y=(state.installed.series[0]??state.base).priceToCoordinate(price),data=image(),size=state.chart.paneSize();
+ if(x===null||y===null||!Number.isFinite(x+y))throw new Error("Glyph coordinates unavailable");let samples=[];
+ for(const xx of [.1,.3,.5,.7,.9])for(const yy of [.2,.5,.8]){const px=Math.round(size.width*xx*data.ratio),py=Math.round(size.height*yy*data.ratio),i=(py*data.width+px)*4,[r,g,b]=data.pixels.slice(i,i+3),distance=Math.hypot(px/data.ratio-x,py/data.ratio-y);
+  if(Math.abs(distance-radius)>3)samples.push({inside:distance<radius,red:r>120&&r>g*1.5&&r>b*1.5,px,py});}
+ return {x,y,width:size.width,height:size.height,spacing:Math.abs(scale.logicalToCoordinate(logical+1)-scale.logicalToCoordinate(logical)),samples};
 }
 export async function pan(from,to){state.chart.timeScale().setVisibleLogicalRange({from,to});await paint();return summary();}
 export async function resize(){state.chart.resize(state.element.clientWidth,128);await paint();return summary();}
@@ -294,4 +301,56 @@ test("trackprice inputs hidden colors missing values and packed disposal preserv
   await capture(page,"trackprice-packed20k",info.project.name,resized,harness);
   const disposed=await page.evaluate(()=>(window as any).numericFixture.dispose());expect(disposed.stats.cacheEntries).toBe(0);expect(disposed.range).toBeNull();
   expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBe(0);expect(harness.workerRequests).toHaveLength(9);expect(harness.otherRequests).toEqual([]);
+});
+
+
+test("native circle and cross relative sizes custom joins and single-alpha glyphs render on canvas",async({page,harness},info)=>{
+  for(const style of ["circles","cross"])for(const joined of [false,true]) {
+    const source=program(`size=input.int(6,"Size")\nenabled=input.bool(true,"Join")\nplot(bar_index==125 or bar_index==135?100:na,title="Points",color=#ff000080,linewidth=size,style=plot.style_${style},join=enabled)`);
+    const result=await run(page,source,{inputs:{in_0:6,in_1:joined}});expect(result.drawn[0].pointStyle).toEqual({size:6,join:joined});
+    expect(sample(result.plots[0],125)).toMatchObject({time:bars[125].time,value:100});expect(result.warnings.some((w:string)=>/limited to|not rendered/.test(w))).toBe(false);
+    const center=await probe(page,bars[125].time,100);expect(center.red).toBeGreaterThan(0);
+    if(style==="circles"&&!joined)rgb(center.rgb,composite("#ff000080"),"single-alpha circle");
+    const arm=await probe(page,bars[125].time,100,0,undefined,5);expect(arm.red).toBeGreaterThan(0);
+    const between=await probe(page,bars[125].time,100,0,bars[135].time);expect(between.red>0).toBe(joined);
+    await capture(page,"points-"+style+(joined?"-joined":"-separate"),info.project.name,{...result,center,arm,between},harness);
+    const small=await run(page,source,{inputs:{in_0:1,in_1:false}});expect(small.drawn[0].pointStyle).toEqual({size:1,join:false});expect((await probe(page,bars[125].time,100,0,undefined,5)).red).toBe(0);
+  }
+  expect(harness.workerRequests).toHaveLength(8);expect(harness.otherRequests).toEqual([]);
+});
+
+test("point joins span sparse offset viewports without visible glyph centers",async({page,harness},info)=>{
+  const chartBars=Array.from({length:32},(_,index)=>({...bars[0],time:bars[0].time+index*60})),snapshot=[chartBars[0],chartBars[20]];
+  for(const style of ["circles","cross"])for(const offset of [-2,2])for(const joined of [false,true]) {
+    const source=program(`plot(bar_index==0?80:120,color=#ff0000,linewidth=1,style=plot.style_${style},join=${joined},offset=${offset})`);
+    const result=await run(page,source,{bars:snapshot,chartBars,from:8+offset,to:12+offset,bounds:[80,120]});
+    if(joined){
+      const edge=await page.evaluate(input=>({left:(window as any).numericFixture.glyphCoverage(input.left,80,input.offset,1),right:(window as any).numericFixture.glyphCoverage(input.right,120,input.offset,1)}),{left:chartBars[0].time,right:chartBars[20].time,offset});
+      const span=edge.right.x-edge.left.x;expect(result.range.priceRange.minValue).toBeCloseTo(80+40*(0-edge.left.x)/span);expect(result.range.priceRange.maxValue).toBeCloseTo(80+40*(edge.left.width-edge.left.x)/span);
+    }else expect(result.range).toBeNull();
+    const actual=await probe(page,chartBars[10+offset].time,100);expect(actual.red>0).toBe(joined);
+    if(joined)await capture(page,"points-sparse-"+style+(offset>0?"-future":"-past"),info.project.name,{...result,actual},harness);
+  }
+  expect(harness.workerRequests).toHaveLength(8);expect(harness.otherRequests).toEqual([]);
+});
+
+test("point plots retain packed lazy ownership and very large clipped circles remain responsive",async({page,harness},info)=>{
+  const snapshot=Array.from({length:20000},(_,index)=>({...bars[0],time:bars[0].time+index*60}));
+  for(const style of ["circles","cross"]) {
+    const source=program(`plot(bar_index%3==0?100:na,color=#ff0000,linewidth=6,style=plot.style_${style},join=true,offset=2)`);
+    const initial=await run(page,source,{bars:snapshot,from:10020,to:10044});expect(initial.plots[0]).toMatchObject({packed:true,slots:20000,bufferCount:3});expect(initial.series).toBe(1);expect(initial.stats.decodedSamples).toBeLessThan(160);
+    await page.evaluate(()=>(window as any).numericFixture.pan(15020,15044));const resized=await page.evaluate(()=>(window as any).numericFixture.resize());expect(resized.stats.decodedSamples-initial.stats.decodedSamples).toBeLessThan(60);
+    expect((await probe(page,snapshot[15023].time,100)).red).toBeGreaterThan(0);await capture(page,"points-packed20k-"+style,info.project.name,resized,harness);
+    const disposed=await page.evaluate(()=>(window as any).numericFixture.dispose());expect(disposed.range).toBeNull();expect(disposed.stats.cacheEntries).toBe(0);expect((await probe(page,snapshot[15023].time,100)).red).toBe(0);
+  }
+  const source=program('size=input.int(6,"Size")\nshift=input.int(0,"Shift")\nplot(bar_index==130?100:na,color=#ff0000,linewidth=size,style=plot.style_circles,offset=shift)');
+  for(const size of [40,1000000000]) {
+    const radius=size+1;await run(page,source,{inputs:{in_0:size,in_1:0}});const pilot=await page.evaluate(input=>(window as any).numericFixture.glyphCoverage(input.time,100,0,input.radius),{time:bars[130].time,radius});
+    const shift=Math.round((-radius+pilot.width/2-pilot.x)/pilot.spacing),started=Date.now();
+    const result=await run(page,source,{inputs:{in_0:size,in_1:shift}}),coverage=await page.evaluate(input=>(window as any).numericFixture.glyphCoverage(input.time,100,input.shift,input.radius),{time:bars[130].time,shift,radius});
+    expect(Date.now()-started).toBeLessThan(5000);expect(result.drawn[0].pointStyle.size).toBe(size);expect(coverage.samples.length).toBeGreaterThan(5);expect(coverage.samples.every((s:any)=>s.inside===s.red)).toBe(true);
+    if(size>1000){expect(coverage.x).toBeLessThan(0);expect(coverage.samples.some((s:any)=>s.inside)).toBe(true);expect(coverage.samples.some((s:any)=>!s.inside)).toBe(true);}
+    await capture(page,"points-large-circle-"+size,info.project.name,{...result,coverage},harness);
+  }
+  expect(harness.workerRequests).toHaveLength(6);expect(harness.otherRequests).toEqual([]);
 });

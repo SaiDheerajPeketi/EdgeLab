@@ -37,7 +37,7 @@ test("all supported numeric line styles move source geometry through actual logi
   for(const style of ["line","linebr","stepline","steplinebr","circles"])for(const offset of [-2,2]) {
     const result=await run('plot(close,"Shift",color=bar_index%2==0?#ff0000:#0000ff,style=plot.style_'+style+',offset='+offset+')',snapshot);
     const f=harness(result,snapshot,timeline,-3,9),plot=f.adapted.plots[0];
-    assert.equal(plot.visual.plotOffset,offset);assert.deepEqual(f.adapted.adapterWarnings,[]);
+    assert.equal(plot.visual.plotOffset,offset);assert.ok(f.adapted.adapterWarnings.every(warning=>/local canvas metrics/.test(warning)));
     const commands=f.draw();assert.ok(commands.length);
     if(style==="circles")assert.deepEqual(commands.map(c=>c.point),snapshot.map((bar,i)=>[20+(i*2+offset+3)*12,64-bar.close]));
     else {assert.deepEqual(commands[0].path[0],[20+(offset+3)*12,63]);assert.deepEqual(commands.at(-1).path.at(-1),[20+(6+offset+3)*12,60]);}

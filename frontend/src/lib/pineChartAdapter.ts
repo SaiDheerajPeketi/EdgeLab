@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -63,13 +63,13 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       return [];
     }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
-    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
+    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
     const packed = getPackedPinePlot(plot);
     const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
     const behindChart = result.overlay && result.behindChart !== false && plot.options.force_overlay !== true;
-    const common = { id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, ["area", "areabr"].includes(style) ? 1 : 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
+    const common = { id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, ["area", "areabr"].includes(style) ? 1 : 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: ["circles", "cross"].includes(style), base: number(plot.options.histbase, 0) };
     if (style === "barcolor") {
       const offset = plot.options.offset === undefined ? 0 : plot.options.offset;
       if (typeof offset !== "number" || !Number.isSafeInteger(offset) || optionSets.some((options) => options.offset !== undefined && options.offset !== offset)) { warn("Bar colors require a constant safe integer offset; invalid or changing offsets are not applied."); return []; }
@@ -141,8 +141,14 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const histogramWidth = plot.options.linewidth === undefined ? 1 : plot.options.linewidth;
     if (style === "histogram" && (typeof histogramWidth !== "number" || !Number.isSafeInteger(histogramWidth) || histogramWidth < 1 || optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== histogramWidth))) { warn("Histogram width requires a constant positive integer in pixels; changing or invalid widths are not rendered."); return []; }
     if (style === "columns") warnings.push("Column widths use the local chart pixel-gap cadence; TradingView pixel gap calibration has not been verified.");
+    const pointStyle = ["circles", "cross"].includes(style);
+    const relativeSize = plot.options.linewidth === undefined ? 1 : plot.options.linewidth;
+    if (pointStyle && (typeof relativeSize !== "number" || !Number.isSafeInteger(relativeSize) || relativeSize < 1 || optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== relativeSize))) { warn("Point plots require a constant positive integer relative size; invalid or changing sizes are not rendered."); return []; }
+    const joinFlag = plot.options.join === undefined ? false : plot.options.join;
+    const constantJoin = typeof joinFlag === "boolean" && optionSets.every((options) => options.join === undefined || options.join === joinFlag);
+    if (pointStyle && !constantJoin) warn("Point joins require a constant boolean join flag; invalid or changing flags leave the symbols separate.");
     const declaredWidth = number(plot.options.linewidth, kind === "area" ? 1 : 2);
-    if (kind !== "histogram" && (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth) || optionSets.some((options) => options.linewidth !== undefined && (number(options.linewidth, 2) < 1 || number(options.linewidth, 2) > 4 || !Number.isInteger(number(options.linewidth, 2)))))) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
+    if (!pointStyle && kind !== "histogram" && (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth) || optionSets.some((options) => options.linewidth !== undefined && (number(options.linewidth, 2) < 1 || number(options.linewidth, 2) > 4 || !Number.isInteger(number(options.linewidth, 2)))))) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
     const trackPriceFlag = plot.options.trackprice === undefined ? false : plot.options.trackprice;
     const constantTrackPrice = typeof trackPriceFlag === "boolean" && optionSets.every((options) => options.trackprice === undefined || options.trackprice === trackPriceFlag);
     if (!constantTrackPrice) warn("Price guides require a constant boolean trackprice flag; invalid or changing flags leave the plot body unchanged.");
@@ -170,9 +176,9 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
         trackPrice = { price: sample.value, color: pineGradientColor(shade)?.[3] === 0 ? "rgba(0,0,0,0)" : shade };
       }
     }
-    if (style === "circles" && (plot.options.join === true || optionSets.some((options) => options.join === true))) warn("Circle plot joins are not rendered; points remain separate.");
+    if (pointStyle) warn("Point sizes and join gap/color behavior use local canvas metrics; TradingView pixel and corner-case calibration has not been verified.");
     const baseColor = color(plot.options.color);
-    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
+    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(pointStyle ? { pointStyle: { size: relativeSize as number, join: constantJoin && joinFlag === true } } : {}), ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
     if (style === "bar") {
       warnings.push("Native OHLC bar widths use local chart pixel cadence; TradingView pixel calibration has not been verified.");
       if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");
@@ -231,7 +237,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const nonempty = segments.filter((segment) => segment.length);
     if (!nonempty.length && !visual) return [];
     if (!visual && optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== plot.options.linewidth)) warn("Per-point line width is not supported; the declared plot width is used.");
-    return [{ id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, kind, color: baseColor, width: Math.max(1, Math.min(4, Math.round(declaredWidth))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0), segments: nonempty, markers, visual }];
+    return [{ id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, kind, color: baseColor, width: Math.max(1, Math.min(4, Math.round(declaredWidth))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: ["circles", "cross"].includes(style), base: number(plot.options.histbase, 0), segments: nonempty, markers, visual }];
   });
   const strategyMarkers: SeriesMarker<UTCTimestamp>[] = [];
   for (const trade of [...result.strategy?.closedTrades ?? [], ...result.strategy?.openTrades ?? []]) {
