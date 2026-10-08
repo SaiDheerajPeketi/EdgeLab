@@ -7,6 +7,7 @@ const matrix = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-release-matri
 const styles = fs.readFileSync(path.join(root, "frontend/src/styles.css"), "utf8");
 const routes = fs.readFileSync(path.join(root, "frontend/src/routes/AppRoutes.tsx"), "utf8");
 const compatibility = fs.readFileSync(path.join(root, "frontend/src/components/compatibility/CompatibilityRouteRenderer.tsx"), "utf8");
+const publicCompatibility = fs.readFileSync(path.join(root, "frontend/src/components/compatibility/CompatibilityPublicRoutes.tsx"), "utf8");
 const foundation = fs.readFileSync(path.join(root, "frontend/src/lib/uiFoundation.ts"), "utf8");
 const rollout = fs.readFileSync(path.join(root, "frontend/src/lib/uiRollout.ts"), "utf8");
 const uiWorkflow = fs.readFileSync(path.join(root, ".github/workflows/ui-regression.yml"), "utf8");
@@ -32,7 +33,10 @@ assert.match(routes, /RouteTransitionBoundary/);
 assert.match(routes, /CompatibilityRouteRenderer/);
 assert.match(routes, /modernUiEnabled \? children : <Suspense fallback=\{<AppRouteFallback \/>\}><CompatibilityRouteRenderer/);
 assert.match(compatibility, /data-compatibility-renderer/);
-for (const renderer of ["PublicCompatibility", "ShellCompatibility", "JournalCompatibility", "SettingsCompatibility", "ChartCompatibility"]) assert.match(compatibility, new RegExp(`function ${renderer}`));
+assert.match(compatibility, /import\("\.\/CompatibilityPublicRoutes"\)/);
+assert.match(compatibility, /<CompatibilityPublicRoutes\s*\/>/);
+assert.match(publicCompatibility, /export function CompatibilityPublicRoutes\b/);
+for (const renderer of ["ShellCompatibility", "JournalCompatibility", "SettingsCompatibility", "ChartCompatibility"]) assert.match(compatibility, new RegExp(`function ${renderer}`));
 assert.match(foundation, /bodyTextContrast:\s*4\.5/);
 assert.match(foundation, /maximumZoomPercent:\s*200/);
 assert.match(foundation, /financialState/);
@@ -57,4 +61,4 @@ for (const viewport of ["mobile", "tablet", "desktop"]) {
 }
 for (const assertion of ["contrast-aa", "textual-chart-summary", "zoom-200", "rtl", "server-rollout-fallback"]) assert.ok(matrix.requiredAssertions.includes(assertion));
 
-console.log(`UI release contract: ${Object.keys(matrix.routes).length} route groups, ${Object.keys(matrix.viewports).length} viewport classes, rollout fallback verified.`);
+console.log(`UI release contract: ${Object.keys(matrix.routes).length} route groups, ${Object.keys(matrix.viewports).length} viewport classes, rollout fallback contract verified.`);

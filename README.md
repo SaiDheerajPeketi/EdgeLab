@@ -42,7 +42,7 @@ Add datasets beneath `datasets/`, then refresh the catalog from the application.
 
 ## Development
 
-Use Node.js 20 or newer and Python 3.12:
+Use Node.js 22 or newer and Python 3.12:
 
 ```bash
 npm install
@@ -65,6 +65,8 @@ sh scripts/audit-dependencies.sh
 docker compose config
 docker compose -f docker-compose.local.yml config
 ```
+
+The UI regression workflow uses Node.js 22 and the same backend virtual environment as local development. It runs the full JavaScript and Python suites after the production build, then checks production Pine instrument sizing, per-entry exits, public fallback routes, and the existing UI gates. Provider-boundary fixtures verify checkout navigation without charging a merchant account.
 
 ## Repository map
 
