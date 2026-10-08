@@ -79,7 +79,7 @@ export function SettingRow({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h3 className="ui-resilient-text min-w-0 text-sm font-medium text-zinc-100" dir="auto">{label}</h3>
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">{scope}</span>
+          {scope === "System" ? <span className="text-xs text-[var(--text-secondary)]">Managed by system</span> : null}
         </div>
         <p className="ui-resilient-text mt-1 text-sm leading-5 text-zinc-400" dir="auto">{description}</p>
         {learnMore ? <a href={learnMore.href} className="mt-1 inline-block text-xs text-cyan-300 underline-offset-2 hover:underline">{learnMore.label}</a> : null}
@@ -100,7 +100,7 @@ export function SettingsToggle({ checked, disabled, label, onChange }: { checked
   );
 }
 
-export const fieldClassName = "min-h-10 w-full min-w-0 rounded-md border border-white/12 bg-black/25 px-3 text-start text-sm text-zinc-100 outline-none placeholder:text-zinc-400 focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-55";
+export const fieldClassName = "settings-field min-h-10 w-full min-w-0 rounded-md border px-3 text-start text-sm outline-none disabled:cursor-not-allowed disabled:opacity-55";
 
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

@@ -208,6 +208,22 @@ export async function installDeterminism(
     }
   }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock, lockTime: freezeTime, preserveBinanceSocket: keepBinanceWebSocket });
 
+  // Account writes now reserve and confirm server operation receipts. Keep
+  // mocked APIs on that protocol, using their actual response status rather
+  // than pretending that every save succeeded.
+  type Receipt = { operation_id: string; method: string; path: string; status: string; http_status: number | null; result: null; created_at: string; completed_at: string | null };
+  const receipts = new Map<string, Receipt>();
+  const receiptKey = (authorization: string | undefined, id: string) => `${authorization ?? ""}:${id}`;
+  page.on("response", (response) => {
+    const request = response.request();
+    const headers = request.headers();
+    const id = headers["x-edgelab-operation-id"];
+    if (!id) return;
+    const receipt = receipts.get(receiptKey(headers.authorization, id));
+    if (!receipt || receipt.method !== request.method() || receipt.path !== new URL(request.url()).pathname.replace(/^\/api/, "")) return;
+    Object.assign(receipt, { status: "completed", http_status: response.status(), completed_at: FROZEN_TIME });
+  });
+
   const total = 500;
   const remaining = Math.max(0, seatsRemaining);
   const program = {
@@ -221,6 +237,17 @@ export async function installDeterminism(
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname.replace(/^\/api/, "");
+    const operation = endpoint.match(/^\/app-data\/operations\/([^/]+)\/(reserve|recover)$/);
+    if (operation) {
+      const [, id, action] = operation;
+      const key = receiptKey(route.request().headers().authorization, id);
+      if (action === "reserve") {
+        const body = route.request().postDataJSON() as { method: string; path: string };
+        if (!receipts.has(key)) receipts.set(key, { operation_id: id, method: body.method, path: body.path, status: "reserved", http_status: null, result: null, created_at: FROZEN_TIME, completed_at: null });
+      }
+      const receipt = receipts.get(key);
+      return receipt ? fulfillJson(route, receipt) : route.fulfill({ status: 404, json: { detail: "Unknown fixture operation" } });
+    }
     if (endpoint === "/ui/rollout") {
       if (rollout === "unavailable") return route.abort("failed");
       return route.fulfill({
@@ -264,7 +291,7 @@ export async function installDeterminism(
     if (endpoint === "/backtests/strategy-summaries" || endpoint === "/trades" || endpoint === "/playbooks") return fulfillJson(route, []);
     if (endpoint === "/market-data/instruments") return fulfillJson(route, []);
     if (endpoint === "/market-data/alerts" || endpoint === "/market-data/alert-events") return fulfillJson(route, []);
-    if (endpoint === "/broker-providers" || endpoint === "/broker-connections") return fulfillJson(route, []);
+    if (endpoint === "/broker-providers" || endpoint === "/broker-connections" || endpoint === "/integration-secrets") return fulfillJson(route, []);
     if (endpoint === "/quant/models") return fulfillJson(route, { models: [] });
     return fulfillJson(route, {});
   });
@@ -493,3 +520,15 @@ export async function certifyUiState(page: Page) {
 }
 
 declare global { interface Window { axe: typeof axe } }
+
+// A write interrupted by an account switch must be confirmed, then reloaded,
+// before the original owner may save again. This exercises the public recovery
+// API rather than removing its browser markers in a test.
+export async function recoverFixtureAccount(page: Page) {
+  const result = await page.evaluate(async () => {
+    const modulePath = "/src/lib/api.ts";
+    return (await import(modulePath)).recoverAccountDataOperations();
+  });
+  expect(result.requiresReload).toBe(true);
+  await page.reload({ waitUntil: "domcontentloaded" });
+}

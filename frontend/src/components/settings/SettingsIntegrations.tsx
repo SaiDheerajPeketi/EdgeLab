@@ -40,6 +40,9 @@ export function SettingsIntegrations() {
         getBrokerConnections(),
         getIntegrationSecrets(),
       ]);
+      if (![nextProviders, nextConnections, nextSecrets].every(Array.isArray)) {
+        throw new Error("Connection status returned an invalid response. Retry the status check.");
+      }
       setProviders(nextProviders);
       setConnections(nextConnections);
       setSecrets(nextSecrets);

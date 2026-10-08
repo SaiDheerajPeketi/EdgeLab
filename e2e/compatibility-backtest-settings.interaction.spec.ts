@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import axe from "axe-core";
-import { betaSessionResponse, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { betaSessionResponse, gotoStable, installDeterminism, recoverFixtureAccount, seedApprovedSession } from "./support/app";
 
 test.use({ video: "off" });
 const path = "/app/settings/backtest";
@@ -459,12 +459,13 @@ test("backtest acknowledged defaults notify existing replay consumers and privat
       const { setStoredAuthSession } = await import(modulePath);
       setStoredAuthSession(session);
     }, { createdAt: betaSessionResponse.created_at, expiresAt: betaSessionResponse.expires_at, token: `backtest-owner-${id}`,
-      user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id, isBetaUser: true, name: betaSessionResponse.user.name, plan: "beta", provider: "google" } });
+      user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id, isBetaUser: true, deploymentMode: "beta", workspaceAccess: true, accessExpiresAt: betaSessionResponse.user.access_expires_at, name: betaSessionResponse.user.name, plan: "beta", provider: "google" } });
   }
   const firstOwner = betaSessionResponse.user.id;
   await owner(firstOwner);
   await gotoStable(page, path, { waitForNetworkIdle: false });
   await expectValues(page);
+  async function subscribeConsumers() {
   await page.evaluate(async () => {
     const orderPath = "/src/lib/orderSettings.ts";
     const backtestPath = "/src/lib/backtestSettings.ts";
@@ -475,6 +476,8 @@ test("backtest acknowledged defaults notify existing replay consumers and privat
     order.subscribeOrderDefaultQuantity((value: string) => target.__backtestConsumerEvents!.push({ quantity: value }));
     backtest.subscribeOrderLineModificationConfirmation((value: boolean) => target.__backtestConsumerEvents!.push({ lineConfirmation: value }));
   });
+  }
+  await subscribeConsumers();
   const release = hold(state, "quantity");
   await control(page, "quantity").fill("81000");
   await expect.poll(() => state.writes.length).toBe(1);
@@ -492,6 +495,9 @@ test("backtest acknowledged defaults notify existing replay consumers and privat
   await owner(firstOwner);
   await expect(control(page, "quantity")).toHaveValue("Owner one invalid private draft");
   await expect(control(page, "quantity")).toBeEnabled();
+  await recoverFixtureAccount(page);
+  await expect(control(page, "quantity")).toHaveValue("81000");
+  await subscribeConsumers();
   await control(page, "quantity").fill("82000");
   await expect.poll(() => state.stores.get(firstOwner)?.[keys.quantity]).toBe("82000");
   await expect(saved(page)).toBeVisible();

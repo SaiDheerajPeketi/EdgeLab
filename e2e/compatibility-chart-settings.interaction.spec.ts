@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import axe from "axe-core";
-import { betaSessionResponse, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { betaSessionResponse, gotoStable, installDeterminism, recoverFixtureAccount, seedApprovedSession } from "./support/app";
 
 test.use({ video: "off" });
 const keys = { presets: "chart-settings-presets.v1", active: "active-chart-settings-preset.v1", preferences: "settings-center.v1" } as const;
@@ -115,7 +115,7 @@ async function preferencesConsumer(page: Page) { return page.evaluate(async () =
 async function chartConsumer(page: Page) { return page.evaluate(async () => { const modulePath = "/src/lib/chartSettings.ts"; return (await import(modulePath)).loadActiveChartSettingsPreset(); }); }
 async function setOwner(page: Page, state: State, id: number) {
   state.owner = id;
-  await page.evaluate(async (session) => { const modulePath = "/src/lib/authSession.ts"; (await import(modulePath)).setStoredAuthSession(session); }, { createdAt: betaSessionResponse.created_at, expiresAt: betaSessionResponse.expires_at, token: `chart-owner-${id}`, user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id, isBetaUser: true, name: betaSessionResponse.user.name, plan: "beta", provider: "google" } });
+  await page.evaluate(async (session) => { const modulePath = "/src/lib/authSession.ts"; (await import(modulePath)).setStoredAuthSession(session); }, { createdAt: betaSessionResponse.created_at, expiresAt: betaSessionResponse.expires_at, token: `chart-owner-${id}`, user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id, isBetaUser: true, deploymentMode: "beta", workspaceAccess: true, accessExpiresAt: betaSessionResponse.user.access_expires_at, name: betaSessionResponse.user.name, plan: "beta", provider: "google" } });
 }
 async function auditPanel(page: Page, category: string) {
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ content: axe.source });
@@ -314,6 +314,7 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     await expect.poll(() => state.stores.get(firstOwner)?.presets.find((preset) => preset.name === "Settings default")?.settings.textSize).toBe(16);
     await expect(control(page, "textSize")).toHaveValue("Owner two private invalid draft"); expect((await cached(page) as Preset[]).find((preset) => preset.name === "Settings default")?.settings.textSize).toBe(14);
     await setOwner(page, state, firstOwner); await expect(control(page, "textSize")).toHaveValue("Owner one private invalid draft"); await expect(control(page, "textSize")).toBeEnabled();
+    await recoverFixtureAccount(page); await expect(control(page, "textSize")).toHaveValue("16");
     await control(page, "textSize").fill("17"); await apply(page, category).click(); await expect(saved(page, category)).toBeVisible();
     await setOwner(page, state, firstOwner + 1); await expect(control(page, "textSize")).toHaveValue("Owner two private invalid draft");
     expect(state.writes).toEqual([{ owner: firstOwner, body: { textSize: 16 } }, { owner: firstOwner, body: { textSize: 17 } }]);
@@ -323,6 +324,7 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
       await setOwner(page, state, firstOwner + 1); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("comfortable"); releasePreference();
       await expect.poll(() => state.stores.get(firstOwner)?.preferences.density).toBe("compact"); expect(await preferencesConsumer(page)).toEqual({ density: "comfortable", includeDiagnosticsByDefault: false });
       await setOwner(page, state, firstOwner); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("compact");
+      await recoverFixtureAccount(page); await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("compact");
     }
   });
 

@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleDot, Settings2 } from "lucide-react";
+import { ArrowLeft, Settings2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { WorkspaceView } from "../lib/workspace";
 import { workspaceNavigationItem } from "../lib/workspaceNavigation";
@@ -40,8 +40,7 @@ export function WorkspaceContextHeader({
       <p className="ui-resilient-text mt-0.5 text-xs text-[var(--text-secondary)]" dir="auto">{context.description}</p>
     </div>
     <div className="flex min-w-0 items-center gap-2" title={state.detail}>
-      <CircleDot aria-hidden="true" className={`h-4 w-4 ${state.className}`} />
-      <span className={`hidden text-xs font-medium sm:inline ${state.className}`}>{state.label}</span>
+      <span className={`text-xs font-medium ${state.className}`}>{state.label}</span>
     </div>
     {actions}
     <Button tone="quiet" onClick={onOpenSettings} className="px-2"><Settings2 aria-hidden="true" className="h-4 w-4" />Settings</Button>

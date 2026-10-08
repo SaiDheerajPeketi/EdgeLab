@@ -944,8 +944,7 @@ function MarketingCandleSurface({
           <h3 className="text-lg font-semibold tracking-[-0.025em] text-white">{scenario.symbol}</h3>
           <span className="text-xs text-slate-400">{scenario.timeframe}</span>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-100">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+        <div className="text-xs tabular-nums text-[var(--text-secondary)]">
           {formatBarTime(displayBar?.time ?? scenario.bars[0]?.time ?? 0)}
         </div>
       </div>

@@ -983,7 +983,7 @@ export function WorkspaceApp() {
       }
       const saved = loadChartLayout();
       if (saved) {
-        applyChartLayout(saved);
+        applyChartLayout(saved, { restorePanels: false });
       }
       const hydratedRecords = loadChartLayoutRecords();
       setLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? loadActiveLayoutName());
@@ -2449,7 +2449,7 @@ export function WorkspaceApp() {
     else setStartupLayoutName(normalized);
   }
 
-  function applyChartLayout(layout: Partial<StoredChartLayout>) {
+  function applyChartLayout(layout: Partial<StoredChartLayout>, { restorePanels = true }: { restorePanels?: boolean } = {}) {
     const nextLayout = sanitizeChartPaneLayout(layout.paneLayout);
     const nextPanes = sanitizeChartPanes(layout);
     const nextActivePane =
@@ -2460,7 +2460,7 @@ export function WorkspaceApp() {
     setReplayTimeframe(sanitizeTimeframe(layout.replayTimeframe ?? nextActivePane?.timeframe));
     setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
     workspaceRevisionRef.current = Math.max(0, Math.floor(layout.revision ?? 0));
-    if (layout.panelState) {
+    if (restorePanels && layout.panelState) {
       setWorkspacePanel(layout.panelState.activePanel);
       setLayersPanelOpen(layout.panelState.layersPanelOpen === true);
       setLeftPaneOpen(layout.panelState.orderPanelOpen === true);

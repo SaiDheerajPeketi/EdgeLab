@@ -47,12 +47,14 @@ export function ThemedSelect({
   value,
 }: Props) {
   const fallbackValue = useMemo(
-    () => defaultValue ?? options.find((option) => !option.disabled)?.value ?? "",
+    () => options.find((option) => !option.disabled && option.value === defaultValue)?.value
+      ?? options.find((option) => !option.disabled)?.value ?? "",
     [defaultValue, options],
   );
   const [internalValue, setInternalValue] = useState(fallbackValue);
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [activeValue, setActiveValue] = useState<string | null>(null);
+  const activeIndex = options.findIndex((option) => !option.disabled && option.value === activeValue);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -69,9 +71,9 @@ export function ThemedSelect({
 
   useEffect(() => {
     if (value == null) {
-      setInternalValue(fallbackValue);
+      setInternalValue((current) => options.some((option) => !option.disabled && option.value === current) ? current : fallbackValue);
     }
-  }, [fallbackValue, value]);
+  }, [fallbackValue, options, value]);
 
   useEffect(() => {
     onOpenChange?.(open);
@@ -84,8 +86,12 @@ export function ThemedSelect({
     const selectedIndex = options.findIndex(
       (option) => !option.disabled && option.value === selectedValue,
     );
-    setActiveIndex(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex(options));
-  }, [open, options, selectedValue]);
+    if (activeIndex < 0) setActiveIndex(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex(options));
+  }, [activeIndex, open, options, selectedValue]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   useEffect(() => {
     if (!open || activeIndex < 0) {
@@ -95,6 +101,20 @@ export function ThemedSelect({
       ?.querySelector<HTMLElement>(`#${CSS.escape(`${optionIdPrefix}-${activeIndex}`)}`)
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, open, optionIdPrefix]);
+
+  function setActiveIndex(next: number | ((current: number) => number)) {
+    setActiveValue((current) => {
+      const index = options.findIndex((option) => !option.disabled && option.value === current);
+      const nextIndex = typeof next === "function" ? next(index) : next;
+      return options[nextIndex]?.value ?? null;
+    });
+  }
+
+  function openMenu(last = false) {
+    const selectedIndex = options.findIndex((option) => !option.disabled && option.value === selectedValue);
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : last ? lastEnabledIndex(options) : firstEnabledIndex(options));
+    setOpen(true);
+  }
 
   function setOpenState(nextOpen: boolean) {
     if (disabled && nextOpen) {
@@ -129,7 +149,7 @@ export function ThemedSelect({
       return;
     }
     event.currentTarget.focus({ preventScroll: true });
-    setOpen((current) => !current);
+    if (open) setOpen(false); else openMenu();
   }
 
   function handleTriggerBlur(event: FocusEvent<HTMLButtonElement>) {
@@ -171,17 +191,7 @@ export function ThemedSelect({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) {
-        setOpen(true);
-        const selectedIndex = options.findIndex(
-          (option) => !option.disabled && option.value === selectedValue,
-        );
-        setActiveIndex(
-          selectedIndex >= 0
-            ? selectedIndex
-            : event.key === "ArrowDown"
-              ? firstEnabledIndex(options)
-              : lastEnabledIndex(options),
-        );
+        openMenu(event.key === "ArrowUp");
       } else {
         moveActive(event.key === "ArrowDown" ? 1 : -1);
       }
@@ -200,9 +210,10 @@ export function ThemedSelect({
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       if (open && activeIndex >= 0) {
-        choose(options[activeIndex].value);
+        const active = options[activeIndex];
+        if (active) choose(active.value);
       } else {
-        setOpen(true);
+        openMenu();
       }
       return;
     }
@@ -226,7 +237,7 @@ export function ThemedSelect({
   }
 
   const activeOptionId =
-    open && activeIndex >= 0 ? `${optionIdPrefix}-${activeIndex}` : undefined;
+    open && activeIndex >= 0 && options[activeIndex] ? `${optionIdPrefix}-${activeIndex}` : undefined;
 
   return (
     <div
@@ -248,7 +259,7 @@ export function ThemedSelect({
         role="combobox"
         type="button"
       >
-        <span className={`themed-select-value ${selectedOption ? "" : "text-slate-500"}`}>
+        <span className={`themed-select-value ${selectedOption ? "" : "text-[var(--text-muted)]"}`}>
           {selectedOption?.label ?? placeholder}
         </span>
         <ChevronDown
@@ -293,12 +304,12 @@ export function ThemedSelect({
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{option.label}</span>
                 {option.sublabel && (
-                  <span className="mt-0.5 block truncate text-[11px] text-slate-400">
+                  <span className="mt-0.5 block truncate text-[11px] text-[var(--text-secondary)]">
                     {option.sublabel}
                   </span>
                 )}
               </span>
-              {selected && <Check aria-hidden="true" className="shrink-0 text-cyan-100" size={14} />}
+              {selected && <Check aria-hidden="true" className="shrink-0 text-[var(--accent-primary)]" size={14} />}
             </button>
           );
         })}

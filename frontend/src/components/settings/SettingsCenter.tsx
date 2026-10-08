@@ -41,7 +41,6 @@ import { SettingRow, SettingsSection, SettingsToggle, fieldClassName, type SaveS
 import { SettingsSearch } from "./SettingsSearch";
 import {
   SETTINGS_CATEGORIES,
-  SETTINGS_CONTROLS,
   parseSettingsDeepLink,
   settingsDeepLink,
   settingsCategoryForPath,
@@ -222,15 +221,14 @@ export function SettingsCenter({
   }
 
   const activeCategory = SETTINGS_CATEGORIES.find((item) => item.id === category) ?? SETTINGS_CATEGORIES[0];
-  const controlsInCategory = SETTINGS_CONTROLS.filter((item) => item.category === category).length;
 
   return (
-    <main className={`min-h-full bg-[#090b0e] text-zinc-100 ${preferences.density === "compact" ? "[&_[data-setting-control]]:py-3" : ""}`}>
+    <main className={`min-h-full bg-[var(--ui-canvas)] text-[var(--text-primary)] ${preferences.density === "compact" ? "[&_[data-setting-control]]:py-3" : ""}`}>
       <header className="border-b border-white/10 bg-[#0c0f13] px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-[88rem]">
           {onBack ? <button type="button" onClick={() => { if (!hasDirty || window.confirm("Leave settings without applying draft changes?")) onBack(); }} className="mb-3 inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-zinc-400 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"><ArrowLeft aria-hidden="true" className="h-4 w-4" />{backLabel}</button> : null}
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Operate mode</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">Settings</h1><p className="mt-1 text-sm text-zinc-400">Personal values override workspace defaults; system rows show effective read-only behavior.</p></div>
+            <div><h1 className=" text-2xl font-semibold tracking-tight text-white">Settings</h1><p className="mt-1 text-sm text-zinc-400">Personal values override workspace defaults; system rows show effective read-only behavior.</p></div>
             {hasDirty ? <p className="text-sm text-amber-200" role="status">Draft changes not applied</p> : <p className="text-sm text-zinc-400">All explicit changes applied</p>}
           </div>
           <div className="mt-5"><SettingsSearch onSelect={selectResult} /></div>
@@ -258,7 +256,7 @@ export function SettingsCenter({
           {preferenceSettings.conflict && category !== "privacy-security" ? <div className="mb-4 flex min-w-0 flex-col items-stretch gap-3 rounded-md bg-amber-300/[0.08] px-3 py-3 text-sm text-amber-100 sm:flex-row sm:items-center" data-settings-conflict role="alert"><span className="ui-resilient-text min-w-0 flex-1" data-settings-conflict-message>Settings changed in another EdgeLab tab. Reload its version or keep this tab’s values.</span><div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-settings-conflict-actions><button type="button" className="min-h-11 min-w-0 rounded px-2 text-xs font-semibold text-amber-100 hover:bg-white/[0.06] sm:min-h-9" onClick={() => void preferenceSettings.useNewer()}>Use newer version</button><button type="button" className="min-h-11 min-w-0 rounded bg-amber-200 px-2 text-xs font-semibold text-slate-950 hover:bg-amber-100 sm:min-h-9" onClick={() => void preferenceSettings.keepVersion()}>Keep this version</button></div></div> : null}
           {undoAction ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-cyan-400/20 bg-cyan-400/[0.04] px-3 py-2 text-sm"><span className="text-cyan-50">{undoAction.label}</span><button type="button" onClick={() => { undoAction.run(); setUndoAction(null); }} className="inline-flex min-h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold text-cyan-300 hover:bg-white/5"><Undo2 aria-hidden="true" className="h-3.5 w-3.5" />Undo</button></div> : null}
           {saveStates.hydration === "error" ? <div className="mb-4 border-l-2 border-amber-300 bg-amber-300/5 px-3 py-2 text-sm text-amber-100" role="alert">Some cross-device values could not be loaded. Local effective values remain available.</div> : null}
-          <div className="mb-5 border-b border-white/10 pb-5"><p className="text-xs text-zinc-400">{controlsInCategory} supported control{controlsInCategory === 1 ? "" : "s"}</p><h2 className="mt-1 text-xl font-semibold text-white">{activeCategory.label}</h2><p className="mt-1 text-sm leading-6 text-zinc-400">{activeCategory.description}</p></div>
+          <div className="mb-5 border-b border-white/10 pb-5"><h2 className=" text-xl font-semibold text-white">{activeCategory.label}</h2><p className="mt-1 text-sm leading-6 text-zinc-400">{activeCategory.description}</p></div>
 
           {category === "global" ? <GlobalSettingsPanel /> : null}
           {category === "journal" ? <>

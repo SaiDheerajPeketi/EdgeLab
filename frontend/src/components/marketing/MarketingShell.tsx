@@ -113,7 +113,6 @@ function BetaBanner() {
     <div className="border-b border-edgelab-border bg-edgelab-surface px-4 py-2">
       <div className="mx-auto flex max-w-7xl justify-center" role="status">
         <div className="inline-flex items-center gap-2 text-[11px] text-edgelab-text-secondary">
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
           <span className="font-semibold text-cyan-100">Private beta</span>
           <span aria-hidden="true" className="h-px w-3 bg-edgelab-border" />
           <span>{seatSummary}</span>
