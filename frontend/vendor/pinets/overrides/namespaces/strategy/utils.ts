@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and per-entry persistent exits and quantity-grid tolerances.
+// EdgeLab modification, 2026-10-08: chronological fills, loaded intrabar paths, per-lot trails and persistent exits.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -2505,15 +2505,50 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     const strategy: StrategyState = context.strategy;
     const read = (key: string) => Series.from(context.data[key]).get(0);
     const open = read('open'), high = read('high'), low = read('low'), close = read('close');
-    const path = Math.abs(high - open) <= Math.abs(open - low) ? [open, high, low, close] : [open, low, high, close];
+    const chartPath = Math.abs(high - open) <= Math.abs(open - low) ? [open, high, low, close] : [open, low, high, close];
     const time = read('openTime'), mintick = context.pine?.syminfo?.mintick ?? 0.01;
+    const fail = (message: string, code = 'UNSUPPORTED_ORDER_FILL_CONTEXT') => { const error: any = new Error(message); error.code = code; throw error; };
+    // The host supplies complete, immutable chart-owned groups. Uncovered bars retain
+    // the ordinary chart path; a partial child group must never extend that path.
+    const magnifier = strategy.config.use_bar_magnifier === true;
+    const groups = context._edgelabMagnifierBars;
+    const children = magnifier && groups instanceof Map ? groups.get(time) : undefined;
+    if (children !== undefined) {
+        if (!Array.isArray(children) || children.length < 1 || children.length > 200_000)
+            fail('Bar Magnifier requires one to 200,000 validated intrabar candles.', 'STRATEGY_EXECUTION_LIMIT');
+        let previousTime = -Infinity;
+        for (const child of children) {
+            if (!child || !['open', 'high', 'low', 'close', 'openTime'].every(key => Number.isFinite(child[key])) ||
+                child.high < Math.max(child.open, child.close, child.low) || child.low > Math.min(child.open, child.close) ||
+                child.openTime <= previousTime)
+                fail('Bar Magnifier received invalid or unordered intrabar candles.');
+            previousTime = child.openTime;
+        }
+    }
+    const lastVertex = children ? children.length * 4 - 1 : 3;
+    // Lazily address the child OHLC paths instead of allocating another full price history.
+    const vertexPrice = (index: number): number => {
+        if (!children) return chartPath[index];
+        const child = children[Math.floor(index / 4)], phase = index % 4;
+        if (phase === 0) return child.open;
+        if (phase === 3) return child.close;
+        const highFirst = Math.abs(child.high - child.open) <= Math.abs(child.open - child.low);
+        return (phase === 1) === highFirst ? child.high : child.low;
+    };
+    const isGap = (segment: number) => !!children && segment % 4 === 3;
+    const fillTime = (at: number) => children ? children[Math.floor(Math.floor(at) / 4)].openTime : time;
     const births = new WeakMap<object, number>();
     const exitRemaining = historicalMarketExitRemaining;
-    for (const order of strategy.pending_orders) births.set(order, initial ? 3 : -1);
-    let cursor = initial ? 3 : 0, executions = initial ? 1 : 0, transitions = 0;
-    let lastCalculation = initial ? 3 : -1, result = initial?.result;
-    const priceAt = (at: number) => at === 3 ? path[3] : path[Math.floor(at)] + (path[Math.floor(at) + 1] - path[Math.floor(at)]) * (at - Math.floor(at));
-    const fail = (message: string, code = 'UNSUPPORTED_ORDER_FILL_CONTEXT') => { const error: any = new Error(message); error.code = code; throw error; };
+    for (const order of strategy.pending_orders) births.set(order, initial ? lastVertex : -1);
+    let cursor = initial ? lastVertex : 0, executions = initial ? 1 : 0, transitions = 0;
+    let lastCalculation = initial ? lastVertex : -1, result = initial?.result;
+    const priceAt = (at: number) => {
+        const vertex = Math.floor(at);
+        if (vertex === lastVertex || at === vertex) return vertexPrice(vertex);
+        // No interpolated price exists between one child's close and the next open.
+        if (isGap(vertex)) fail('Bar Magnifier cannot interpolate an intrabar gap.');
+        return vertexPrice(vertex) + (vertexPrice(vertex + 1) - vertexPrice(vertex)) * (at - vertex);
+    };
     const mark = (price: number) => {
         markToMarket(context, price);
         for (const order of strategy.pending_orders) {
@@ -2534,24 +2569,27 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         updateEquityPeaks(context, price, price);
         updateStrategyMetrics(context);
         if (strategy.position_size && computeHeldMargin(context, price) > strategy.equity + 1e-9)
-            fail('Intrabar margin-liquidation simulations are unavailable with order-fill recalculation.');
+            fail('Intrabar margin-liquidation simulations are unavailable with chronological order fills.');
     };
     const nextTick = (born: number) => Math.floor(Math.max(cursor, born)) + 1;
     // A satisfied order carried from an earlier execution gap-fills at this cursor.
     // A newly marketable conditional order waits for the next available OHLC tick.
-    const trigger = (level: number | undefined, above: boolean, born: number): { at: number; price: number } | null => {
+    const trigger = (level: number | undefined, above: boolean, born: number): { at: number; price: number; gap?: boolean } | null => {
         if (level === undefined || !Number.isFinite(level)) return null;
         const hit = (price: number) => above ? price >= level : price <= level;
         const start = Math.max(cursor, born);
         if (hit(priceAt(start))) {
             if (born < cursor) return { at: cursor, price: priceAt(cursor) };
             const at = nextTick(born);
-            return at <= 3 ? { at, price: path[at] } : null;
+            return at <= lastVertex ? { at, price: vertexPrice(at), gap: isGap(at - 1) } : null;
         }
-        for (let segment = Math.floor(start); segment < 3; segment++) {
-            const from = Math.max(start, segment), first = priceAt(from), last = path[segment + 1];
+        // Only this segment can execute before the scheduler's next vertex. Scanning
+        // the remaining child history on every vertex would make large groups quadratic.
+        for (let segment = Math.floor(start); segment < Math.min(lastVertex, Math.floor(start) + 1); segment++) {
+            const from = Math.max(start, segment), first = priceAt(from), last = vertexPrice(segment + 1);
             if (!hit(last) || last === first) continue;
-            const at = segment + (level - path[segment]) / (path[segment + 1] - path[segment]);
+            if (isGap(segment)) return { at: segment + 1, price: last, gap: true };
+            const at = segment + (level - vertexPrice(segment)) / (last - vertexPrice(segment));
             if (at > start && at <= segment + 1) return { at, price: level };
         }
         return null;
@@ -2621,20 +2659,20 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             if ((order.category ?? 'entry') === 'entry') {
                 if (order.qty <= 0) { order.status = 'cancelled'; continue; }
                 const direction = parseDirection(order.direction);
-                let candidate: { at: number; price: number } | null = null;
+                let candidate: { at: number; price: number; gap?: boolean } | null = null;
                 let kind: Event['kind'] = 'entry';
                 if (order.type === 'market') {
-                    const at = born < cursor ? cursor : strategy.config.process_orders_on_close === true && cursor === 3 ? 3 : nextTick(born);
-                    if (at <= 3) candidate = { at, price: priceAt(at) };
+                    const at = born < cursor ? cursor : strategy.config.process_orders_on_close === true && cursor === lastVertex ? lastVertex : nextTick(born);
+                    if (at <= lastVertex) candidate = { at, price: priceAt(at) };
                 } else if (order.type === 'limit') {
                     candidate = trigger(order.limit === undefined ? undefined : order.limit - direction * limitFillSlack(context), direction < 0, born);
-                    if (candidate && candidate.at > cursor && candidate.price === order.limit - direction * limitFillSlack(context)) candidate.price = order.limit;
+                    if (candidate && !candidate.gap && candidate.at > cursor && candidate.price === order.limit - direction * limitFillSlack(context)) candidate.price = order.limit;
                 } else if (order.type === 'stop') candidate = trigger(order.stop, direction > 0, born);
                 else if (order.type === 'stop-limit') {
                     if (!order._stopTriggered) { candidate = trigger(order.stop, direction > 0, born); kind = 'activate'; }
                     else {
                         candidate = trigger(order.limit === undefined ? undefined : order.limit - direction * limitFillSlack(context), direction < 0, born);
-                        if (candidate && candidate.at > cursor && candidate.price === order.limit - direction * limitFillSlack(context)) candidate.price = order.limit;
+                        if (candidate && !candidate.gap && candidate.at > cursor && candidate.price === order.limit - direction * limitFillSlack(context)) candidate.price = order.limit;
                     }
                 } else fail('Order-fill recalculation encountered an unsupported entry order type.');
                 if (candidate) events.push({ ...candidate, order, kind });
@@ -2660,8 +2698,8 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 continue;
             }
             if (!conditional) {
-                const at = order.immediately || (strategy.config.process_orders_on_close === true && cursor === 3) ? cursor : born < cursor ? cursor : nextTick(born);
-                if (at <= 3) events.push({ at, price: priceAt(at), order, kind: 'market-exit' });
+                const at = order.immediately || (strategy.config.process_orders_on_close === true && cursor === lastVertex) ? cursor : born < cursor ? cursor : nextTick(born);
+                if (at <= lastVertex) events.push({ at, price: priceAt(at), order, kind: 'market-exit' });
                 continue;
             }
             for (const trade of matching) {
@@ -2674,7 +2712,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 // V6 selects the paired level reached first; v5 prioritizes absolute levels.
                 const profitEvents = profits.flatMap(tp => {
                     const event = trigger(tp === undefined ? undefined : tp + direction * limitFillSlack(context), direction > 0, born);
-                    return event ? [{ ...event, price: event.at > cursor && event.price === tp + direction * limitFillSlack(context) ? tp : event.price, order, kind: 'profit' as const, trade }] : [];
+                    return event ? [{ ...event, price: !event.gap && event.at > cursor && event.price === tp + direction * limitFillSlack(context) ? tp : event.price, order, kind: 'profit' as const, trade }] : [];
                 }).sort((a, b) => a.at - b.at);
                 const lossEvents = losses.flatMap(sl => {
                     const event = trigger(sl, direction < 0, born);
@@ -2720,6 +2758,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     };
     const fill = (event: Event) => {
         const { order, kind, trade } = event;
+        const eventTime = fillTime(event.at);
         if (kind === 'activate') { order._stopTriggered = true; return false; }
         if (kind === 'trail-activate') {
             const state = historicalTrailingStates.get(order)!.get(trade.id)!;
@@ -2728,7 +2767,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         }
         const beforeClosed = strategy.closedtrades.length, beforeSize = strategy.position_size;
         if (kind === 'entry') {
-            fillEntryOrder(context, order, event.price, time, event.price);
+            fillEntryOrder(context, order, event.price, eventTime, event.price);
             if (order.status === 'filled') applyOca(order);
             if (beforeSize && strategy.position_size && Math.sign(beforeSize) !== Math.sign(strategy.position_size)) {
                 for (const exit of strategy.pending_orders)
@@ -2747,7 +2786,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             const direction = Math.sign(matching[0].size);
             const price = kind === 'profit' ? event.price : applySlippage(context, -direction, event.price);
             const comment = kind === 'profit' ? order.comment_profit ?? order.comment : kind === 'loss' ? order.comment_loss ?? order.comment : kind === 'trailing' ? order.comment_trailing ?? order.comment : order.comment;
-            closeMatching(context, order.from_entry, qty, price, time, { exitId: order.id, exitComment: comment, ...(kind === 'market-exit' ? {} : { triggerKind: kind }) }, trade?.id);
+            closeMatching(context, order.from_entry, qty, price, eventTime, { exitId: order.id, exitComment: comment, ...(kind === 'market-exit' ? {} : { triggerKind: kind }) }, trade?.id);
             if (trade) (trade._exits_filled ??= new Set()).add(order.id);
             const left = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry).reduce((sum, t) => sum + Math.abs(t.size), 0);
             if (trade) {
@@ -2757,7 +2796,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             const waitingForScopedEntry = trade && eligiblePendingEntry(order);
             if (trade && !allocation!.size && (left > quantityEpsilon || waitingForScopedEntry)) (order as any)._historical_exit_dormant = true;
             if (left <= quantityEpsilon && !waitingForScopedEntry || (trade ? !allocation!.size && !!order.from_entry && !waitingForScopedEntry : exitRemaining.get(order)! <= quantityEpsilon)) {
-                order.status = 'filled'; order.fill_price = price; order.fill_bar = context.idx; order.fill_time = time;
+                order.status = 'filled'; order.fill_price = price; order.fill_bar = context.idx; order.fill_time = eventTime;
             }
         }
         strategy.pending_orders = strategy.pending_orders.filter(o => o.status === 'pending');
@@ -2766,16 +2805,18 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     };
     mark(priceAt(cursor));
     while (true) {
-        if (++transitions > 2048) fail('Order-fill recalculation exceeded 2,048 broker transitions in one bar.', 'STRATEGY_EXECUTION_LIMIT');
         const next = candidates()[0];
-        const vertex = cursor < 3 ? Math.floor(cursor) + 1 : 3;
+        const vertex = cursor < lastVertex ? Math.floor(cursor) + 1 : lastVertex;
         if (next && next.at <= vertex) {
+            // Price vertices are separately bounded by the validated child count.
+            // Only broker events consume the transition budget, not passive walking.
+            if (++transitions > 2048) fail('Chronological fills exceeded 2,048 broker transitions in one bar.', 'STRATEGY_EXECUTION_LIMIT');
             cursor = next.at; mark(priceAt(cursor));
-            if (fill(next)) await execute();
+            if (fill(next) && strategy.config.calc_on_order_fills === true) await execute();
             continue;
         }
-        if (cursor < 3) { cursor = vertex; mark(path[vertex]); continue; }
-        if (lastCalculation !== 3) { await execute(); continue; }
+        if (cursor < lastVertex) { cursor = vertex; mark(vertexPrice(vertex)); continue; }
+        if (lastCalculation !== lastVertex) { await execute(); continue; }
         break;
     }
     strategy.pending_orders = strategy.pending_orders.filter(order => order.status === 'pending');

@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: same-candle pending entry replacement.
+// EdgeLab modification, 2026-10-08: same-candle pending entry replacement, including loaded intrabar scheduling.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -69,7 +69,7 @@ export function entry(context: any) {
 
         // Replacing an entry during a fill callback replaces its still-pending generation,
         // including orders created earlier on this same historical candle.
-        if (strategy.config.calc_on_order_fills === true)
+        if (strategy.config.calc_on_order_fills === true || strategy.config.use_bar_magnifier === true)
             strategy.pending_orders = strategy.pending_orders.filter((o: Order) => !(o.category === 'entry' && o.id === idValue && o.status === 'pending'));
 
         // Project the position forward over MARKET entry orders already queued

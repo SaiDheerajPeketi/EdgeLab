@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
-// EdgeLab modification: preserve per-lot historical trailing state on pending replacement.
+// EdgeLab modification, 2026-10-08: preserve per-lot trailing state with loaded intrabar scheduling.
 
 import { Order } from '../types';
 import { Series } from '../../../Series';
@@ -72,6 +72,7 @@ export function exit(context: any) {
         }
 
         const parsed = parseArgsForPineParams<any>(args, EXIT_SIGNATURES, EXIT_ARGS_TYPES);
+        const chronological = context.strategy.config.calc_on_order_fills === true || context.strategy.config.use_bar_magnifier === true;
 
         const extractValue = (val: any) => {
             if (val === undefined || val === null) return val;
@@ -95,8 +96,8 @@ export function exit(context: any) {
         const loss             = leg(extractValue(parsed.loss));
         const stopRaw          = leg(extractValue(parsed.stop));
         const trailPriceRaw    = leg(extractValue(parsed.trail_price));
-        const trailPoints      = context.strategy.config.calc_on_order_fills === true ? leg(extractValue(parsed.trail_points)) : extractValue(parsed.trail_points);
-        const trailOffset      = context.strategy.config.calc_on_order_fills === true ? leg(extractValue(parsed.trail_offset)) : extractValue(parsed.trail_offset);
+        const trailPoints      = chronological ? leg(extractValue(parsed.trail_points)) : extractValue(parsed.trail_points);
+        const trailOffset      = chronological ? leg(extractValue(parsed.trail_offset)) : extractValue(parsed.trail_offset);
 
         // Snap limit/stop/trail_price to the mintick grid AWAY from the
         // current bar's close (broker-emulator convention — see
@@ -202,7 +203,7 @@ export function exit(context: any) {
             if (o.category === 'exit' && o.id === exitId &&
                 (o.from_entry ?? '') === (order.from_entry ?? '') &&
                 o.status === 'pending') {
-                if (context.strategy.config.calc_on_order_fills === true) inheritHistoricalTrailingState(o, order);
+                if (chronological) inheritHistoricalTrailingState(o, order);
                 if (o.trail_armed) {
                     order.trail_armed = true;
                     order.trail_peak  = o.trail_peak;
@@ -210,7 +211,7 @@ export function exit(context: any) {
                 list.splice(i, 1);
             }
         }
-        if (context.strategy.config.calc_on_order_fills === true) {
+        if (chronological) {
             // Reissuing all-na levels disables the previous generation; it creates no order.
             if (['profit', 'loss', 'limit', 'stop', 'trail_price', 'trail_points', 'trail_offset'].every(key => (order as any)[key] === undefined)) return;
             (order as any)._historical_conditional_exit = true;

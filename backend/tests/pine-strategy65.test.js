@@ -566,14 +566,12 @@ plot(strategy.position_size,"Position")`;
   });
 }
 
-test("bar magnifier is rejected before body because lower-timeframe data is not supplied", async () => {
-  const source = '//@version=6\nstrategy("Missing intrabars",calc_on_order_fills=true,use_bar_magnifier=true)\nruntime.error("BODY_RAN")';
-  await assert.rejects(execute(source), (error) => {
-    assert.equal(error.code, "UNSUPPORTED_EXECUTION_SETTING");
-    assert.ok(error.message.includes("use_bar_magnifier"));
-    assert.ok(!error.message.includes("BODY_RAN"));
-    return true;
-  });
+test("bar magnifier without smaller candles uses disclosed chart OHLC fallback", async () => {
+  const source = '//@version=6\nstrategy("Missing intrabars",calc_on_order_fills=true,use_bar_magnifier=true)\nplot(close,"Close")';
+  const result = await execute(source);
+  assert.equal(result.strategy.config.use_bar_magnifier, true);
+  assert.deepEqual(values(result, "Close"), bars.map(bar => bar.close));
+  assert.ok(result.diagnostics.some(item => item.code === "BAR_MAGNIFIER_COVERAGE" && item.message.includes("0 of 3") && item.message.includes("chart OHLC")));
 });
 
 for (const canceled of [false, true]) {

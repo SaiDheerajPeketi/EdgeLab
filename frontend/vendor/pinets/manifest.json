@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-loaded-intrabars-112",
+  "patch": "edgelab-bar-magnifier-115",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "5702252304c591575f62268de8edd15ad34c39bea3fa8382e2675d8cd2e7e134"
+      "sha256": "2effed8cc2729b0dd8e9d97997460a4c75631946d6468db862f39c493605eb88"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -74,19 +74,19 @@
       "source": "src/namespaces/strategy/utils.ts",
       "file": "overrides/namespaces/strategy/utils.ts",
       "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
-      "sha256": "906d9a688239ae9cf7fa8805fc2a2ad7a27edc6662e9ba8c59eb0b65a0d588ba"
+      "sha256": "130fee1785db6bc9e7462b7aeb631bc52ec45cf8cedf0c882f09f8a3d34831f9"
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",
       "file": "overrides/namespaces/strategy/methods/entry.ts",
       "upstreamSha256": "dff14e8874150597eaca1522e2c15253592bfe72631980a922b141632660c666",
-      "sha256": "14d58b0d34eb362a85f83c174de791610da8db05defdc8289634ab49bc8da76f"
+      "sha256": "a3920e7df04429eb8c1618fc5493079247fd66bb9c05310ed308062d7c6ba3f7"
     },
     {
       "source": "src/namespaces/strategy/methods/exit.ts",
       "file": "overrides/namespaces/strategy/methods/exit.ts",
       "upstreamSha256": "bcc4a6feb6193dcf607f06f29f7c1771eb18ca9ad3da8030847d66e94915be66",
-      "sha256": "5562b8542d31a7deb1b3d26f8a5712d126534953b615f796a799de39f6ac4168"
+      "sha256": "2c2bba900ff0b21717ab77d56faee866bd9572e09d5e8a13d620f2a5c120ef7f"
     },
     {
       "source": "src/namespaces/strategy/methods/cancel_all.ts",
@@ -163,6 +163,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "9bfd8409c8ca5bfc9f11cafcd64b4c78ca15188be684d5e01ae229ddfa621554"
+    "sha256": "95dbb1a43f7345ee03c1693fcc3f71bb14b7f7b415af8addeb3babcb1b33c8c2"
   }
 }

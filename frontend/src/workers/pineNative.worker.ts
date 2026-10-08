@@ -810,8 +810,51 @@ function bindDeclarationLayer(context: Context, strategy: boolean) {
   } });
 }
 
+type MagnifierSnapshot = { groups: ReadonlyMap<number, readonly Kline[]>; message: string };
+
+/** Broker-only owned source; incomplete groups never manufacture missing prices. */
+function magnifierSnapshot(request: PineRequest): () => MagnifierSnapshot {
+  let retained: MagnifierSnapshot | undefined;
+  return () => {
+    if (retained) return retained;
+    const groups = new Map<number, readonly Kline[]>();
+    const source = request.sourceSnapshot;
+    const chartDuration = pineHigherTimeframeDuration(canonicalPineTimeframe(request.context!.timeframe));
+    const sourceDuration = source && pineHigherTimeframeDuration(source.timeframe);
+    if (source && sourceDuration && chartDuration && sourceDuration < chartDuration) {
+      let cursor = 0;
+      const count = chartDuration / sourceDuration;
+      for (const bar of request.bars!) {
+        while (cursor < source.bars.length && source.bars[cursor].time < bar.time) cursor++;
+        const begin = cursor;
+        while (cursor < source.bars.length && source.bars[cursor].time < bar.time + chartDuration) cursor++;
+        if (cursor - begin !== count) continue;
+        let complete = true, high = -Infinity, low = Infinity;
+        for (let index = begin; index < cursor; index++) {
+          const child = source.bars[index];
+          if (child.time !== bar.time + (index - begin) * sourceDuration) complete = false;
+          high = Math.max(high, child.high); low = Math.min(low, child.low);
+        }
+        if (!complete) continue;
+        if (source.bars[begin].open !== bar.open || high !== bar.high || low !== bar.low || source.bars[cursor - 1].close !== bar.close) {
+          error("UNAVAILABLE_DATA", "Complete bar-magnifier source candles disagree with the chart OHLC. Load matching chart and smaller-timeframe data.");
+        }
+        const children = source.bars.slice(begin, cursor).map(child => Object.freeze({
+          openTime: child.time * 1000, closeTime: (child.time + sourceDuration) * 1000,
+          open: child.open, high: child.high, low: child.low, close: child.close, volume: child.volume,
+          quoteAssetVolume: 0, numberOfTrades: 0, takerBuyBaseAssetVolume: 0, takerBuyQuoteAssetVolume: 0, ignore: 0,
+        }));
+        groups.set(bar.time * 1000, Object.freeze(children));
+      }
+    }
+    const total = request.bars!.length, fallback = total - groups.size;
+    retained = { groups, message: `Historical bar detail uses complete loaded ${source?.timeframe ?? "smaller-timeframe"} candle groups for ${groups.size} of ${total} chart candles; ${fallback} use the chart OHLC path. Each smaller candle still uses an assumed OHLC path, not recorded ticks. Fill timestamps identify the source candle, not an observed tick time.` };
+    return retained;
+  };
+}
+
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
-function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number) {
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number, magnifier?: () => MagnifierSnapshot) {
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
@@ -870,7 +913,12 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
             }
             if (typeof resolved === "boolean") config[key] = resolved;
           }
-          if (config.calc_on_order_fills === true && resolvedSetting(config.use_bar_magnifier) === true) error("UNSUPPORTED_EXECUTION_SETTING", "use_bar_magnifier=true requires lower-timeframe market data, which historical fill execution does not provide.");
+          const detail = resolvedSetting(config.use_bar_magnifier);
+          if (detail !== true && detail !== false && detail !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", "use_bar_magnifier must resolve to a boolean.");
+          config.use_bar_magnifier = detail ?? false;
+          if (detail === true && !Object.getOwnPropertyDescriptor(context, "_edgelabMagnifierBars")) {
+            Object.defineProperty(context, "_edgelabMagnifierBars", { value: magnifier?.().groups ?? new Map() });
+          }
           return config;
         } });
       }
@@ -921,7 +969,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
-    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate at the candle close and can recalculate after historical order fills with calc_on_order_fills=true. Fills follow an assumed OHLC price path, which can differ from actual trades. Historical callbacks see final OHLCV values. Trailing exits arm and follow the best price reached along the remaining path. Live strategy scheduling, calc_on_every_history_tick and intrabar margin-liquidation simulations with fill recalculation are unavailable.")] : []),
+    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate at the candle close and can recalculate after historical order fills with calc_on_order_fills=true. Bar magnification uses covered loaded smaller candles for fills; uncovered candles use the chart OHLC path. Every candle’s OHLC path is inferred and can differ from actual trades. Historical callbacks see final OHLCV values. Trailing exits arm and follow the best price reached along the remaining path. Live strategy scheduling, calc_on_every_history_tick and intrabar margin-liquidation simulations with fill recalculation or magnification are unavailable.")] : []),
   ] };
   return { indicator, prepared, descriptor, inputs, declaration };
 }
@@ -933,7 +981,8 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request);
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
   const encounteredAlerts = new Set<string>();
-  bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts, false, request.context?.quantityStep);
+  const magnifier = magnifierSnapshot(request);
+  bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts, false, request.context?.quantityStep, magnifier);
   const local = chartProvider(request, false, encounteredAlerts);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -948,7 +997,10 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   }
   if (local.unavailable()) throw local.unavailable();
   context.warnings.push(...local.notices.map(message => ({ message, method: "request.security", bar: 0 })));
-  return executionResult(request, descriptor, inputs, context, encounteredAlerts, started);
+  const resultDescriptor = context.strategy?.config.use_bar_magnifier === true
+    ? { ...descriptor, diagnostics: [...descriptor.diagnostics, warning("BAR_MAGNIFIER_COVERAGE", magnifier().message)] }
+    : descriptor;
+  return executionResult(request, resultDescriptor, inputs, context, encounteredAlerts, started);
 }
 
 function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false): PineExecutionResult {

@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-07: explicit realtime state and rollback groundwork.
+// EdgeLab modification, 2026-10-08: explicit realtime rollback and chart-owned historical intrabar fill scheduling.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only. Upstream notices retained below.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
@@ -1603,7 +1603,7 @@ export class PineTS {
                 }
             };
             let result: any;
-            if (!this._realtimeMode && context.strategy?.config.calc_on_order_fills === true) {
+            if (!this._realtimeMode && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true)) {
                 result = await processHistoricalFillBar(context, calculate);
             } else {
                 // Process strategy orders at the START of the bar (filling at Open).
@@ -1647,7 +1647,7 @@ export class PineTS {
 
                 result = await calculate();
                 // The first declaration becomes available during the first calculation.
-                if (!this._realtimeMode && context.strategy?.config.calc_on_order_fills === true)
+                if (!this._realtimeMode && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true))
                     result = await processHistoricalFillBar(context, calculate, { result });
                 else if (context.strategy) processOrdersOnClose(context);
             }

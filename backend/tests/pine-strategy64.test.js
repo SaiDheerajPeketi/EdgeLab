@@ -164,8 +164,8 @@ test("strict protocol boundaries reject malformed, scheduler, unsafe and accesso
     { slippage: 0.5 }, { slippage: 10001 }, { pyramiding: 1.5 }, { pyramiding: 1001 },
     { initial_capital: NaN }, { initial_capital: Infinity }, { initial_capital: "2000" },
     { default_qty_type: "contracts" }, { commission_type: "cash" }, { process_orders_on_close: 1 },
-    { currency: "INR" }, { calc_on_every_tick: true }, { calc_on_order_fills: true },
-    { use_bar_magnifier: true }, { inherited: 1 },
+    { currency: "INR" }, { calc_on_every_tick: true }, { calc_on_order_fills: 1 },
+    { use_bar_magnifier: "true" }, { inherited: 1 },
   ];
   let reads = 0;
   invalid.push(Object.defineProperty({}, "initial_capital", { enumerable: true, get() { reads += 1; return 2000; } }));

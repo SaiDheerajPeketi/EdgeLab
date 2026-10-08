@@ -107,12 +107,15 @@ test("trader settings persist through editor save and reload while chart overrid
   await expect(dialog.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await controls.getByRole("spinbutton", { name: "Order size", exact: true }).fill("3");
-  await controls.getByRole("combobox", { name: "Position sizing", exact: true }).selectOption("fixed");
-  await controls.getByRole("combobox", { name: "Commission type", exact: true }).selectOption("cash_per_order");
+  await controls.getByRole("combobox", { name: "Position sizing", exact: true }).click();
+  await page.getByRole("option", { name: "Contracts or units", exact: true }).click();
+  await controls.getByRole("combobox", { name: "Commission type", exact: true }).click();
+  await page.getByRole("option", { name: "Per order", exact: true }).click();
   await controls.getByRole("spinbutton", { name: "Commission", exact: true }).fill("2");
   await controls.getByRole("spinbutton", { name: "Slippage (ticks)", exact: true }).fill("0");
   await controls.getByRole("spinbutton", { name: "Entries in same direction", exact: true }).fill("2");
-  await controls.getByRole("combobox", { name: "Market order timing", exact: true }).selectOption("true");
+  await controls.getByRole("combobox", { name: "Market order timing", exact: true }).click();
+  await page.getByRole("option", { name: "Candle close", exact: true }).click();
   for (const control of await controls.locator("input,select,button").all()) {
     const box = await control.boundingBox();
     expect(box?.height).toBeGreaterThanOrEqual(44);
@@ -141,7 +144,7 @@ test("trader settings persist through editor save and reload while chart overrid
   controls = await disclosure(dialog);
   await expect(controls.getByRole("spinbutton", { name: "Starting capital", exact: true })).toHaveValue("2000000");
   await expect(controls.getByRole("spinbutton", { name: "Order size", exact: true })).toHaveValue("3");
-  await expect(controls.getByRole("combobox", { name: "Market order timing", exact: true })).toHaveValue("true");
+  await expect(controls.getByRole("combobox", { name: "Market order timing", exact: true })).toContainText("Candle close");
   const beforeReloadedRun = await responseCount(page);
   await checkedRun(dialog);
   const reloaded = await resultFor(page, 3, true, 2000000, 2, beforeReloadedRun);

@@ -21,6 +21,7 @@ export type PineStrategySettings = {
   initial_capital?: number; default_qty_type?: "fixed" | "cash" | "percent_of_equity";
   default_qty_value?: number; commission_type?: "percent" | "cash_per_contract" | "cash_per_order";
   commission_value?: number; slippage?: number; pyramiding?: number; process_orders_on_close?: boolean;
+  calc_on_order_fills?: boolean; use_bar_magnifier?: boolean;
 };
 export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number; mincontract?: number; quantityStep?: number; currency?: string; basecurrency?: string };
 export type PineSourceSnapshot = { timeframe: string; bars: readonly Candle[] };
@@ -102,8 +103,8 @@ export function validatePineStrategySettings(value: unknown): PineStrategySettin
       if (typeof val !== "number" || !Number.isFinite(val) || val < min || val > max || (positive && val === 0) || (integer && !Number.isSafeInteger(val))) fail(`${label} must be ${integer ? "a whole number" : "a number"} ${positive ? "greater than 0" : "at least 0"} and no more than ${max.toLocaleString("en-US")}.`, "INVALID_STRATEGY_SETTINGS");
     } else if (Object.prototype.hasOwnProperty.call(enums, key)) {
       if (typeof val !== "string" || !enums[key].includes(val)) fail("Choose a supported position-sizing or commission type.", "INVALID_STRATEGY_SETTINGS");
-    } else if (key === "process_orders_on_close") {
-      if (typeof val !== "boolean") fail("Choose a supported market-order timing.", "INVALID_STRATEGY_SETTINGS");
+    } else if (["process_orders_on_close", "calc_on_order_fills", "use_bar_magnifier"].includes(key)) {
+      if (typeof val !== "boolean") fail("Choose a supported strategy execution setting.", "INVALID_STRATEGY_SETTINGS");
     } else fail(`Unsupported strategy test setting: ${key}.`, "INVALID_STRATEGY_SETTINGS");
     result[key] = val;
   }
