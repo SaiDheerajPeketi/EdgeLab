@@ -268,14 +268,17 @@ test("sparse show_last counts bar slots and supported empty visuals retain ident
   }
 });
 
-test("fill follows reference placement and unsafe offset references are visibly omitted", async () => {
-  const result = await native(program('a=plot(8,"Upper",force_overlay=true)\nb=plot(2,"Lower",force_overlay=true)\nfill(a,b,color=color.red)', false));
-  const adapted = pine.adaptPineChartResult(result, bars);
-  assert.ok(adapted.plots.every((plot) => plot.overlay));
-  result.plots[0].options.offset = 1;
-  const shifted = pine.adaptPineChartResult(result, bars);
-  assert.ok(!shifted.plots.some((plot) => plot.kind === "fill"));
-  assert.ok(shifted.warnings.some((warning) => /offset/i.test(warning)));
+test("fill follows forced reference placement with independent plot offsets", async () => {
+  for (const offset of [0, 1, -2]) {
+    const result = await native(program('a=plot(8,"Upper",offset=' + offset + ',force_overlay=true)\nb=plot(2,"Lower",force_overlay=true)\nfill(a,b,color=color.red)', false));
+    const adapted = pine.adaptPineChartResult(result, bars);
+    assert.ok(adapted.plots.every((plot) => plot.overlay));
+    assert.ok(adapted.plots.some((plot) => plot.kind === "fill"));
+    assert.ok(!adapted.warnings.some((warning) => /not rendered|not supported/i.test(warning)));
+    const chart = harness(), installed = pine.installPineChartPlots(chart.chart, adapted.plots);
+    assert.ok(draw(installed).paths.some((path) => path.mode === "fill"));
+    installed.dispose();
+  }
 });
 
 test("fill-only autoscale respects histogram baselines and explicit external primary price scale", async () => {

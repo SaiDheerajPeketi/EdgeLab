@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot; upperOffset: number; lowerOffset: number } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -119,7 +119,14 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     if (style === "fill") {
       const upper = sources.get(String(plot.options.plot1)), lower = sources.get(String(plot.options.plot2));
       if (!upper || !lower) { warn("Fill references are unavailable; this fill is not drawn."); return []; }
-      if (hasOffset(plot) || hasOffset(upper) || hasOffset(lower)) { warn("Fill references with plot offsets are not rendered by this chart adapter."); return []; }
+      // Hidden references bypass the normal plot adapter, so validate their offsets here too.
+      const referenceOffset = (source: PinePlot) => {
+        const offset = source.options.offset === undefined ? 0 : source.options.offset;
+        return typeof offset === "number" && Number.isSafeInteger(offset) && pinePlotOptionSets(source).every((options) => options.offset === undefined || options.offset === offset) ? offset : undefined;
+      };
+      const upperOffset = referenceOffset(upper), lowerOffset = referenceOffset(lower);
+      if (upperOffset === undefined || lowerOffset === undefined) { warn("Fill references require constant safe integer plot offsets; invalid or changing offsets are not rendered."); return []; }
+      if (hasOffset(plot)) { warn("Fill has no offset argument; an injected fill offset is not rendered."); return []; }
       if (upper.overlay !== lower.overlay) { warn("Fill references cross chart placements; this fill is not drawn."); return []; }
       const gradient = plot.options.gradient === true || ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in plot.options) || optionSets.some((options) => ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in options));
       if (gradient && optionSets.some((options) => {
@@ -128,7 +135,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
         return typeof top === "number" && top === bottom;
       })) warn("Local gradient policy: equal anchors have zero span and are not painted; TradingView corner-case parity has not been verified.");
       if (gradient && optionSets.some((options) => ["top_color", "bottom_color"].some((key) => pineGradientColor(options[key] !== undefined ? options[key] : plot.options[key]) === undefined))) { warn("This gradient color format is not rendered by this chart adapter."); return []; }
-      return [{ ...common, overlay: upper.overlay, behindChart: behindChart && !(upper.options.force_overlay === true && lower.options.force_overlay === true), kind: "fill", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, gradient, refs: { upper, lower } } }];
+      return [{ ...common, overlay: upper.overlay, behindChart: behindChart && !(upper.options.force_overlay === true && lower.options.force_overlay === true), kind: "fill", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, gradient, refs: { upper, lower, upperOffset, lowerOffset } } }];
     }
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }

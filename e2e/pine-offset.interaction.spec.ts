@@ -22,9 +22,13 @@ export async function run(input){
  const adapted=adaptPineChartResult(result,input.bars),chart=createChart(element,{width:element.clientWidth,height:180,layout:{background:{color:"#111827"},textColor:"#cbd5e1"},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false},timeScale:{visible:false},crosshair:{vertLine:{visible:false},horzLine:{visible:false}}});
  const base=chart.addLineSeries({color:"transparent",lineVisible:false,lastValueVisible:false,priceLineVisible:false,autoscaleInfoProvider:()=>input.bounds?{priceRange:{minValue:input.bounds[0],maxValue:input.bounds[1]}}:null});
  base.setData((input.chartBars??input.bars).map(bar=>({time:bar.time,value:100})));
+ // Apply the requested viewport before attachment can measure the unrelated default range.
+ chart.timeScale().setVisibleLogicalRange({from:input.from??120,to:input.to??144});
+ // LWC queues that change; settle the base series before primitive autoscale can run.
+ await paint();
  const installed=installPineChartPlots(chart,adapted.plots,"right",{scaleAnchor:(input.chartBars??input.bars).at(-1)});
  state={result,adapted,chart,element,installed,base,bars:input.bars,disposed:false};
- chart.timeScale().setVisibleLogicalRange({from:input.from??120,to:input.to??144});await paint();return summary();
+ await paint();return summary();
 }
 export async function rejectSource(input){
  try{await run(input);return {status:"unexpected-completion"};}catch(error){return {status:"rejected",code:error.code,message:error.message};}
@@ -101,12 +105,13 @@ async function capture(page: Page, name: string, project: string, result: any, h
   fs.writeFileSync(path.join(artifacts, name + "-" + project + ".json"), JSON.stringify({ workerSha256: harness.workerSha256, result }, null, 2));
 }
 const sample = (plot: any, index: number) => plot.samples.find((item: any) => item.index === index).point;
+const circleNotice = (name: string) => `${name}: Point sizes and join gap/color behavior use local canvas metrics; TradingView pixel and corner-case calibration has not been verified.`;
 
 test("last show_last circle shifts into future and first circle into past whitespace", async ({ page, harness }, info) => {
   for (const [index, offset, from, to] of [[255,5,252,264],[0,-5,-9,3]]) {
     const source = program('plot(bar_index==' + index + '?100:na,title="Shifted circle",color=#ff0000,linewidth=4,style=plot.style_circles,offset=' + offset + ',show_last=' + (offset > 0 ? 1 : 256) + ')');
     const result = await run(page, source, { from, to });
-    expect(result.warnings).toEqual([]); expect(result.drawn).toHaveLength(1);
+    expect(result.warnings).toEqual([circleNotice("Shifted circle")]); expect(result.drawn).toHaveLength(1);
     const raw = sample(result.plots[0], index); expect(raw.value).toBe(100); expect(raw.time).toBe(bars[index].time); expect(raw.options.offset).toBe(offset);
     const moved = await probe(page, bars[index].time,100,offset), original = await probe(page,bars[index].time,100);
     expect(moved.shifted).toBe(index + offset); rgb(moved.rgb,[255,0,0],"shifted circle"); expect(original.red).toBe(0);
@@ -118,7 +123,7 @@ test("last show_last circle shifts into future and first circle into past whites
 test("all five supported scalar styles paint shifted slots without moving raw values or timestamps", async ({ page, harness }, info) => {
   for (const style of ["line","linebr","stepline","steplinebr","circles"]) {
     const source = program('plot(bar_index==130 or bar_index==131?100:na,title="' + style + '",color=#ff0000,linewidth=4,style=plot.style_' + style + ',offset=4)');
-    const result = await run(page,source,{from:128,to:139}); expect(result.drawn).toHaveLength(1); expect(result.warnings).toEqual([]);
+    const result = await run(page,source,{from:128,to:139}); expect(result.drawn).toHaveLength(1); expect(result.warnings).toEqual(style === "circles" ? [circleNotice(style)] : []);
     for (const index of [130,131]) { const raw = sample(result.plots[0],index); expect(raw.value).toBe(100); expect(raw.time).toBe(bars[index].time); }
     const moved = await probe(page,bars[130].time,100,4,style === "circles" ? undefined : bars[131].time);
     expect(moved.red,style + " actual shifted path").toBeGreaterThan(0);
@@ -189,23 +194,24 @@ test("shifted visible ranges exclude offscreen circles and clip bridged null-gap
   expect(harness.workerRequests).toHaveLength(3); expect(harness.otherRequests).toEqual([]);
 });
 
-test("unsupported shape offsets and invalid offset qualifiers disclose omission instead of painting stale slots", async ({ page, harness }) => {
-  for (const body of [
-    'plotshape(true,title="Shape",style=shape.circle,location=location.absolute,offset=2)',
-  ]) {
-    const result = await run(page,program(body));
-    expect(result.drawn).toHaveLength(0); expect(result.warnings.join(" ")).toMatch(/offset/i);
-  }
-  for (const [offset,message] of [["1.5","Plot offset must resolve to a valid integer."],["na","Plot offset must resolve to a valid integer."],["bar_index","Plot offset must remain constant throughout the snapshot."]]) {
+test("shifted shapes and fills paint while invalid offset qualifiers fail explicitly", async ({ page, harness }) => {
+  const shaped = await run(page,program('plotshape(bar_index==130?100:na,title="Shape",style=shape.circle,location=location.absolute,color=#ff0000,offset=2)'));
+  expect(shaped.drawn).toHaveLength(1);
+  expect(shaped.warnings.some((warning: string) => /offset/i.test(warning))).toBe(false);
+  expect((await probe(page,bars[130].time,100,2)).red).toBeGreaterThan(0);
+  expect((await probe(page,bars[130].time,100)).red).toBe(0);
+  for (const [offset,message] of [["1.5","Plot offset must resolve to a valid integer."],["na","Plot offset must resolve to a valid integer."],["bar_index","Plot offset and linestyle must remain constant throughout the snapshot."]]) {
     const source = program('plot(100,title="Rejected offset",offset=' + offset + ')');
     const rejected = await page.evaluate(input => (window as any).offsetFixture.rejectSource(input), {source,bars,bounds:[80,120]});
     expect(rejected).toEqual({status:"rejected",code:"UNSUPPORTED_PLOT_OPTION",message});
     await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
     await expect(page.locator("#chart canvas")).toHaveCount(0);
   }
-  const filled = await run(page,program('a=plot(90,"Lower",offset=2)\nb=plot(110,"Upper")\nfill(a,b,color=#ff0000,title="Unsupported shifted fill")'));
-  expect(filled.drawn.some((plot:any) => plot.kind === "fill")).toBe(false);
-  expect(filled.warnings.join(" ")).toMatch(/fill.*offset|offset.*fill/i);
+  const filled = await run(page,program('a=plot(90,"Lower",offset=2)\nb=plot(110,"Upper")\nfill(a,b,color=#ff0000,title="Shifted fill")'));
+  expect(filled.drawn.some((plot:any) => plot.kind === "fill")).toBe(true);
+  expect(filled.warnings.some((warning: string) => /not rendered|not supported/i.test(warning))).toBe(false);
+  expect((await probe(page,bars[130].time,100)).red).toBeGreaterThan(0);
+  rgb((await probe(page,bars[130].time,100,0,bars[131].time)).rgb,[255,0,0],"independently shifted fill interior");
   expect(harness.workerRequests).toHaveLength(5); expect(harness.otherRequests).toEqual([]);
 });
 

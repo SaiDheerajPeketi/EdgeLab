@@ -20,6 +20,7 @@ export function pineVisualColor(value: PineScalar | undefined, fallback = "#22d3
 }
 type RGBA = [number, number, number, number];
 type Gradient = { top: number; bottom: number; topColor: RGBA; bottomColor: RGBA };
+type FillGeometry = { left: number; right: number; shade: string; gradient?: Gradient; values: [number, number, number, number] };
 const COLOR_NAMES: Record<string, string> = { red: "#ff0000", blue: "#0000ff", green: "#008000", white: "#ffffff", black: "#000000", yellow: "#ffff00", orange: "#ffa500", purple: "#800080", lime: "#00ff00", navy: "#000080", teal: "#008080", silver: "#c0c0c0", gray: "#808080", grey: "#808080", maroon: "#800000", aqua: "#00ffff", cyan: "#00ffff", magenta: "#ff00ff", fuchsia: "#ff00ff", transparent: "#00000000" };
 let cssColors: OffscreenCanvasRenderingContext2D | null | undefined;
 /** Keep explicit transparent endpoint RGB; an na color has no RGB and becomes transparent black. */
@@ -616,6 +617,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return;
       }
+      if (plot.kind === "fill") return;
       if (plot.visual?.plotOffset) {
         const found = to >= from ? this.bounds(plot, from, to) : null;
         if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
@@ -625,7 +627,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return;
       }
-      if (to < from || plot.kind === "fill" || plot.kind === "background") return;
+      if (to < from || plot.kind === "background") return;
       const found = this.bounds(plot, from, to);
       if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
       if (plot.kind === "line" && !plot.pointsOnly && !["linebr", "steplinebr", "areabr"].includes(plot.visual!.style)) {
@@ -636,10 +638,8 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     // A fill-only pane needs price coordinates; only painted geometry is a deliberate fallback.
     if (!bounds && this.allowFillOnlyScale && !this.hasVisibleScalePeer()) this.plots.forEach((plot, p) => {
       if (plot.kind !== "fill") return;
-      const [from, to] = this.visible(plot, true);
-      for (let index = from + 1; index <= to; index++) {
-        const polygon = this.fillPolygon(plot, index);
-        if (polygon) for (const value of polygon.gradient ? paintedGradientValues(polygon.values, polygon.gradient) : polygon.values) bounds = extend(bounds, value);
+      for (const polygon of this.fillGeometry(plot)) {
+        for (const value of polygon.gradient ? paintedGradientValues(polygon.values, polygon.gradient) : polygon.values) bounds = extend(bounds, value);
       }
     });
     const screenAbove = Math.min(above, paneHeight * .4), screenBelow = Math.min(below, paneHeight * .4);
@@ -647,29 +647,112 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     this.rangeCache = bounds ? { priceRange: { minValue: (bounds as Bounds).min, maxValue: (bounds as Bounds).max }, margins: { above: screenAbove, below: screenBelow } } : null;
     return this.rangeCache;
   }
-  private fillPolygon(plot: PineChartPlot, index: number): { shade: string; gradient?: Gradient; values: [number, number, number, number] } | null {
-    const sample = this.sample(plot, index);
-    const shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
-    if (!sample) return null;
-    let gradient: Gradient | undefined;
-    if (plot.visual!.gradient) {
-      const source = plot.visual!.source;
-      const top = option(source, sample, "top_value"), bottom = option(source, sample, "bottom_value");
-      const topColor = pineGradientColor(option(source, sample, "top_color")), bottomColor = pineGradientColor(option(source, sample, "bottom_color"));
-      if (typeof top !== "number" || typeof bottom !== "number" || !Number.isFinite(top) || !Number.isFinite(bottom) || top === bottom || !topColor || !bottomColor || (!topColor[3] && !bottomColor[3])) return null;
-      gradient = { top, bottom, topColor, bottomColor };
-    } else if (!painted(shade)) return null;
-    const refs = plot.visual!.refs!;
-    const values = [this.fillValue(plot, index - 1, refs.upper), this.fillValue(plot, index, refs.upper), this.fillValue(plot, index, refs.lower), this.fillValue(plot, index - 1, refs.lower)];
-    if (!values.every((value) => value !== undefined)) return null;
-    const mask = values as [number, number, number, number];
-    if (gradient && !paintedGradientValues(mask, gradient).length) return null;
-    return { shade, gradient, values: mask };
+  /** Actual shared chart positions, including sparse snapshots and displaced whitespace. */
+  private fillPosition(plot: PineChartPlot, index: number, offset: number): number | undefined {
+    const scale = this.chart?.timeScale(), bar = plot.visual!.bars[index];
+    if (!scale || !bar) return undefined;
+    const x = scale.timeToCoordinate(bar.time as UTCTimestamp);
+    const logical = x === null ? null : scale.coordinateToLogical(x);
+    return logical === null || !Number.isFinite(Number(logical)) ? undefined : Number(logical) + offset;
   }
-  private fillValue(plot: PineChartPlot, index: number, source: PinePlot): number | undefined {
-    const direct = numeric(plot, index, source);
-    if (direct !== undefined || plot.visual!.source.options.fillgaps === false) return direct;
-    return this.interpolated(plot, index, source);
+  /** LWC 4.2 accepts integer logical coordinates only; interpolate clipped edges. */
+  private fillCoordinate(logical: number): number | null {
+    const scale = this.chart!.timeScale(), first = Math.floor(logical), last = Math.ceil(logical);
+    const left = scale.logicalToCoordinate(first as Logical);
+    if (left === null || !Number.isFinite(left)) return null;
+    if (first === last) return left;
+    const right = scale.logicalToCoordinate(last as Logical);
+    return right === null || !Number.isFinite(right) ? null : left * (last - logical) + right * (logical - first);
+  }
+  /** Visible bar centers omit half-slot pane edges; invert the actual integer-center affine map. */
+  private fillDomain(): { from: number; to: number } | undefined {
+    const scale = this.chart?.timeScale(), width = this.chart?.paneSize?.().width;
+    if (!scale) return undefined;
+    const zero = scale.logicalToCoordinate(0 as Logical), one = scale.logicalToCoordinate(1 as Logical);
+    if (width !== undefined && Number.isFinite(width) && width > 0 && zero !== null && one !== null && Number.isFinite(zero) && Number.isFinite(one) && zero !== one) {
+      const first = -zero / (one - zero), last = (width - zero) / (one - zero);
+      if (Number.isFinite(first) && Number.isFinite(last)) return { from: Math.min(first, last), to: Math.max(first, last) };
+    }
+    const range = scale.getVisibleLogicalRange();
+    return range ? { from: Number(range.from), to: Number(range.to) } : undefined;
+  }
+  private fillIndex(plot: PineChartPlot, logical: number, offset: number, first = 0): number {
+    let lo = first, hi = plot.visual!.bars.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1, position = this.fillPosition(plot, mid, offset);
+      if (position === undefined) return -1;
+      if (position < logical) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+  private fillValueAt(plot: PineChartPlot, logical: number, source: PinePlot, offset: number): number | undefined {
+    const first = sourceStart(source, plot.visual!.bars);
+    const index = this.fillIndex(plot, logical, offset, first);
+    if (index < 0) return undefined;
+    const position = this.fillPosition(plot, index, offset), direct = position === logical ? numeric(plot, index, source) : undefined;
+    if (direct !== undefined) return direct;
+    let left: number | undefined = index - 1, right: number | undefined = index;
+    if (plot.visual!.source.options.fillgaps !== false) {
+      // Shared compact index cache scans packed kinds, never materializing plot samples.
+      const indices = this.indices(plot, source), at = this.indexPosition(indices, index);
+      left = indices[at - 1]; right = indices[at];
+      if (right !== undefined && this.fillPosition(plot, right, offset) === logical) return numeric(plot, right, source);
+    } else if (position === logical) return undefined;
+    if (left === undefined || right === undefined || left < first || right >= plot.visual!.bars.length) return undefined;
+    const low = numeric(plot, left, source), high = numeric(plot, right, source);
+    const leftX = this.fillPosition(plot, left, offset), rightX = this.fillPosition(plot, right, offset);
+    if (low === undefined || high === undefined || leftX === undefined || rightX === undefined || rightX <= leftX || logical < leftX || logical > rightX) return undefined;
+    const ratio = (logical - leftX) / (rightX - leftX);
+    return low * (1 - ratio) + high * ratio;
+  }
+  /**
+   * One bounded visible geometry stream serves painting and fill-only autoscale.
+   * Local cross-offset policy: plot1 anchors source colors, gradient and show_last;
+   * both boundaries are sampled on the shared target timeline. Exact TV calibration
+   * for independently displaced references is not claimed.
+   */
+  private *fillGeometry(plot: PineChartPlot): Generator<FillGeometry> {
+    const visual = plot.visual!, refs = visual.refs!, range = this.fillDomain();
+    if (!range || !visual.bars.length) return;
+    const upperStart = Math.max(visual.showFrom, sourceStart(refs.upper, visual.bars));
+    const lowerStart = sourceStart(refs.lower, visual.bars), last = visual.bars.length - 1;
+    if (upperStart >= last || lowerStart >= last) return;
+    const upperLeft = this.fillPosition(plot, upperStart, refs.upperOffset), upperRight = this.fillPosition(plot, last, refs.upperOffset);
+    const lowerLeft = this.fillPosition(plot, lowerStart, refs.lowerOffset), lowerRight = this.fillPosition(plot, last, refs.lowerOffset);
+    if (upperLeft === undefined || upperRight === undefined || lowerLeft === undefined || lowerRight === undefined) return;
+    const left = Math.max(Number(range.from), upperLeft, lowerLeft), right = Math.min(Number(range.to), upperRight, lowerRight);
+    if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
+    const breaks = new Set<number>([left, right]);
+    for (const [offset, start] of [[refs.upperOffset, upperStart], [refs.lowerOffset, lowerStart]]) {
+      const from = this.fillIndex(plot, left, offset, start), to = this.fillIndex(plot, right, offset, start);
+      if (from < 0 || to < 0) return;
+      for (let index = from; index <= Math.min(last, to); index++) {
+        const position = this.fillPosition(plot, index, offset);
+        if (position === undefined) return;
+        if (position > left && position < right) breaks.add(position);
+      }
+    }
+    const vertices = [...breaks].sort((a, b) => a - b);
+    for (let vertex = 1; vertex < vertices.length; vertex++) {
+      const left = vertices[vertex - 1], right = vertices[vertex];
+      const index = this.fillIndex(plot, right, refs.upperOffset, upperStart);
+      if (index < 0 || index > last) continue;
+      const sample = this.sample(plot, index);
+      if (!sample) continue;
+      const shade = pineVisualColor(option(visual.source, sample, "color"), plot.color);
+      let gradient: Gradient | undefined;
+      if (visual.gradient) {
+        const top = option(visual.source, sample, "top_value"), bottom = option(visual.source, sample, "bottom_value");
+        const topColor = pineGradientColor(option(visual.source, sample, "top_color")), bottomColor = pineGradientColor(option(visual.source, sample, "bottom_color"));
+        if (typeof top !== "number" || typeof bottom !== "number" || !Number.isFinite(top) || !Number.isFinite(bottom) || top === bottom || !topColor || !bottomColor || (!topColor[3] && !bottomColor[3])) continue;
+        gradient = { top, bottom, topColor, bottomColor };
+      } else if (!painted(shade)) continue;
+      const values = [this.fillValueAt(plot, left, refs.upper, refs.upperOffset), this.fillValueAt(plot, right, refs.upper, refs.upperOffset), this.fillValueAt(plot, right, refs.lower, refs.lowerOffset), this.fillValueAt(plot, left, refs.lower, refs.lowerOffset)];
+      if (!values.every((value) => value !== undefined)) continue;
+      const mask = values as [number, number, number, number];
+      if (gradient && !paintedGradientValues(mask, gradient).length) continue;
+      yield { left, right, shade, gradient, values: mask };
+    }
   }
 
   private draw(target: CanvasRenderingTarget2D, layer: "background" | "fill" | "line" | "shape", behind: boolean) {
@@ -702,7 +785,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         let [from, to] = plot.kind === "markers" ? this.markerDrawRange(plot, ctx) : this.visible(plot, true);
         this.from = from; this.to = to;
         if (plot.visual?.pointStyle) { this.drawPointPlot(ctx, plot, from, to, mediaSize.width, mediaSize.height); continue; }
-        if (to < from) continue;
+        if (to < from && plot.kind !== "fill") continue;
         const x = (index: number) => {
           const scale = this.chart!.timeScale(), center = scale.timeToCoordinate(plot.visual!.bars[index].time as UTCTimestamp);
           if (!plot.visual!.plotOffset || center === null) return center;
@@ -740,11 +823,9 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           continue;
         }
         if (layer === "fill" && plot.kind === "fill") {
-          for (let index = from + 1; index <= to; index++) {
-            const polygon = this.fillPolygon(plot, index);
-            if (!polygon) continue;
+          for (const polygon of this.fillGeometry(plot)) {
             const { shade, values, gradient } = polygon;
-            const left = x(index - 1), right = x(index);
+            const left = this.fillCoordinate(polygon.left), right = this.fillCoordinate(polygon.right);
             const ys = values.map((value) => this.series!.priceToCoordinate(value!));
             if (left === null || right === null || ys.some((value) => value === null)) continue;
             let fillStyle: string | CanvasGradient = shade;
