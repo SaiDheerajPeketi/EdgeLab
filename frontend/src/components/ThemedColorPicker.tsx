@@ -260,17 +260,17 @@ export function ThemedColorPicker({
             value={draft}
           />
           {hexError && (
-            <span className="normal-case tracking-normal text-rose-200" id={errorId} role="alert">
+            <span className="normal-case tracking-normal text-[var(--loss-text)]" id={errorId} role="alert">
               {hexError}
             </span>
           )}
         </label>
 
-        <div aria-label="RGB channels" className="grid gap-1.5 rounded border border-white/[0.07] bg-black/25 p-2" role="group">
+        <div aria-label="RGB channels" className="grid gap-1.5 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-2" role="group">
           {CHANNELS.map((channel) => {
             const inputId = `${pickerId}-${channel.key}`;
             return (
-              <label className="grid grid-cols-[3rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-[10px] font-bold text-slate-300" htmlFor={inputId} key={channel.key}>
+              <label className="grid grid-cols-[3rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-xs text-[var(--text-secondary)]" htmlFor={inputId} key={channel.key}>
                 <span>{channel.label}</span>
                 <input
                   aria-valuetext={`${rgb[channel.key]} of 255`}
@@ -282,7 +282,7 @@ export function ThemedColorPicker({
                   type="range"
                   value={rgb[channel.key]}
                 />
-                <output className="rounded border border-white/10 bg-black/30 px-1 py-0.5 text-right font-mono tabular-nums text-cyan-100" htmlFor={inputId}>
+                <output className="rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-1 py-0.5 text-right font-mono tabular-nums text-[var(--text-primary)]" htmlFor={inputId}>
                   {rgb[channel.key]}
                 </output>
               </label>

@@ -1871,6 +1871,33 @@ function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
   </div>;
 }
 
+// Keep incomplete numeric edits local instead of forcing the minimum after
+// every keystroke. Valid values preview immediately; blur commits the bounds.
+function useIntegerDraft(value: number, min: number, max: number, onChange: (value: number) => void) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  function commit() {
+    const parsed = Number(draft);
+    const next = draft.trim() && Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.trunc(parsed))) : value;
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  }
+  return {
+    value: draft,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = event.target.value;
+      setDraft(raw);
+      const next = Number(raw);
+      if (raw.trim() && Number.isInteger(next) && next >= min && next <= max) onChange(next);
+    },
+    onBlur: commit,
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") { event.preventDefault(); commit(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDraft(String(value)); }
+    },
+  };
+}
+
 function NumberPill({
   label,
   onChange,
@@ -1880,14 +1907,15 @@ function NumberPill({
   onChange: (value: number) => void;
   value: number;
 }) {
+  const input = useIntegerDraft(value, 1, 500, onChange);
   return (
     <label className="study-number-pill">
       <span>{label}</span>
       <input
         min={1}
-        onChange={(event) => onChange(clampInteger(event.target.value, 1, 500))}
+        {...input}
+        max={500}
         type="number"
-        value={value}
       />
     </label>
   );
@@ -2715,6 +2743,7 @@ function NumberSetting({
   onChange: (value: number) => void;
   value: number;
 }) {
+  const input = useIntegerDraft(value, min, max, onChange);
   return (
     <label className="chart-settings-field">
       <span>{label}</span>
@@ -2722,9 +2751,8 @@ function NumberSetting({
         className="input-control h-9"
         max={max}
         min={min}
-        onChange={(event) => onChange(clampInteger(event.target.value, min, max))}
+        {...input}
         type="number"
-        value={value}
       />
     </label>
   );
@@ -2747,6 +2775,7 @@ function SelectSetting({
       <ThemedSelect
         ariaLabel={label}
         className="h-9"
+        portal
         onChange={onChange}
         options={options}
         value={value}

@@ -52,12 +52,13 @@ export function useChartSettings() {
   const current = useSyncExternalStore(subscribe, () => snapshot(owner));
   const [draft, setDraft, clearDraft] = useJournalDraft("settings:chart-defaults", { ...current.defaults, ...current.submitted });
   const pending = current.state === "saving";
-  const dirty = CHART_DRAFT_FIELDS.some((field) => draft[field] !== current.defaults[field]) || (current.ready && normalizedName(current.active) !== SETTINGS_PRESET_NAME);
+  const dirty = CHART_DRAFT_FIELDS.some((field) => draft[field] !== current.defaults[field]);
+  const needsActivation = current.ready && normalizedName(current.active) !== SETTINGS_PRESET_NAME;
   const validation = chartDraftValidation(draft);
   useEffect(() => { void load(owner); }, [owner]);
   async function save() {
     const latest = snapshot(owner);
-    if (owner !== ownerNow() || !latest.ready || latest.state === "saving" || chartDraftValidation(draft) || !dirty) return;
+    if (owner !== ownerNow() || !latest.ready || latest.state === "saving" || chartDraftValidation(draft) || (!dirty && !needsActivation)) return;
     const submitted = { ...draft };
     const fields = CHART_DRAFT_FIELDS.filter((field) => draft[field] !== latest.defaults[field]);
     const changes = Object.fromEntries(fields.map((field) => [field, field === "textSize" ? Number(draft[field]) : draft[field]]));
@@ -80,7 +81,7 @@ export function useChartSettings() {
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", guard); return () => window.removeEventListener("beforeunload", guard);
   }, [dirty, pending]);
-  return { ...current, draft, dirty, pending, validation, change, save, reload: () => load(owner),
+  return { ...current, draft, dirty, needsActivation, pending, validation, change, save, reload: () => load(owner),
     saveState: pending || current.state === "error" ? current.state : dirty ? "idle" as const : current.state,
     reset: () => change(DEFAULT_CHART_DRAFT, true), undoChange: () => { if (current.undo) { change(current.undo); publish(owner, { undo: null }); } },
   };

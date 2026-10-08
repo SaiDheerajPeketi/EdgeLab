@@ -183,6 +183,43 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     await auditPanel(page, category);
   });
 
+  test(`${title} inactive preset is not an unsaved edit and can be explicitly activated without changing values`, async ({ page }) => {
+    const state = await fixture(page, fallback), store = state.stores.get(state.owner)!;
+    store.active = "Private 27";
+    const before = clone(store);
+    const dialogs: string[] = [];
+    page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+    await gotoStable(page, path, { waitForNetworkIdle: false });
+    await expectValues(page);
+    await expect(apply(page, category)).toBeEnabled();
+    await expect(page.getByText("Draft changes not applied", { exact: true })).toHaveCount(0);
+    expect(dialogs).toEqual([]);
+    if (!fallback) {
+      if (page.viewportSize()!.width >= 1024) {
+        await page.getByRole("button", { name: "Global", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Effective regional behavior", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: category === "chart" ? "Chart" : "Appearance", exact: true }).click();
+      } else {
+        await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption("global");
+        await expect(page.getByRole("heading", { name: "Effective regional behavior", exact: true })).toBeVisible();
+        await page.getByRole("combobox", { name: "Settings category", exact: true }).selectOption(category);
+      }
+      await expectValues(page);
+      expect(dialogs).toEqual([]);
+    }
+    await apply(page, category).click();
+    await expect(saved(page, category)).toBeVisible();
+    expect(state.writes).toEqual([{ owner: state.owner, body: {} }]);
+    expect(store.active).toBe("Settings default");
+    expect(store.presets.map((preset) => preset.settings)).toEqual(before.presets.map((preset) => preset.settings));
+    await expect(apply(page, category)).toBeDisabled();
+    await edit(page, { textSize: "16" });
+    if (!fallback) await expect(page.getByText("Draft changes not applied", { exact: true })).toBeVisible();
+    await apply(page, category).click();
+    await expect(saved(page, category)).toBeVisible();
+    await expect(control(page, "textSize")).toHaveValue("16");
+  });
+
   test(`${title} new Settings default clones the active full settings and preserves every existing preset`, async ({ page }) => {
     const state = await fixture(page, fallback), store = state.stores.get(state.owner)!;
     store.presets = store.presets.filter((preset) => preset.name !== "Settings default"); store.active = "Private 27";

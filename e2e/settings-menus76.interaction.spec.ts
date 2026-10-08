@@ -34,7 +34,7 @@ test.beforeAll(async () => {
           <button id="remove" onClick={() => setRemoved(true)}>Remove GBP</button>
           <button id="disable" onClick={() => setDisabled(true)}>Disable dropdown</button>
           <button id="theme" onClick={() => {
-            for (const [key, value] of Object.entries({ "--ui-inset": "rgb(240, 241, 242)", "--ui-floating": "rgb(250, 251, 252)", "--text-primary": "rgb(20, 21, 22)", "--text-secondary": "rgb(60, 61, 62)" })) document.documentElement.style.setProperty(key, value);
+            for (const [key, value] of Object.entries({ "--ui-inset": "rgb(240, 241, 242)", "--ui-floating": "rgb(250, 251, 252)", "--text-primary": "rgb(20, 21, 22)", "--text-secondary": "rgb(60, 61, 62)", "--ui-surface": "rgb(250, 251, 252)", "--ui-raised": "rgb(230, 231, 232)", "--ui-selection": "rgb(220, 240, 245)", "--text-muted": "rgb(70, 71, 72)" })) document.documentElement.style.setProperty(key, value);
           }}>Change theme tokens</button>
         </main>;
       }
@@ -196,6 +196,50 @@ test("startup ignores crowded saved panel state while restoring the saved chart"
     expect(bounds!.y).toBeLessThanOrEqual(8);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   }
+  // Nested selects must leave the scroll container so their options remain
+  // clickable at its bottom edge. Closing one must keep settings open.
+  await dialog.getByRole("button", { name: "Scales and lines", exact: true }).click();
+  const dateFormat = dialog.getByRole("combobox", { name: "Date format", exact: true });
+  await dateFormat.scrollIntoViewIfNeeded();
+  await dateFormat.click();
+  const choices = page.getByRole("listbox", { name: "Date format", exact: true });
+  await expect(choices).toBeVisible();
+  expect(await choices.evaluate((element) => Boolean(element.closest(".chart-settings-content")))).toBe(false);
+  await page.getByRole("option", { name: "1997-09-29", exact: true }).click();
+  await expect(choices).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Canvas", exact: true }).click();
+  const textSize = dialog.getByLabel("Text size", { exact: true });
+  await textSize.fill("");
+  await expect(textSize).toHaveValue("");
+  await textSize.pressSequentially("16");
+  await expect(textSize).toHaveValue("16");
+  await textSize.fill("9");
+  await expect(textSize).toHaveValue("9");
+  await textSize.press("Enter");
+  await expect(textSize).toHaveValue("10");
+  await textSize.fill("");
+  await textSize.press("Escape");
+  await expect(textSize).toHaveValue("10");
+  await expect(dialog).toBeVisible();
+  await textSize.fill("1e2");
+  await textSize.press("Enter");
+  await expect(textSize).toHaveValue("18");
+  await dialog.getByRole("button", { name: "Background palette", exact: true }).click();
+  const palette = page.getByRole("dialog", { name: /^Background #/ });
+  await expect(palette).toBeVisible();
+  await page.evaluate(() => {
+    for (const [key, value] of Object.entries({ "--ui-inset": "rgb(240, 241, 242)", "--ui-floating": "rgb(250, 251, 252)", "--text-primary": "rgb(20, 21, 22)", "--text-secondary": "rgb(60, 61, 62)", "--ui-surface": "rgb(250, 251, 252)", "--ui-raised": "rgb(230, 231, 232)", "--ui-selection": "rgb(220, 240, 245)", "--text-muted": "rgb(70, 71, 72)" })) document.documentElement.style.setProperty(key, value);
+  });
+  await expect(palette).toHaveCSS("background-color", "rgb(250, 251, 252)");
+  await expect(palette.getByRole("textbox")).toHaveCSS("color", "rgb(20, 21, 22)");
+  await expect(palette.getByRole("group", { name: "RGB channels" })).toHaveCSS("background-color", "rgb(240, 241, 242)");
+  await page.screenshot({ path: info.outputPath("chart-colour-picker-theme.png"), fullPage: false });
+  await palette.getByRole("textbox").press("Escape");
+  await expect(palette).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Background palette", exact: true })).toBeFocused();
+  await page.evaluate(() => { for (const key of ["--ui-inset", "--ui-floating", "--text-primary", "--text-secondary", "--ui-surface", "--ui-raised", "--ui-selection", "--text-muted"]) document.documentElement.style.removeProperty(key); });
   await page.screenshot({ path: info.outputPath("chart-settings-theme.png"), fullPage: false });
   await dialog.getByRole("button", { name: "Save Template", exact: true }).scrollIntoViewIfNeeded();
   await expect(dialog.getByRole("button", { name: "Save Template", exact: true })).toBeInViewport();
