@@ -428,7 +428,7 @@ export class CodeGenerator {
         if (node.type === 'MemberExpression') {
             if (
                 !node.computed &&
-                !node._pineUdtReceiver &&
+                !node._pineUdtReceiver && !node._pinePrimitiveReceiver &&
                 node.object?.type === 'Identifier' &&
                 renameMap.has(node.object.name) &&
                 NAMESPACE_COLLISION_NAMES.has(node.object.name)
@@ -699,7 +699,7 @@ export class CodeGenerator {
         // and the access is non-computed (namespace member access:
         // `color.new(...)`, `size.tiny`).
         if (node.type === 'MemberExpression') {
-            if (!node.computed && !node._pineUdtReceiver && node.object?.type === 'Identifier' && renameMap.has(node.object.name)) {
+            if (!node.computed && !node._pineUdtReceiver && !node._pinePrimitiveReceiver && node.object?.type === 'Identifier' && renameMap.has(node.object.name)) {
                 // Skip the object; nothing else to rename here (property is
                 // a static name on a namespace).
                 return;

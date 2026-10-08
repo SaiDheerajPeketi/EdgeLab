@@ -30,6 +30,7 @@ function fixture() {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(new URL(override.file, reviewedRoot), destination);
   }
+  fs.copyFileSync(new URL(manifest.namespaceMembers.file, reviewedRoot), path.join(vendorRoot, manifest.namespaceMembers.file));
   const save = () => fs.writeFileSync(path.join(vendorRoot, "manifest.json"), JSON.stringify(manifest));
   save();
   return { root, packageRoot, vendorRoot, manifest, save, map };
@@ -98,4 +99,42 @@ test("missing overrides and modified declaration barrels fail closed", () => {
   assert.throws(() => readPineEngineSources(f), /ENOENT/);
   fs.appendFileSync(path.join(f.packageRoot, "dist/types", f.manifest.barrels[0].declaration), "\nexport const injected = 1;");
   assert.throws(() => readPineEngineSources(f), /barrel.*integrity/);
+});
+
+
+test("namespace inventory bytes, path and provenance fail closed", () => {
+  const f = fixture(), file = path.join(f.vendorRoot, f.manifest.namespaceMembers.file);
+  const original = fs.readFileSync(file);
+  fs.appendFileSync(file, " ");
+  assert.throws(() => readPineEngineSources(f), /inventory.*integrity/);
+  fs.writeFileSync(file, original);
+  f.manifest.namespaceMembers.file = "../outside.json"; f.save();
+  assert.throws(() => readPineEngineSources(f), /Invalid.*inventory/);
+  f.manifest.namespaceMembers.file = "namespace-members.json";
+  const inventory = JSON.parse(original);
+  inventory.namespaceSourcesSha256 = "0".repeat(64);
+  const modified = JSON.stringify(inventory);
+  fs.writeFileSync(file, modified);
+  f.manifest.namespaceMembers.sha256 = hash(modified); f.save();
+  assert.throws(() => readPineEngineSources(f), /provenance/);
+  fs.writeFileSync(file, original);
+  f.manifest.namespaceMembers.sha256 = hash(original); f.save();
+  const outside = path.join(f.root, "outside.json");
+  fs.writeFileSync(outside, original); fs.unlinkSync(file); fs.symlinkSync(outside, file);
+  assert.throws(() => readPineEngineSources(f), /inventory escaped/);
+});
+
+
+test("resealed namespace inventories still reject invalid member lists and digests", () => {
+  for (const change of [
+    inventory => { inventory.membersSha256 = "0".repeat(64); },
+    inventory => { inventory.namespaces.math.push("abs"); },
+    inventory => { inventory.namespaces.math.push("_private"); },
+  ]) {
+    const f = fixture(), file = path.join(f.vendorRoot, f.manifest.namespaceMembers.file);
+    const inventory = JSON.parse(fs.readFileSync(file)); change(inventory);
+    const bytes = JSON.stringify(inventory); fs.writeFileSync(file, bytes);
+    f.manifest.namespaceMembers.sha256 = hash(bytes); f.save();
+    assert.throws(() => readPineEngineSources(f), /member.*(list|digest)/);
+  }
 });

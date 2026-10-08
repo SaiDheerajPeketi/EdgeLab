@@ -3,6 +3,7 @@
 // EdgeLab modification: bounded activation, canonical enum input metadata and scoped enum type checks (2026-10-08).
 
 import { Identifier, Literal, ObjectExpression, Property } from '../ast';
+import { pineNamespaceHasMember } from './edgelabNamespaceMembers';
 import { ConstEnv, ConstType, ConstValue, dottedName, evalConst, finalizeConst, SOURCE_BUILTINS } from './constEval';
 import { describeArgument, inferQualified, QualifierEnv, startPos, ValueType } from './qualifiers';
 
@@ -63,7 +64,7 @@ const UDT_NAMESPACE_NAMES = new Set([
     'dayofweek', 'display', 'dividends', 'earnings', 'extend', 'font', 'footprint', 'format', 'hline', 'input',
     'label', 'line', 'linefill', 'location', 'log', 'map', 'math', 'matrix', 'order', 'plot',
     'polyline', 'position', 'request', 'runtime', 'scale', 'session', 'settlement_as_close', 'shape', 'size',
-    'splits', 'str', 'strategy', 'syminfo', 'table', 'ta', 'text', 'ticker', 'timeframe', 'volume_row',
+    'splits', 'str', 'strategy', 'syminfo', 'table', 'ta', 'text', 'ticker', 'timeframe', 'volume_row', 'xloc', 'yloc',
 ]);
 
 // Instance methods exported by the pinned collection namespaces. Constructors
@@ -381,7 +382,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
             }
             case 'CallExpression': {
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) markUdtReceiver(node.callee, scope);
-                const callee = node.callee?._pineUdtReceiver ? undefined : dottedName(node.callee);
+                let callee = node.callee?._pineUdtReceiver ? undefined : dottedName(node.callee);
                 const raw = node.arguments ?? [];
                 const userCall = node.callee?.type === 'Identifier' && scope.functionsFor(node.callee.name).length > 0;
                 const named = raw.at(-1)?.type === 'ObjectExpression' ? raw.at(-1).properties ?? [] : [];
@@ -392,8 +393,15 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 const namedTypes = new Map<string, string | undefined>(named.map((property: any) => [property.key?.name, expression(property.value, scope)]));
                 const dotMethod = node.callee?.type === 'MemberExpression' && !node.callee.computed;
                 const receiver = dotMethod ? expression(node.callee.object, scope) : undefined;
-                const namespaceCall = dotMethod && node.callee.object?.type === 'Identifier'
+                const namespaceReceiver = dotMethod && node.callee.object?.type === 'Identifier'
                     && UDT_NAMESPACE_NAMES.has(node.callee.object.name) && !node.callee._pineUdtReceiver;
+                const binding = namespaceReceiver ? scope.binding(node.callee.object.name) : undefined;
+                // Primitive lexical receivers can call custom-only members while
+                // actual namespace members retain their native meaning.
+                const primitiveReceiver = namespaceReceiver && binding && ['int', 'float', 'bool', 'color', 'string'].includes(binding.type ?? '')
+                    && !pineNamespaceHasMember(node.callee.object.name, node.callee.property?.name);
+                const namespaceCall = namespaceReceiver && !primitiveReceiver;
+                if (primitiveReceiver) callee = undefined;
                 const methods = dotMethod && !namespaceCall ? scope.functionsFor(node.callee.property?.name).filter(fn => fn.node.id?.isMethod) : [];
                 const methodArguments = [receiver, ...actual];
                 const matchingMethods = methods.filter(fn => acceptsArguments(fn, methodArguments, namedTypes, true));
@@ -543,6 +551,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                         node._pineOverloadTarget = target;
                         node._pineOverloadParams = fn.node.params.map((pattern: any) => (pattern.left ?? pattern).name);
                         node._pineMethodCall = methodCall && dotMethod;
+                        if (node._pineMethodCall && primitiveReceiver) node.callee._pinePrimitiveReceiver = true;
                         unresolvedOverloads.delete(node);
                     }
                     if (fn.node.id?.isMethod && (fn.node.params ?? []).some((pattern: any) => enumType(normalize((pattern.left ?? pattern).varType)))) {
@@ -729,7 +738,7 @@ export function analyzeInputs(ast: any, options: AnalyzeInputsOptions = {}): Inp
 /** `"input"` → `''`, `"input.int"` → `'int'`, anything else → null. */
 export function inputFnName(call: any): string | null {
     if (call?.type !== 'CallExpression') return null;
-    if (call.callee?._pineUdtReceiver) return null;
+    if (call.callee?._pineUdtReceiver || call.callee?._pinePrimitiveReceiver) return null;
     const name = dottedName(call.callee);
     if (name === 'input') return '';
     if (name?.startsWith('input.') && TYPED_INPUT_FNS.has(name.slice(6))) return name.slice(6);

@@ -18,7 +18,7 @@
     "fontCount": 30,
     "image": 500000,
     "productDemoMediaTotal": 1000000,
-    "pineWorker": 768000
+    "pineWorker": 780000
   },
   "runtime": {
     "lcpMs": 2500,

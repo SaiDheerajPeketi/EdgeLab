@@ -43,6 +43,7 @@ async function fixture(t) {
     "docker/nginx.conf": "server { listen 80; }\n",
     "scripts/dev.js": "console.log('dev');\n",
     "scripts/pine-engine.mjs": "export const pinned = true;\n",
+    "scripts/pine-namespace-members101.mjs": "export const namespaceInventory = true;\n",
     "scripts/purge-vite-cache.js": "console.log('cache');\n",
     "scripts/source-release.mjs": "export const sourceOffer = true;\n",
   };
@@ -53,7 +54,10 @@ async function fixture(t) {
   await put(root, "node_modules/pinets/package.json", JSON.stringify(engine));
   await put(root, "node_modules/pinets/dist/pinets.min.browser.es.js.map", map);
   await put(root, "node_modules/pinets/LICENSE", "Upstream GNU AFFERO GENERAL PUBLIC LICENSE\n");
-  const manifest = { version: "0.11.0", sourceMapSha256: sha256(map), barrels: [], overrides: [] };
+  const inventory = JSON.stringify({ schemaVersion: 1, version: "0.11.0", sourceMapSha256: sha256(map), namespaceSourcesSha256: sha256("[]"), overrides: [], namespaces: {}, membersSha256: sha256("{}") });
+  await put(root, "frontend/vendor/pinets/namespace-members.json", inventory);
+  files["frontend/vendor/pinets/namespace-members.json"] = inventory;
+  const manifest = { version: "0.11.0", sourceMapSha256: sha256(map), barrels: [], overrides: [], namespaceMembers: { file: "namespace-members.json", sha256: sha256(inventory) } };
   await put(root, "frontend/vendor/pinets/manifest.json", JSON.stringify(manifest));
   files["frontend/vendor/pinets/manifest.json"] = JSON.stringify(manifest);
   return { root, files, map, upstreamSource };

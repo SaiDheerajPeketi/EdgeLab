@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { verifyNamespaceMembers } from "./pine-namespace-members101.mjs";
 
 const require = createRequire(import.meta.url);
 const vendorRoot = fileURLToPath(new URL("../frontend/vendor/pinets/", import.meta.url));
@@ -12,7 +13,7 @@ const safeSource = value => typeof value === "string" && /^src\/[A-Za-z0-9_./-]+
 
 /** Rebuild the exact pinned sources, with reviewed local overrides. No package
  * mutation, source rewriting of user scripts, network fetch or disk fallback. */
-export function readPineEngineSources({ packageRoot, vendorRoot, patched = true }) {
+export function readPineEngineSources({ packageRoot, vendorRoot, patched = true, namespaceMembers = true }) {
   const manifest = JSON.parse(fs.readFileSync(path.join(vendorRoot, "manifest.json"), "utf8"));
   const installed = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
   if (installed.version !== manifest.version) throw new Error("The reviewed Pine engine version does not match the installed package.");
@@ -48,6 +49,17 @@ export function readPineEngineSources({ packageRoot, vendorRoot, patched = true 
     const contents = fs.readFileSync(filename);
     if (digest(contents) !== override.sha256) throw new Error("The reviewed Pine source override failed integrity verification.");
     sources.set(override.source, contents.toString("utf8"));
+  }
+  if (patched && namespaceMembers) {
+    const metadata = manifest.namespaceMembers;
+    if (metadata?.file !== "namespace-members.json" || !/^[a-f0-9]{64}$/.test(metadata.sha256 ?? "")) throw new Error("Invalid reviewed Pine namespace inventory.");
+    const filename = path.join(vendorRoot, metadata.file);
+    if (!fs.realpathSync(filename).startsWith(fs.realpathSync(vendorRoot) + path.sep)) throw new Error("Pine namespace inventory escaped its reviewed directory.");
+    const contents = fs.readFileSync(filename);
+    if (digest(contents) !== metadata.sha256) throw new Error("The reviewed Pine namespace inventory failed integrity verification.");
+    const members = verifyNamespaceMembers(JSON.parse(contents), sources, manifest);
+    const compact = Object.fromEntries(Object.entries(members).map(([name, values]) => [name, " " + values.join(" ") + " "]));
+    sources.set("src/transpiler/pineToJS/inputs/edgelabNamespaceMembers.ts", "const members: Record<string, string> = " + JSON.stringify(compact) + ";\nexport const pineNamespaceHasMember = (namespace: string, member: string): boolean => members[namespace]?.includes(\" \" + member + \" \") ?? false;\n");
   }
   return sources;
 }
