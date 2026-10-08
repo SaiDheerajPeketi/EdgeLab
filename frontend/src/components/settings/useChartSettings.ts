@@ -6,7 +6,7 @@ import { useJournalDraft } from "../../lib/journalDrafts";
 import { confirmAppStorageOperations } from "../../lib/serverStorage";
 import type { SaveState } from "./SettingsPrimitives";
 
-type Snapshot = { ready: boolean; loading: boolean; error: boolean; defaults: ChartSettingsDraft; submitted: Partial<ChartSettingsDraft>; state: SaveState; revision: number; active: unknown; undo: ChartSettingsDraft | null };
+type Snapshot = { ready: boolean; loading: boolean; error: boolean; defaults: ChartSettingsDraft; submitted: Partial<ChartSettingsDraft>; failedDraft: ChartSettingsDraft | null; state: SaveState; revision: number; active: unknown; undo: ChartSettingsDraft | null };
 const snapshots = new Map<string, Snapshot>();
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
@@ -16,7 +16,7 @@ function editableSettings(presets: unknown, active: unknown) {
   return rawChartPresets(presets).find((entry) => normalizedName(entry.name) === SETTINGS_PRESET_NAME)?.settings ?? activeRawChartSettings(presets, active);
 }
 function snapshot(owner: string) {
-  if (!snapshots.has(owner)) snapshots.set(owner, { ready: false, loading: false, error: false, defaults: DEFAULT_CHART_DRAFT, submitted: {}, state: "idle", revision: 0, active: null, undo: null });
+  if (!snapshots.has(owner)) snapshots.set(owner, { ready: false, loading: false, error: false, defaults: DEFAULT_CHART_DRAFT, submitted: {}, failedDraft: null, state: "idle", revision: 0, active: null, undo: null });
   return snapshots.get(owner)!;
 }
 function publish(owner: string, update: Partial<Snapshot>) { snapshots.set(owner, { ...snapshot(owner), ...update }); listeners.forEach((listener) => listener()); }
@@ -55,6 +55,9 @@ export function useChartSettings() {
   const dirty = CHART_DRAFT_FIELDS.some((field) => draft[field] !== current.defaults[field]);
   const needsActivation = current.ready && normalizedName(current.active) !== SETTINGS_PRESET_NAME;
   const validation = chartDraftValidation(draft);
+  const failedDraft = current.failedDraft;
+  const matchingFailure = current.state === "error" && (dirty || needsActivation) && failedDraft !== null &&
+    CHART_DRAFT_FIELDS.every(field => draft[field] === failedDraft[field]);
   useEffect(() => { void load(owner); }, [owner]);
   async function save() {
     const latest = snapshot(owner);
@@ -62,13 +65,13 @@ export function useChartSettings() {
     const submitted = { ...draft };
     const fields = CHART_DRAFT_FIELDS.filter((field) => draft[field] !== latest.defaults[field]);
     const changes = Object.fromEntries(fields.map((field) => [field, field === "textSize" ? Number(draft[field]) : draft[field]]));
-    publish(owner, { submitted: Object.fromEntries(fields.map((field) => [field, draft[field]])), state: "saving", revision: latest.revision + 1 });
+    publish(owner, { submitted: Object.fromEntries(fields.map((field) => [field, draft[field]])), failedDraft: null, state: "saving", revision: latest.revision + 1 });
     try {
       const [active, presets] = await operation(owner, () => patchChartSettings(changes), changes);
       if (owner !== ownerNow()) { publish(owner, { ready: false }); return; }
       clearDraft(fields, submitted);
       publish(owner, { defaults: chartDraftFrom(activeRawChartSettings(presets.value, active.value)), active: active.value, state: "saved" });
-    } catch { publish(owner, owner === ownerNow() ? { state: "error" } : { ready: false, state: "idle" }); }
+    } catch { publish(owner, owner === ownerNow() ? { failedDraft: submitted, state: "error" } : { ready: false, state: "idle" }); }
     finally { publish(owner, { submitted: {}, state: owner === ownerNow() ? snapshot(owner).state : "idle" }); }
   }
   function change(update: Partial<ChartSettingsDraft>, undoable = false) {
@@ -82,7 +85,7 @@ export function useChartSettings() {
     window.addEventListener("beforeunload", guard); return () => window.removeEventListener("beforeunload", guard);
   }, [dirty, pending]);
   return { ...current, draft, dirty, needsActivation, pending, validation, change, save, reload: () => load(owner),
-    saveState: pending || current.state === "error" ? current.state : dirty ? "idle" as const : current.state,
+    saveState: pending ? "saving" as const : matchingFailure ? "error" as const : dirty || current.state === "error" ? "idle" as const : current.state,
     reset: () => change(DEFAULT_CHART_DRAFT, true), undoChange: () => { if (current.undo) { change(current.undo); publish(owner, { undo: null }); } },
   };
 }

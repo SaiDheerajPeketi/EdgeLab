@@ -372,58 +372,63 @@ export const useBacktestStore: UseBoundStore<StoreApi<BacktestStore>> = create<B
     }
   },
 
-  refreshDatasets: async () => {
+  refreshDatasets: () => runDatasetOperation(async (owner) => {
     set({ isLoading: true, error: null });
     try {
       const response = await refreshDatasetsApi();
+      assertDatasetOwner(owner);
       set({ datasets: response.catalog, isLoading: false, error: null });
       return response;
     } catch (error) {
-      set({ error: toErrorMessage(error), isLoading: false });
+      if (datasetOwnerIsCurrent(owner)) set({ error: toErrorMessage(error), isLoading: false });
       throw error;
     }
-  },
+  }),
 
   applyDatasetCatalog: (datasets) => {
     set({ datasets, error: null });
   },
 
-  refreshDatasetStatus: async () => {
+  refreshDatasetStatus: () => runDatasetOperation(async (owner) => {
     try {
       const status = await getDatasetRefreshStatus();
+      assertDatasetOwner(owner);
       if (!status.running) {
         const datasets = await getDatasets().catch(() => null);
+        assertDatasetOwner(owner);
         if (datasets) {
           set({ datasets });
         }
       }
       return status;
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (datasetOwnerIsCurrent(owner)) set({ error: toErrorMessage(error) });
       throw error;
     }
-  },
+  }),
 
-  updateDatasetAsset: async (assetId, payload) => {
+  updateDatasetAsset: (assetId, payload) => runDatasetOperation(async (owner) => {
     try {
       const datasets = await patchDatasetAsset(assetId, payload);
+      assertDatasetOwner(owner);
       set({ datasets, error: null });
     } catch (error) {
-      set({ error: toErrorMessage(error) });
+      if (datasetOwnerIsCurrent(owner)) set({ error: toErrorMessage(error) });
       throw error;
     }
-  },
+  }),
 
-  updateDatasetSettings: async (payload) => {
+  updateDatasetSettings: (payload) => runDatasetOperation(async (owner) => {
     set({ isLoading: true, error: null });
     try {
       const datasets = await patchDatasetSettings(payload);
+      assertDatasetOwner(owner);
       set({ datasets, isLoading: false, error: null });
     } catch (error) {
-      set({ error: toErrorMessage(error), isLoading: false });
+      if (datasetOwnerIsCurrent(owner)) set({ error: toErrorMessage(error), isLoading: false });
       throw error;
     }
-  },
+  }),
 
   refreshShellSnapshot: async (targetCount) => {
     const operationVersion = get().replayOperationVersion;
@@ -1205,6 +1210,36 @@ type TradeSnapshot = {
 };
 
 const resultTradesLoadLease = new ResultTradesLoadLease();
+type DatasetOwner = { access: AppDataAccess | null; token: string | null };
+let datasetOperationTail: Promise<void> = Promise.resolve();
+let pendingDatasetOperations = 0;
+const MAX_PENDING_DATASET_OPERATIONS = 32;
+
+function datasetOwnerIsCurrent(owner: DatasetOwner) {
+  try {
+    assertAppDataAccess(owner.access);
+    const access = captureAppDataAccess();
+    return getApiBearerToken() === owner.token && access?.owner === owner.access?.owner &&
+      access?.token === owner.access?.token && access?.epoch === owner.access?.epoch;
+  } catch { return false; }
+}
+
+function assertDatasetOwner(owner: DatasetOwner) {
+  if (!datasetOwnerIsCurrent(owner)) throw new DOMException("Account data changed during dataset settings update", "AbortError");
+}
+
+/** Catalog responses contain every instrument, so reads and writes dispatch in order. */
+async function runDatasetOperation<T>(execute: (owner: DatasetOwner) => Promise<T>): Promise<T> {
+  const owner = { access: captureAppDataAccess(), token: getApiBearerToken() };
+  assertDatasetOwner(owner);
+  if (pendingDatasetOperations >= MAX_PENDING_DATASET_OPERATIONS) throw new Error("Dataset settings are busy. Wait for the pending requests to finish.");
+  pendingDatasetOperations += 1;
+  const operation = datasetOperationTail.then(() => { assertDatasetOwner(owner); return execute(owner); });
+  datasetOperationTail = operation.then(() => {}, () => {});
+  try { return await operation; }
+  finally { pendingDatasetOperations -= 1; }
+}
+
 type ReplayOwner = {
   generation: number;
   access: AppDataAccess | null;
