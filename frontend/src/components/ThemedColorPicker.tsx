@@ -17,6 +17,8 @@ type Props = {
   compact?: boolean;
   disabled?: boolean;
   onChange: (value: string) => void;
+  onValidationChange?: (error: string | null) => void;
+  resetKey?: string | number;
   value: string;
 };
 
@@ -55,6 +57,8 @@ export function ThemedColorPicker({
   compact = false,
   disabled = false,
   onChange,
+  onValidationChange,
+  resetKey,
   value,
 }: Props) {
   const normalizedValue = useMemo(
@@ -74,6 +78,8 @@ export function ThemedColorPicker({
   const errorId = `${pickerId}-error`;
   const rgb = hexToRgb(normalizedValue);
   const alpha = normalizedValue.length === 9 ? Number.parseInt(normalizedValue.slice(7), 16) : 255;
+  const validationCallbackRef = useRef(onValidationChange);
+  validationCallbackRef.current = onValidationChange;
   const emittedRef = useRef<{ draft: string; value: string } | null>(null);
   const errorMessage = allowAlpha ? "Enter a 3-, 6- or 8-digit hex color, such as #32D3EE80." : "Enter a 3- or 6-digit hex color, such as #32D3EE.";
 
@@ -88,6 +94,22 @@ export function ThemedColorPicker({
     // Only a new committed value resets drafts; blur alone preserves errors.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowAlpha, normalizedValue]);
+
+  useLayoutEffect(() => {
+    setDraft(normalizedValue);
+    setHexError(null);
+    setIsEditing(false);
+    setOpen(false);
+    emittedRef.current = null;
+    // Explicit resets also discard an invalid draft when the color is unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  useLayoutEffect(() => {
+    validationCallbackRef.current?.(hexError);
+  }, [hexError]);
+
+  useEffect(() => () => validationCallbackRef.current?.(null), []);
 
   useEffect(() => {
     if (disabled) {

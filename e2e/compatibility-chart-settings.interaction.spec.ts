@@ -17,7 +17,8 @@ type Write = { owner: number; body: Settings };
 const initial: Draft = { timeHoursFormat: "12-hour", dateFormat: "MMM dd yyyy", textSize: "14", gridMode: "vertical", backgroundColor: "#102030", textColor: "#d1e2f3", gridColor: "#304050", candleUpColor: "#12ab34", candleDownColor: "#cd3456" };
 const changed: Draft = { timeHoursFormat: "24-hour", dateFormat: "yyyy-MM-dd", textSize: "17", gridMode: "horizontal", backgroundColor: "#172839", textColor: "#e1f2ff", gridColor: "#456789", candleUpColor: "#23bc45", candleDownColor: "#de4567" };
 const initialPreferences = { density: "comfortable", includeDiagnosticsByDefault: false, futurePreference: { private: ["keep", 23] } };
-const control = (page: Page, field: Field) => page.getByLabel(labels[field], { exact: true });
+const colorFields = ["backgroundColor", "textColor", "gridColor", "candleUpColor", "candleDownColor"] as Field[];
+const control = (page: Page, field: Field) => colorFields.includes(field) ? page.locator(`input[aria-label="${labels[field]}"], input[aria-label="${labels[field]} hex code"]`) : page.getByLabel(labels[field], { exact: true });
 const boundary = (page: Page) => page.locator('[data-route-group="settings"]');
 const apply = (page: Page, category: string) => page.getByRole("button", { name: category === "chart" ? "Apply as active preset" : "Apply palette preset", exact: true });
 const chartRow = (page: Page, category: string) => apply(page, category).locator('xpath=ancestor::*[@data-setting-control][1]');
@@ -102,7 +103,7 @@ async function fixture(page: Page, fallback: boolean, setup = true) {
 }
 type State = Awaited<ReturnType<typeof fixture>>;
 function hold(state: State, key = "chart") { let release!: () => void; state.gates.set(key, new Promise<void>((resolve) => { release = resolve; })); return () => { state.gates.delete(key); release(); }; }
-async function expectValues(page: Page, values: Draft = initial) { for (const field of Object.keys(labels) as Field[]) await expectSettingsValue(control(page, field), values[field]); }
+async function expectValues(page: Page, values: Draft = initial) { for (const field of Object.keys(labels) as Field[]) { const input = control(page, field), value = colorFields.includes(field) && await input.getAttribute("type") !== "color" ? values[field].toUpperCase() : values[field]; await expectSettingsValue(input, value); } }
 async function edit(page: Page, values: Partial<Draft>) { for (const [field, value] of Object.entries(values) as Array<[Field, string]>) { if (["timeHoursFormat", "dateFormat", "gridMode"].includes(field)) await selectSettingsOption(control(page, field), value); else await control(page, field).fill(value); } }
 async function switchRenderer(page: Page, state: State, fallback: boolean, category: string, hot = false) {
   state.fallback = fallback;
@@ -153,7 +154,7 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     await gotoStable(page, path, { waitForNetworkIdle: false });
     await expectValues(page);
     await expect.poll(() => state.chartReads.length).toBeGreaterThan(0);
-    for (const field of ["backgroundColor", "textColor", "gridColor", "candleUpColor", "candleDownColor"] as Field[]) { await expect(control(page, field)).toHaveAttribute("type", "color"); await expect(control(page, field)).toHaveValue(/^#[a-f0-9]{6}$/i); }
+    for (const field of ["backgroundColor", "textColor", "gridColor", "candleUpColor", "candleDownColor"] as Field[]) { if (fallback) await expect(control(page, field)).toHaveAttribute("type", "color"); else { await expect(control(page, field)).toHaveAttribute("aria-label", labels[field] + " hex code"); await expect(page.getByRole("button", { name: labels[field] + " palette", exact: true })).toBeVisible(); } await expect(control(page, field)).toHaveValue(/^#[a-f0-9]{6}$/i); }
     await auditPanel(page, category);
     await capture(page, category, fallback, info);
     await edit(page, changed);
@@ -300,7 +301,7 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     state.preferenceAck = undefined; await densityRow(page).getByRole("button", { name: "Retry", exact: true }).click();
     await expect.poll(() => preferencesConsumer(page)).toEqual({ density: "compact", includeDiagnosticsByDefault: false });
     await reset(page).click(); await expectSettingsValue(density, "comfortable"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("comfortable");
-    await expect(control(page, "textSize")).toHaveValue("16"); await expect(control(page, "candleUpColor")).toHaveValue("#44bb88"); expect(state.writes).toEqual([]);
+    await expect(control(page, "textSize")).toHaveValue("16"); await expect(control(page, "candleUpColor")).toHaveValue(/^#44bb88$/i); expect(state.writes).toEqual([]);
     expect(state.stores.get(state.owner)?.preferences).toEqual(initialPreferences);
     await undo(page).click(); await expectSettingsValue(density, "compact"); await expect.poll(() => state.stores.get(state.owner)?.preferences.density).toBe("compact");
     expect(state.preferenceWrites.map(({ body }) => body)).toEqual([{ density: "compact" }, { density: "compact" }, { density: "compact" }, { density: "comfortable" }, { density: "compact" }]);
@@ -392,3 +393,30 @@ for (const category of ["chart", "appearance"]) for (const fallback of [true, fa
     const consumer = await chartConsumer(page); expect(consumer.name).toBe("Other later preset"); expect(consumer.settings.textSize).toBe(18);
   });
 }
+
+for (const category of ["chart", "appearance"]) test(`modern ${category} keeps local invalid palette drafts guarded during category navigation`, async ({ page }) => {
+  const state = await fixture(page, false);
+  await gotoStable(page, "/app/settings/" + category, { waitForNetworkIdle: false });
+  await expectValues(page);
+  await control(page, "backgroundColor").fill("#GG");
+  await expect(control(page, "backgroundColor")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByRole("status").filter({ hasText: /^Draft changes not applied$/ })).toBeVisible();
+  const dialogs: string[] = []; let accept = false;
+  page.on("dialog", async dialog => { dialogs.push(dialog.message()); if (accept) await dialog.accept(); else await dialog.dismiss(); });
+  const desktopNavigation = page.getByRole("navigation", { name: "Settings categories", exact: true });
+  if (await desktopNavigation.isVisible()) await desktopNavigation.getByRole("button", { name: /^Journal/ }).click();
+  else await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), "journal");
+  expect(dialogs).toEqual(["Discard the invalid color entry and continue? Other staged settings will be kept."]);
+  await expect(control(page, "backgroundColor")).toHaveValue("#GG");
+  expect(state.writes).toEqual([]);
+  accept = true;
+  if (await desktopNavigation.isVisible()) await desktopNavigation.getByRole("button", { name: /^Journal/ }).click();
+  else await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), "journal");
+  await expect(control(page, "backgroundColor")).toHaveCount(0);
+  expect(dialogs).toEqual(Array(2).fill("Discard the invalid color entry and continue? Other staged settings will be kept."));
+  if (await desktopNavigation.isVisible()) await desktopNavigation.getByRole("button", { name: category === "chart" ? /^Chart(?: |$)/ : /^Appearance(?: |$)/ }).click();
+  else await selectSettingsOption(page.getByRole("combobox", { name: "Settings category", exact: true }), category);
+  await expect(control(page, "backgroundColor")).toHaveValue("#102030");
+  await expect(control(page, "backgroundColor")).toHaveAttribute("aria-invalid", "false");
+  expect(state.writes).toEqual([]);
+});

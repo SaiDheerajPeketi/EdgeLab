@@ -131,7 +131,8 @@ function SettingsCenterContent({
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const authSession = getStoredAuthSession();
 
-  const chartDirty = chartSettings.dirty || chartSettings.pending;
+  const [chartLocalDirty, setChartLocalDirty] = useState(false);
+  const chartDirty = chartSettings.dirty || chartSettings.pending || chartLocalDirty;
   const datasetRootDirty = datasetRoot !== datasetRootBaseline;
   const assetDirty = Object.values(assetDrafts).some(({ values, baseline }) => !sameAssetValues(values, baseline));
   const datasetPending = saveStates["dataset-root"] === "saving" || Object.entries(saveStates).some(([key, state]) => key.startsWith("asset:") && state === "saving");
@@ -231,7 +232,7 @@ function SettingsCenterContent({
   }, [category, onGetDatasetRefreshStatus]);
 
   function navigate(nextCategory: SettingsCategoryId, controlId: string | null = null) {
-    if (nextCategory !== category && hasDirty && !window.confirm("You have unapplied settings. Keep those drafts and continue to another category?")) return;
+    if (nextCategory !== category && hasDirty && !window.confirm(chartLocalDirty ? "Discard the invalid color entry and continue? Other staged settings will be kept." : "You have unapplied settings. Keep those drafts and continue to another category?")) return;
     setCategory(nextCategory);
     setFocusControl(controlId);
     window.history.replaceState(null, "", settingsDeepLink(nextCategory, controlId ?? undefined));
@@ -297,7 +298,7 @@ function SettingsCenterContent({
     <main className={`min-h-full bg-[var(--ui-canvas)] text-[var(--text-primary)] ${preferences.density === "compact" ? "[&_[data-setting-control]]:py-3" : ""}`}>
       <header className="border-b border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-[88rem]">
-          {onBack ? <button type="button" onClick={() => { if (!hasDirty || window.confirm("Leave settings without applying draft changes?")) onBack(); }} className="mb-3 inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><ArrowLeft aria-hidden="true" className="h-4 w-4" />{backLabel}</button> : null}
+          {onBack ? <button type="button" onClick={() => { if (!hasDirty || window.confirm(chartLocalDirty ? "Discard the invalid color entry and leave settings? Other staged settings will be kept." : "Leave settings without applying draft changes?")) onBack(); }} className="mb-3 inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><ArrowLeft aria-hidden="true" className="h-4 w-4" />{backLabel}</button> : null}
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div><h1 className=" text-2xl font-semibold tracking-tight text-[var(--text-primary)]">Settings</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Personal values override workspace defaults; system rows show effective read-only behavior.</p></div>
             {hasDirty ? <p className="text-sm text-[var(--warning-text)]" role="status">Draft changes not applied</p> : <p className="text-sm text-[var(--text-secondary)]">All explicit changes applied</p>}
@@ -343,8 +344,8 @@ function SettingsCenterContent({
             </SettingsSection>
           </> : null}
           {category === "backtest" ? <BacktestSettingsPanel settings={backtestSettings} /> : null}
-          {category === "chart" ? <ChartSettingsPanel settings={chartSettings} preferences={preferenceSettings} /> : null}
-          {category === "appearance" ? <ChartSettingsPanel appearance settings={chartSettings} preferences={preferenceSettings} /> : null}
+          {category === "chart" ? <ChartSettingsPanel settings={chartSettings} preferences={preferenceSettings} onLocalDraftDirty={setChartLocalDirty} /> : null}
+          {category === "appearance" ? <ChartSettingsPanel appearance settings={chartSettings} preferences={preferenceSettings} onLocalDraftDirty={setChartLocalDirty} /> : null}
           {category === "data-providers" ? <>
             <DatasetSettings assetDraft={assetDraft} assetId={assetId} datasets={datasets} datasetRoot={datasetRoot} datasetRootDirty={datasetRootDirty} assetDirty={!sameAssetValues(assetDraft, assetDrafts[assetId]?.baseline ?? assetValues(selectedAsset))} datasetDirty={datasetRootDirty || assetDirty || datasetPending} assetPending={Object.entries(saveStates).some(([key, state]) => key.startsWith("asset:") && state === "saving")} refreshStatus={refreshStatus} refreshing={refreshing} saveStates={{ ...saveStates, asset: saveStates["asset:" + assetId] }} selectedAsset={selectedAsset} onAssetDraftChange={setAssetDraft} onAssetIdChange={setAssetId} onRefresh={() => void refreshDatasetsNow()} onRetryRefresh={() => void refreshDatasetsNow(true)} onRootChange={changeDatasetRoot} onReset={resetDatasets} onSaveAsset={() => void saveAsset()} onSaveRoot={() => void saveDatasetRoot()} />
             <SettingsIntegrations />

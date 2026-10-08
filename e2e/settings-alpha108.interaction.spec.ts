@@ -36,7 +36,7 @@ async function start(page: Page, harness: Harness) {
 async function palette(page: Page, label = "Drawing") {
   await page.getByRole("button", { name: label + " palette", exact: true }).click();
   const popup = page.getByRole("dialog", { name: new RegExp("^" + label + " #") });
-  await expect(popup).toBeVisible(); return popup;
+  await expect(popup).toBeVisible(); await expect(popup.getByRole("textbox", { name: label + " selected color hex code", exact: true })).toBeFocused(); return popup;
 }
 test("alpha hex retains incoming opacity and own typing caret while explicit RGBA and owner updates win", async ({ page, harness }) => {
   const errors = await start(page, harness);
