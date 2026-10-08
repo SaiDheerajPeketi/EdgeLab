@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and opening-gap order priority.
+// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and persistent full-percentage exits.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -2565,15 +2565,15 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             if (!allocation.size && (order.from_entry || !strategy.position_size)) order.status = 'cancelled';
             (order as any)._historical_exit_dormant = !allocation.size;
         }
-        // An unscoped full-position exit also covers later entries until flat.
+        // An unscoped full-position exit, including explicit 100%, covers later entries until flat.
         for (const order of exits) {
             const allocation = historicalExitReservations.get(order);
             if (!allocation || order.status !== 'pending' || order.from_entry) continue;
             const seen = historicalExitSeenTrades.get(order)!;
             for (const trade of strategy.opentrades) {
                 if (seen.has(trade.id)) continue;
-                if (order.qty > 0 || order.qty_percent !== undefined)
-                    fail('Persistent exits with custom quantities for later entries are unavailable with order-fill recalculation.');
+                if (order.qty > 0 || (order.qty_percent !== undefined && order.qty_percent !== 100))
+                    fail('Persistent exits with fixed quantities or partial percentages for later entries are unavailable with order-fill recalculation.');
                 seen.add(trade.id);
                 const quantity = available.get(trade.id) ?? 0;
                 if (quantity > 1e-9) { allocation.set(trade.id, quantity); available.set(trade.id, 0); (order as any)._historical_exit_dormant = false; }
@@ -2586,7 +2586,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             if (!matching.length) continue; // Wait for the matching pending entry to fill.
             const total = matching.reduce((sum, trade) => sum + Math.abs(trade.size), 0);
             const base = matching.reduce((sum, trade) => sum + (trade._entry_qty ?? Math.abs(trade.size)), 0);
-            let remaining = order.qty > 0 ? Math.min(order.qty, total) : order.qty_percent > 0 ? Math.min(total, partialCloseQty(context, base, order.qty_percent)) : total;
+            let remaining = order.qty > 0 ? Math.min(order.qty, total) : order.qty_percent > 0 && order.qty_percent !== 100 ? Math.min(total, partialCloseQty(context, base, order.qty_percent)) : total;
             const allocation = new Map<string, number>();
             for (const trade of matching) {
                 const quantity = Math.min(remaining, available.get(trade.id) ?? 0);

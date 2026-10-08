@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-strategy-trailing-66",
+  "patch": "edgelab-strategy-full-percent-68",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -74,7 +74,7 @@
       "source": "src/namespaces/strategy/utils.ts",
       "file": "overrides/namespaces/strategy/utils.ts",
       "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
-      "sha256": "995a83b6a8858022d6f67694121ac5278e8511315eb844d98335b19aa6581938"
+      "sha256": "21f90f53ae82fba00948315b613c05bccf15e3e5dbc3eda2c55d95f816d1b278"
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",
@@ -87,6 +87,12 @@
       "file": "overrides/namespaces/strategy/methods/exit.ts",
       "upstreamSha256": "bcc4a6feb6193dcf607f06f29f7c1771eb18ca9ad3da8030847d66e94915be66",
       "sha256": "5562b8542d31a7deb1b3d26f8a5712d126534953b615f796a799de39f6ac4168"
+    },
+    {
+      "source": "src/namespaces/strategy/methods/cancel_all.ts",
+      "file": "overrides/namespaces/strategy/methods/cancel_all.ts",
+      "upstreamSha256": "04db29ab75e1009da5b0b7e67574931fef4f9d3b236467a4b9efbd806f5952b0",
+      "sha256": "de83f6b187599ee43d16fd290a9a4d52e35a83f74631d310668bfd54613f6bdb"
     }
   ]
 }
