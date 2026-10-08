@@ -1,3 +1,4 @@
+# Build API and browser from the same checkout so /source/ matches both applications.
 x-backend-image: &backend-image
   image: ${EDGELAB_BACKEND_IMAGE:-edgelab-backend:local}
   build:

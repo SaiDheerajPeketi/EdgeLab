@@ -649,6 +649,9 @@ export function MarketingShell({
                 <Link className="transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" to="/terms">
                   Terms
                 </Link>
+                <a className="transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="/source/">
+                  Source code
+                </a>
               </div>
             </nav>
           </div>

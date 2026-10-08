@@ -250,6 +250,7 @@ export function SettingsCenter({
               return <button key={item.id} type="button" aria-current={selected ? "page" : undefined} onClick={() => navigate(item.id)} className={`flex min-h-10 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${selected ? "bg-white/10 text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)]"}`}><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span className="ui-resilient-text min-w-0 flex-1" dir="auto">{item.label}</span>{status ? <span className={`shrink-0 text-[11px] ${status === "Unsaved" ? "text-[var(--warning-text)]" : "text-[var(--text-secondary)]"}`}>{status}</span> : null}</button>;
             })}
           </nav>
+          <a className="mt-4 inline-flex min-h-11 items-center px-2.5 text-sm text-[var(--text-secondary)] underline underline-offset-4 hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" href="/source/" target="_blank" rel="noreferrer">Application source</a>
         </aside>
 
         <div className="min-w-0">

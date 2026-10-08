@@ -76,3 +76,7 @@ If Docker is unavailable in the current environment, state that limitation in th
 - Do not commit local data files, SQLite databases, virtualenvs, generated build output, or the large `EURUSD_M1.csv`.
 - Keep user-owned uncommitted changes separate from agent changes unless the task explicitly requires modifying those files.
 - Commit each complete feature or maintenance iteration separately.
+
+## Matching Source Offers
+
+Pine-enabled browser builds run `scripts/source-release.mjs` before compilation and verify it afterward. Maintain its explicit runtime/build input allowlist when adding required scripts or configuration. The frontend Docker builder must receive the matching backend and Docker source inputs. Keep `frontend/public/source/` generated and ignored. Never add credentials, user records, datasets, internal planning documents or Git history to the source offer. Deploy API and browser images from the same checkout.

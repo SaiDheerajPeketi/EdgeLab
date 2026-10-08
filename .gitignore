@@ -35,3 +35,6 @@ frontend/pineWorkerPlugin.d.ts
 .env
 deployment/client_secret_*.json
 deployment/google-oauth-client.json
+
+# Generated matching source offer; recreated for every Pine-enabled build.
+frontend/public/source/

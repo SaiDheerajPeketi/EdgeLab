@@ -47,6 +47,7 @@ export function CompatibilityRouteRenderer({ group }: { group: UiRouteGroup }) {
         </div>
       </header>
       <main className="mx-auto max-w-5xl p-5" id="compatibility-content" tabIndex={-1}><Suspense fallback={<p role="status">Loading this workspace…</p>}>{content}</Suspense></main>
+      {group === "settings" ? <footer className="mx-auto max-w-5xl px-5 pb-6"><a className="inline-flex min-h-11 items-center text-sm text-edgelab-text-secondary underline underline-offset-4 hover:text-edgelab-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="/source/" target="_blank" rel="noreferrer">Application source</a></footer> : null}
     </div>
   );
 }

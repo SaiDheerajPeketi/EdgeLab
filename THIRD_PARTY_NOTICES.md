@@ -26,6 +26,8 @@ distributed in /catalog/pine/everget/0b164e1e4f2fb7b06524c6d0a26e6132228c9448/.
 Upstream: https://github.com/everget/tradingview-pinescript-indicators
 These are community implementations, not TradingView-owned source code.
 
+EdgeLab's corresponding application source for this build is available at /source/,
+with a downloadable archive, build instructions and SHA-256 file checksums.
 EdgeLab's original code is available under AGPL-3.0-only. When distributing a
 Pine-enabled build or serving it to users, provide its complete corresponding
 source under that licence, including local changes and scripts needed to build
