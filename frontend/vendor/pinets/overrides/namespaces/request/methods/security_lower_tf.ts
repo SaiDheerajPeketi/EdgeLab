@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Modified by EdgeLab, 2026-10-08: owned isolated intrabar execution and static array transport.
 
 import { PineTS } from '../../../PineTS.class';
 import { Series } from '../../../Series';
@@ -275,16 +276,40 @@ async function buildFastBuiltinSecContext(
  * @param context
  * @returns
  */
+function isolatedExpressionError(message: string): never {
+    throw Object.assign(new Error(message), { code: 'UNSUPPORTED_REQUEST_EXPRESSION' });
+}
+
 export function security_lower_tf(context: any) {
     // Capture the host policy before user execution. Never infer identity from a stripped ticker.
     const validateRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestContext')?.value;
-    return async (...rawArgs: any[]) => {
-        // Same Pine named-args resolution as request.security — bind by name to the
-        // documented signature, with the trailing options bag merged into named slots.
-        const argNames: (string | undefined)[] = [];
-        const args = unwrapParamTuples(rawArgs, argNames);
-        const parsed = parseArgsForPineParams<any>(args, SECURITY_LOWER_TF_SIGNATURES, SECURITY_LOWER_TF_TYPES);
-
+    const runRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRunRequest')?.value;
+    const staticRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabStaticRequest')?.value;
+    const retainIntrabars = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRetainIntrabars')?.value;
+    // Only this namespace's genuine primitive arrays can cross a static sampling boundary.
+    const codecFor = (arity: number) => ({
+        encode(value: any): any {
+            if (typeof value === 'number' && Number.isNaN(value)) return value;
+            if (!arity && value instanceof PineArrayObject) return value.array;
+            if (arity && Array.isArray(value) && value.length === 1 && Array.isArray(value[0])
+                && value[0].length === arity && value[0].every((item: any) => item instanceof PineArrayObject)) {
+                return value[0].map((item: any) => item.array);
+            }
+            isolatedExpressionError('Unsupported intrabar array transport.');
+        },
+        decode(value: any): any {
+            if (typeof value === 'number' && Number.isNaN(value)) return value;
+            const rows = value === undefined ? (arity ? Array.from({ length: arity }, () => []) : []) : value;
+            if (!Array.isArray(rows) || arity && (rows.length !== arity || rows.some(item => !Array.isArray(item)))) {
+                isolatedExpressionError('Invalid intrabar array snapshot.');
+            }
+            const columns = arity ? rows : [rows];
+            retainIntrabars?.(columns.reduce((total: number, items: any[]) => total + items.length + 1, 0));
+            const result = columns.map((items: any[]) => new PineArrayObject(items.slice(), items.length ? detectArrayType(items[0]) : PineArrayType.float, context));
+            return arity ? [result] : result[0];
+        },
+    });
+    const evaluate = async (parsed: any, argNames: (string | undefined)[]) => {
         const symbolSlot = resolveSlotValue(parsed.symbol);
         const timeframeSlot = resolveSlotValue(parsed.timeframe);
         const expressionSlot = resolveSlotValue(parsed.expression);
@@ -292,7 +317,11 @@ export function security_lower_tf(context: any) {
         let rawSymbol = symbolSlot instanceof Series ? symbolSlot.get(0) : symbolSlot;
         let rawTimeframe = timeframeSlot instanceof Series ? timeframeSlot.get(0) : timeframeSlot;
         if (typeof validateRequest === 'function') {
-            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security_lower_tf', context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression));
+            const current = parseTimeframe(context.timeframe), requested = parseTimeframe(rawTimeframe === '' ? context.timeframe : rawTimeframe);
+            const invalidTimeframe = !current || !requested || timeframeSeconds(requested) > timeframeSeconds(current);
+            const ignore = resolveSlotValue(parsed.ignore_invalid_timeframe);
+            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security_lower_tf', context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), (ignore instanceof Series ? ignore.get(0) : ignore) === true, invalidTimeframe);
+            if (owned.invalidTimeframe) return NaN;
             rawSymbol = owned.symbol;
             rawTimeframe = owned.timeframe;
         }
@@ -303,7 +332,7 @@ export function security_lower_tf(context: any) {
         // An encoded tickerid (ticker.new / ticker.modify with a session or adjustment) is requested
         // as its symbol.
         const resolvedSymbol = plainTickerId(rawSymbol === '' ? context.tickerId : rawSymbol);
-        const _symbol = typeof resolvedSymbol === 'string' && resolvedSymbol.includes(':') ? resolvedSymbol.split(':')[1] : resolvedSymbol;
+        const _symbol = validateRequest ? rawSymbol : typeof resolvedSymbol === 'string' && resolvedSymbol.includes(':') ? resolvedSymbol.split(':')[1] : resolvedSymbol;
         // Empty string "" means "use chart's timeframe" (Pine Script spec)
         const _timeframe = rawTimeframe === '' ? context.timeframe : (typeof rawTimeframe === 'string' ? rawTimeframe : String(rawTimeframe ?? ''));
         const _expression = expressionSlot;
@@ -317,7 +346,7 @@ export function security_lower_tf(context: any) {
 
         // CRITICAL: Prevent infinite recursion in secondary contexts
         // Still wrap in PineArrayObject so array.size() etc. work in the secondary script
-        if (context.isSecondaryContext) {
+        if (context.isSecondaryContext && !validateRequest) {
             if (Array.isArray(_expression)) {
                 const arrays = _expression.map((v: any) =>
                     new PineArrayObject([v], detectArrayType(v), context)
@@ -344,6 +373,7 @@ export function security_lower_tf(context: any) {
         }
 
         if (formatTimeframe(reqTimeframe) === formatTimeframe(ctxTimeframe)) {
+            retainIntrabars?.(Array.isArray(_expression) ? _expression.length * 2 : 2);
             if (Array.isArray(_expression)) {
                 // Tuple: each element becomes a 1-element PineArrayObject
                 const arrays = _expression.map((v: any) =>
@@ -353,6 +383,46 @@ export function security_lower_tf(context: any) {
             } else {
                 return new PineArrayObject([_expression], detectArrayType(_expression), context);
             }
+        }
+
+        if (typeof runRequest === 'function') {
+            const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}:lower`;
+            let secondary = context.cache[key];
+            if (!secondary) {
+                const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
+                engine.markAsSecondary();
+                secondary = await runRequest(engine, undefined, context, _expression_name);
+                context.cache[key] = secondary;
+            }
+            const opens = secondary.data.openTime.data;
+            const values = secondary.params[_expression_name];
+            // Native params retain an additional shifted working slot after the final calculation.
+            if (opens.length && (!values || values.length < opens.length)) {
+                isolatedExpressionError('The isolated intrabar expression did not produce complete requested history.');
+            }
+            const begin = Series.from(context.data.openTime).get(0), end = Series.from(context.data.closeTime).get(0);
+            let low = 0, high = opens.length;
+            while (low < high) {
+                const middle = (low + high) >>> 1;
+                if (opens[middle] < begin) low = middle + 1; else high = middle;
+            }
+            const first = low;
+            high = opens.length;
+            while (low < high) {
+                const middle = (low + high) >>> 1;
+                if (opens[middle] < end) low = middle + 1; else high = middle;
+            }
+            const length = low - first;
+            const tuple = Array.isArray(_expression) || length > 0 && Array.isArray(values[first]);
+            const arity = tuple ? (length > 0 ? values[first].length : _expression.length) : 1;
+            retainIntrabars?.(length * arity + arity);
+            const columns: PineArrayObject[] = [];
+            for (let column = 0; column < arity; column++) {
+                const items = [];
+                for (let index = first; index < low; index++) items.push(tuple ? values[index][column] : values[index]);
+                columns.push(new PineArrayObject(items, items.length ? detectArrayType(items[0]) : PineArrayType.float, context));
+            }
+            return tuple ? [columns] : columns[0];
         }
 
         const cacheKey = `${_symbol}_${_timeframe}_${_expression_name}_lower`;
@@ -513,5 +583,13 @@ export function security_lower_tf(context: any) {
             const type = result.length > 0 ? detectArrayType(result[0]) : PineArrayType.float;
             return new PineArrayObject(result, type, context);
         }
+    };
+    return async (...rawArgs: any[]) => {
+        const argNames: (string | undefined)[] = [];
+        const args = unwrapParamTuples(rawArgs, argNames);
+        const parsed = parseArgsForPineParams<any>(args, SECURITY_LOWER_TF_SIGNATURES, SECURITY_LOWER_TF_TYPES);
+        return typeof staticRequest === 'function'
+            ? staticRequest(context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames), codecFor(Array.isArray(resolveSlotValue(parsed.expression)) ? resolveSlotValue(parsed.expression).length : 0))
+            : evaluate(parsed, argNames);
     };
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "c6bdf9d1d5319c556a085b1bd83c4549a2dc236084aeb98926ff4c2cc1c8fd58",
+  "namespaceSourcesSha256": "963a4af43a1e312b24fd1f612f194089c521adde433f109a8894992ad9f2ab73",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -29,12 +29,16 @@
       "sha256": "ccaa0107c821aec508835f6f81b65056f2829ce7b995d0e9958a40d373e26fa3"
     },
     {
+      "source": "src/namespaces/request/methods/param.ts",
+      "sha256": "555da476fdf35f3dc889e30b56be40ca932a5d2f70d4848cdcc354a401ae8d0b"
+    },
+    {
       "source": "src/namespaces/request/methods/security_lower_tf.ts",
-      "sha256": "abc701304677a60a090964aab04fbe6dced2a703c8ca3df6a9b6e4f5f84e0d1b"
+      "sha256": "1484cb91605db6fa3ea2184b9f4751bab9e2b7f037b245b6a629bff6dfc1f5e3"
     },
     {
       "source": "src/namespaces/request/methods/security.ts",
-      "sha256": "a1507d5778cde30876877a7bc8551e678f3a3bdf83d99891db510d9f1ec3dc3d"
+      "sha256": "e104b7d692ae16e0ec62923cc260b95e914674fd2337d5a210e6e932d3a2d4ea"
     },
     {
       "source": "src/namespaces/Str.ts",

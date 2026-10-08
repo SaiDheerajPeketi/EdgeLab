@@ -42,7 +42,8 @@ import {
 } from "../lib/indicatorDsl";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
-import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult } from "../lib/pineProtocol";
+import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult, type PineSourceSnapshot } from "../lib/pineProtocol";
+import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
 import { PineCatalogBrowser } from "./PineCatalogBrowser";
@@ -60,6 +61,7 @@ type EditorRequest = {
 
 type Props = {
   bars: Candle[];
+  sourceSnapshot?: PineSourceSnapshot;
   symbol: string;
   timeframe: string;
   pineLiveFeed?: PineLiveFeed;
@@ -81,6 +83,7 @@ const PINE_COMPLETIONS = ["indicator(", "strategy(", "input.int(", "input.float(
 
 export function IndicatorEditorPanel({
   bars,
+  sourceSnapshot,
   symbol,
   timeframe,
   pineLiveFeed,
@@ -115,8 +118,8 @@ export function IndicatorEditorPanel({
   const selectedScript = scripts.find((script) => script.id === selectedId) ?? null;
   const pine = isPineScriptSource(source);
   const pineInstrument = usePineInstrumentContext(symbol, timeframe, pineLiveFeed, pine);
-  const contextRef = useRef({ bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key });
-  contextRef.current = { bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key };
+  const contextRef = useRef({ bars, sourceSnapshot, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key });
+  contextRef.current = { bars, sourceSnapshot, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key };
   const executionOwnerRef = useRef<typeof contextRef.current | null>(null);
   const matchesSelected = Boolean(selectedScript && !hasLegacyPineEnums(selectedScript.pinePrepared) && !hasLegacyPineEnums(prepared ?? undefined) && selectedScript.source === source
     && JSON.stringify(selectedScript.strategySettings ?? {}) === JSON.stringify(strategySettings)
@@ -125,7 +128,7 @@ export function IndicatorEditorPanel({
   const originalCatalogSource = useMemo(() => Boolean(catalogOrigin && sourceSha256(source) === catalogOrigin.sourceSha256), [source, catalogOrigin?.sourceSha256]);
   const unchangedMigration = useMemo(() => Boolean(catalogOrigin?.migration && sourceSha256(source) === catalogOrigin.migration.sourceSha256), [source, catalogOrigin?.migration?.sourceSha256]);
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
-  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
+  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, sourceSnapshot, symbol, timeframe]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = usePineInputMetadata(pine ? source : undefined, prepared?.source === source ? prepared : undefined);
   const effectivePineInputs = usePineInputMigration(prepared?.source === source ? prepared : undefined, currentPrepared, inputs, inputRecovery, (migration) => {
@@ -155,7 +158,7 @@ export function IndicatorEditorPanel({
   }
   function currentContext(snapshot: typeof contextRef.current) {
     const current = contextRef.current;
-    return current.bars === snapshot.bars && current.symbol === snapshot.symbol
+    return current.bars === snapshot.bars && current.sourceSnapshot === snapshot.sourceSnapshot && current.symbol === snapshot.symbol
       && current.timeframe === snapshot.timeframe && current.nonce === snapshot.nonce && current.metadataKey === snapshot.metadataKey;
   }
 
@@ -199,7 +202,7 @@ export function IndicatorEditorPanel({
   useEffect(() => {
     invalidateExecution();
     return () => { attemptRef.current += 1; runtimeCancelRef.current?.(); };
-  }, [bars, symbol, timeframe, pineLiveFeed, pineInstrument.key]);
+  }, [bars, sourceSnapshot, symbol, timeframe, pineLiveFeed, pineInstrument.key]);
   useEffect(() => {
     const onAuthChange = () => {
       if (currentOwner()) return;
@@ -356,7 +359,7 @@ export function IndicatorEditorPanel({
     try {
       if (pine && pineInstrument.loading) throw new Error("Instrument details are loading. Try Run again in a moment.");
       if (pine && pineInstrument.error) throw new Error(pineInstrument.error);
-      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs: pine ? effectivePineInputs.inputs : inputs, inputMetadata: pine && (currentPrepared ?? prepared)?.source === source ? currentPrepared ?? prepared ?? undefined : undefined, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
+      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), sourceSnapshot: pine && sourceSnapshot ? pineSourceSnapshotForChart(sourceSnapshot.bars, sourceSnapshot.timeframe, bars.slice(-20_000), timeframe) : undefined, inputs: pine ? effectivePineInputs.inputs : inputs, inputMetadata: pine && (currentPrepared ?? prepared)?.source === source ? currentPrepared ?? prepared ?? undefined : undefined, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
     } catch (error) {
       setRunState({ detail: error instanceof Error ? error.message : "Script execution failed.", status: "error" }); return;
     }
@@ -488,7 +491,7 @@ export function IndicatorEditorPanel({
             <p className="mt-3 text-[11px] leading-5 text-slate-300">Catalog execution is experimental. Supported fills and shapes render on the chart; unavailable drawing outputs and options produce visible warnings. Results may differ from TradingView.</p>
             <details className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-400">
               <summary className="cursor-pointer font-semibold text-slate-200">Language reference</summary>
-              {pine ? <div className="mt-3 space-y-2 text-slate-300"><p>Paste a native script with //@version=5 or 6. Check source to generate settings; run to calculate plots or the strategy’s own orders.</p><p>Only the loaded symbol and timeframe are available. Secondary data requests fail explicitly. Some drawing outputs are unavailable and produce warnings.</p><p>PineTS is experimental and independently developed. Results may differ from TradingView.</p><p><a className="text-cyan-200 underline underline-offset-4" href="/LICENSE.txt" target="_blank" rel="noreferrer">AGPL licence</a> · <a className="text-cyan-200 underline underline-offset-4" href="/source/" target="_blank" rel="noreferrer">Download source</a> · <a className="text-cyan-200 underline underline-offset-4" href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">Third-party notices</a></p></div> : <pre className="mt-3 whitespace-pre-wrap font-mono text-[11px] leading-5">{EDGE_INDICATOR_DSL_REFERENCE}</pre>}
+              {pine ? <div className="mt-3 space-y-2 text-slate-300"><p>Paste a native script with //@version=5 or 6. Check source to generate settings; run to calculate plots or the strategy’s own orders.</p><p>Scripts can use loaded intrabar candles and higher timeframes built from this chart’s data. Other symbols and unavailable timeframes cannot be requested. Some drawing outputs are unavailable and produce warnings.</p><p>PineTS is experimental and independently developed. Results may differ from TradingView.</p><p><a className="text-cyan-200 underline underline-offset-4" href="/LICENSE.txt" target="_blank" rel="noreferrer">AGPL licence</a> · <a className="text-cyan-200 underline underline-offset-4" href="/source/" target="_blank" rel="noreferrer">Download source</a> · <a className="text-cyan-200 underline underline-offset-4" href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">Third-party notices</a></p></div> : <pre className="mt-3 whitespace-pre-wrap font-mono text-[11px] leading-5">{EDGE_INDICATOR_DSL_REFERENCE}</pre>}
               <p className="mt-3 text-slate-300">For TradingView built-ins, use Pine Editor → Open → Built-in script. <a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href="https://www.tradingview.com/support/solutions/43000481659-i-want-to-see-the-source-code-of-a-built-in-script/" target="_blank" rel="noreferrer">TradingView source access guide</a>. Official source and redistribution rights are not verified for this catalog; official originals are not packaged here.</p>
             </details>
           </aside>

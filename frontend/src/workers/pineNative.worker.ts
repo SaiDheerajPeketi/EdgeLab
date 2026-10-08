@@ -93,14 +93,14 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   const reject = (symbol: string, tf?: string) => {
     failure ??= new PineProtocolError("UNAVAILABLE_DATA", `Only loaded ${context.symbol} ${context.timeframe} chart data is available; requested ${symbol}${tf ? ` ${tf}` : ""}.`);
   };
-  const interval = /^(\d+)([SDWM]?)$/.exec(timeframe)!;
-  const count = Number(interval[1]), unit = interval[2];
-  const candle = (bar: Candle): Kline => {
+  const candle = (bar: Candle, tf = timeframe): Kline => {
+    const parsed = /^(\d+)([SDWM]?)$/.exec(tf)!;
+    const amount = Number(parsed[1]), unit = parsed[2];
     const openTime = bar.time * 1000;
-    const closeTime = unit === "M" ? computeNextPeriodStart(openTime, "month", count) : openTime + count * ({ S: 1_000, D: 86_400_000, W: 604_800_000 }[unit] ?? 60_000);
+    const closeTime = unit === "M" ? computeNextPeriodStart(openTime, "month", amount) : openTime + amount * ({ S: 1_000, D: 86_400_000, W: 604_800_000 }[unit] ?? 60_000);
     return { openTime, closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, quoteAssetVolume: 0, numberOfTrades: 0, takerBuyBaseAssetVolume: 0, takerBuyQuoteAssetVolume: 0, ignore: 0 };
   };
-  const candles: Kline[] = request.bars!.map(candle);
+  const candles: Kline[] = request.bars!.map(bar => candle(bar));
   const symbol = context.symbol, ticker = symbol.split(":").slice(-1)[0];
   const info: ISymbolInfo = {
     current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: context.basecurrency ?? "", country: "", currency: context.currency ?? "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: context.mincontract ?? 1,
@@ -110,13 +110,20 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
   };
   const snapshots = new Map<string, Kline[]>([[timeframe, candles]]);
+  const source = request.sourceSnapshot?.timeframe === timeframe ? undefined : request.sourceSnapshot;
+  if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source.timeframe)));
   const dataFor = (tf: string): Kline[] => {
     const existing = snapshots.get(tf);
     if (existing) return existing;
     if (realtime) { reject(symbol, tf); throw failure!; }
-    const duration = pineHigherTimeframeDuration(tf)!;
-    const data = aggregatePineHigherTimeframe(request.bars!, timeframe, tf).map(bar => ({ ...candle(bar), closeTime: (bar.time + duration) * 1000 }));
-    if (data.length * duration / pineHigherTimeframeDuration(timeframe)! < request.bars!.length) {
+    const duration = pineHigherTimeframeDuration(tf), chartDuration = pineHigherTimeframeDuration(timeframe);
+    const lower = duration !== undefined && chartDuration !== undefined && duration < chartDuration;
+    if (lower && !source) { reject(symbol, tf); throw failure!; }
+    // Actual source children prove completeness even when the displayed chart tail is partial.
+    const baseBars = source ? source.bars : request.bars!;
+    const baseTimeframe = source ? source.timeframe : timeframe;
+    const data = aggregatePineHigherTimeframe(baseBars, baseTimeframe, tf).map(bar => candle(bar, tf));
+    if (data.length * duration! / pineHigherTimeframeDuration(baseTimeframe)! < baseBars.length) {
       notices.push(`Requested ${tf} values use complete loaded candles; partial or missing groups are omitted.`);
     }
     snapshots.set(tf, data);
@@ -177,19 +184,28 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   };
   // The provider owns immutable policies, captured before executing any authored script.
   Object.defineProperties(provider, {
-    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext) => {
+    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext, _expression?: string, ignoreInvalidTimeframe = false, invalidTimeframe = false) => {
       const rawTimeframe = String(requestedTimeframe ?? "");
       let tf: string | undefined;
       try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
-      if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol) || !tf
-        || (kind === "security_lower_tf" && tf !== timeframe)) {
+      if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol)) {
+        reject(String(requested), rawTimeframe); throw failure!;
+      }
+      if (kind === "security_lower_tf" && invalidTimeframe && ignoreInvalidTimeframe) return { symbol, timeframe: tf, invalidTimeframe: true };
+      if (!tf || kind === "security_lower_tf" && invalidTimeframe) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
       try { dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
       return { symbol, timeframe: tf };
     } },
     _edgelabRunRequest: { value: runRequest },
-    _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>) => {
+    _edgelabRetainIntrabars: { value: (slots: number) => {
+      if (!Number.isSafeInteger(slots) || slots < 0 || retainedSlots + slots > PINE_LIMITS.points) {
+        error("REQUEST_LIMIT", "Pine requested too much retained intrabar array history.");
+      }
+      retainedSlots += slots;
+    } },
+    _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>, codec?: { encode(value: unknown): unknown; decode(value: unknown): unknown }) => {
       const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
         ?? parent.strategy?.config?.dynamic_requests ?? parent.pineVersion === 6;
       const dependency = expressionName?.match(/p\d+$/)?.[0] ?? expressionName;
@@ -221,20 +237,26 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
           const middle = (low + high) >>> 1;
           if (original.closes[middle] <= boundary) low = middle + 1; else high = middle;
         }
-        return low ? original.values[low - 1] : NaN;
+        const sampled = low ? original.values[low - 1] : undefined;
+        return codec ? codec.decode(sampled) : sampled === undefined ? NaN : sampled;
       }
       const value = await evaluate();
       const capture = captures.get(parent);
       if (capture?.id === expressionName) {
         // Native scalar/tuple request returns are copied so later calculations cannot mutate a captured bar.
         let slots = 1; // The per-bar accounting entry is retained alongside the captured value.
+        const previousCost = capture.costs[parent.idx] ?? 0;
         const copy = (item: unknown, depth = 0): unknown => {
           slots++;
-          if (Array.isArray(item) && depth < 2 && item.length <= 128) return item.map((entry) => copy(entry, depth + 1));
+          if (retainedSlots + slots - previousCost > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much static series history.");
+          if (Array.isArray(item) && depth < 2 && item.length <= (codec ? PINE_LIMITS.sourceBars : 128)) {
+            if (retainedSlots + slots + item.length - previousCost > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much static series history.");
+            return Object.freeze(item.map((entry) => copy(entry, depth + 1)));
+          }
           if (item == null || ["number", "string", "boolean"].includes(typeof item)) return item;
           return error("UNSUPPORTED_REQUEST_EXPRESSION", "Static request collections and objects cannot be sampled safely.");
         };
-        const copied = copy(value);
+        const copied = copy(codec ? codec.encode(value) : value);
         if (!Object.prototype.hasOwnProperty.call(capture.values, parent.idx)) capture.count++;
         retainedSlots += slots - (capture.costs[parent.idx] ?? 0);
         if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much static series history.");
@@ -921,7 +943,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     if (local.unavailable()) throw local.unavailable();
     if (cause instanceof PineProtocolError) throw cause;
     const code = (cause as { code?: unknown } | null)?.code;
-    if (code === "UNSUPPORTED_ORDER_FILL_CONTEXT" || code === "STRATEGY_EXECUTION_LIMIT" || code === "REALTIME_STATE_LIMIT") error(code, cause instanceof Error ? cause.message.slice(0, 4_096) : "Strategy execution stopped.");
+    if (code === "UNSUPPORTED_ORDER_FILL_CONTEXT" || code === "STRATEGY_EXECUTION_LIMIT" || code === "REALTIME_STATE_LIMIT" || code === "UNSUPPORTED_REQUEST_EXPRESSION") error(code, cause instanceof Error ? cause.message.slice(0, 4_096) : "Strategy execution stopped.");
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();

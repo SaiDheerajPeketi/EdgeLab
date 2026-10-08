@@ -1,6 +1,8 @@
 /** Identity of the chart inputs that produced a runtime result. */
 export type ChartRuntimeOwner = {
   bars: readonly unknown[];
+  sourceBars?: readonly unknown[];
+  sourceTimeframe?: string | null;
   indicators: readonly unknown[];
   mode: "historical" | "live";
   symbol: string;
@@ -14,7 +16,7 @@ export type ChartRuntimeOwner = {
 };
 
 export function chartRuntimeOwnerMatches(owner: ChartRuntimeOwner | null, current: ChartRuntimeOwner): boolean {
-  return owner !== null && owner.bars === current.bars && owner.indicators === current.indicators
+  return owner !== null && owner.bars === current.bars && owner.sourceBars === current.sourceBars && owner.sourceTimeframe === current.sourceTimeframe && owner.indicators === current.indicators
     && owner.mode === current.mode && owner.symbol === current.symbol && owner.timeframe === current.timeframe
     && owner.contextKey === current.contextKey && owner.metadataKey === current.metadataKey
     && owner.feed === current.feed && owner.feedEpoch === current.feedEpoch

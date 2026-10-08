@@ -184,6 +184,7 @@ import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, proj
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult } from "../lib/pineProtocol";
+import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { PineInputControl } from "./PineInputControl";
 import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
@@ -690,7 +691,7 @@ export function TradingChart({
   const persistentPineFeed = indicatorRuntimeMode === "live" && chartSettings.tradingHoursMode === "extended"
     && ["crypto-24x7", "always-open"].includes(sessionTemplate.id) ? pineLiveFeed : undefined;
   const pineInstrument = usePineInstrumentContext(symbol ?? "", timeframe, pineLiveFeed, indicatorInstances.some(indicator => indicator.visible !== false && Boolean(indicator.customScriptSource) && isPineScriptSource(indicator.customScriptSource!)));
-  const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, indicators: indicatorInstances,
+  const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, sourceBars: sessionBars, sourceTimeframe: datasetTimeframe, indicators: indicatorInstances,
     mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, metadataKey: pineInstrument.key, feed: pineLiveFeed,
     feedEpoch: pineLiveFeed?.getSnapshot().epoch, userId: authSession?.user.id, token: authSession?.token };
   // Filter during render: an effect cleanup is too late to prevent old values
@@ -885,6 +886,7 @@ export function TradingChart({
         if (nativePine && pineInstrument.error) throw new Error(pineInstrument.error);
         job = createCustomScriptRuntimeJob({
           bars: snapshot,
+          sourceSnapshot: nativePine && indicatorRuntimeMode === "historical" ? pineSourceSnapshotForChart(sessionBars, datasetTimeframe, snapshot, timeframe) : undefined,
           context: nativePine ? pineInstrument.context : undefined,
           inputs: indicator.settings.customInputs,
           inputMetadata: nativePine ? (sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource)) : undefined,
@@ -932,7 +934,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe, pineInstrument.key, pineInstrument.context, pineInstrument.loading, pineInstrument.error]);
+  }, [authSession, displayBars, sessionBars, datasetTimeframe, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe, pineInstrument.key, pineInstrument.context, pineInstrument.loading, pineInstrument.error]);
 
   useEffect(() => {
     if (!drawingControlsActive) {

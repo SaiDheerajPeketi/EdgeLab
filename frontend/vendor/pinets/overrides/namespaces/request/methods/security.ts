@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Modified by EdgeLab, 2026-10-08: owned historical intrabar selection.
 
 import { PineTS } from '../../../PineTS.class';
 import { Series } from '../../../Series';
@@ -218,6 +219,35 @@ export function security(context: any) {
             const opens = secondary.data.openTime.data, closes = secondary.data.closeTime.data;
             const chartOpen = Series.from(context.data.openTime).get(0);
             const chartClose = Series.from(context.data.closeTime).get(0);
+            if (reqSeconds < ctxSeconds) {
+                // Supplied complete children belong to the chart bar by opening time.
+                // A missing child is never replaced by an invented candle.
+                let low = 0, high = opens.length;
+                while (low < high) {
+                    const middle = (low + high) >>> 1;
+                    if (opens[middle] < chartOpen) low = middle + 1; else high = middle;
+                }
+                const first = low;
+                high = opens.length;
+                while (low < high) {
+                    const middle = (low + high) >>> 1;
+                    if (opens[middle] < chartClose) low = middle + 1; else high = middle;
+                }
+                let index = first < low ? (_lookahead ? first : low - 1) : (_gaps ? -1 : first - 1);
+                if (index < 0) return NaN;
+                if (first === low && _lookahead) {
+                    // Carry the prior chart bucket's selected FIRST child, not its last child.
+                    const previousOpen = Math.floor(opens[index] / (ctxSeconds * 1000)) * ctxSeconds * 1000;
+                    let left = 0, right = index + 1;
+                    while (left < right) {
+                        const middle = (left + right) >>> 1;
+                        if (opens[middle] < previousOpen) left = middle + 1; else right = middle;
+                    }
+                    index = left;
+                }
+                const value = secondary.params[_expression_name]?.[index];
+                return Array.isArray(value) ? [value] : value;
+            }
             const times = _lookahead ? opens : closes;
             const boundary = _lookahead ? chartOpen : chartClose;
             let low = 0, high = times.length;

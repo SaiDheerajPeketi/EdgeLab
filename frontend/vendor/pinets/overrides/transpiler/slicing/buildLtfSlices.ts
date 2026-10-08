@@ -354,6 +354,114 @@ function requestDependencies(name: string, bindings: Map<string, any>, fields: M
     return [...dependencies];
 }
 
+/** Drop only proven dead consumers of unrelated requests from a prefix slice.
+ * Otherwise a later lower request can replay an earlier intrabar array on the
+ * child timeframe and execute chart-only array reads against singleton arrays.
+ * Required request dependencies retain their existing static/dynamic behavior.
+ */
+function pruneUnrelatedRequests(body: any[], name: string, dependencies: readonly string[],
+    bindings: Map<string, any>, fields: Map<string, any[]>, unrelated: readonly any[]): any[] {
+    const required = new Set([name, ...dependencies]);
+    const namespaces = new Set<string>();
+    for (const statement of body) for (const declaration of statement.declarations ?? []) {
+        if (declaration.id?.type !== 'ObjectPattern' || fieldKey(declaration.init) !== '$.pine') continue;
+        for (const property of declaration.id.properties ?? []) {
+            if (property.type === 'Property' && property.key?.name === property.value?.name) namespaces.add(property.value.name);
+        }
+    }
+    const unusedParams = new Set<string>();
+    for (const call of unrelated) for (const arg of call.arguments ?? []) {
+        if (arg.type === 'Identifier') {
+            const init = bindings.get(arg.name);
+            if (init?.callee?.object?.name === 'request' && init?.callee?.property?.name === 'param') unusedParams.add(arg.name);
+        }
+    }
+    const taintMemo = new WeakMap<object, boolean>();
+    const active = new WeakSet<object>();
+    let visits = 0;
+    const limit = () => {
+        if (++visits > 65536) throw new Error('Request prefix projection exceeds the traversal limit.');
+    };
+    function tainted(node: any, depth = 0): boolean {
+        if (!node || typeof node !== 'object') return false;
+        limit();
+        if (depth > 128) throw new Error('Request prefix projection exceeds the nesting limit.');
+        if (taintMemo.has(node)) return taintMemo.get(node)!;
+        if (active.has(node)) return false;
+        active.add(node);
+        let result = false;
+        if (isRequestSecurityCall(node) && node.callee.property.name === 'security_lower_tf') {
+            const id = exprNameOfCall(node, bindings);
+            result = !id || !required.has(id);
+        }
+        if (!result && node.type === 'Identifier') result = unusedParams.has(node.name) || tainted(bindings.get(node.name), depth + 1);
+        const key = fieldKey(node);
+        if (!result && key) result = (fields.get(key) ?? []).some(value => tainted(value, depth + 1));
+        if (!result) for (const key of Object.keys(node)) {
+            if (AST_SKIP_KEYS.has(key)) continue;
+            const value = node[key];
+            result = Array.isArray(value) ? value.some(child => tainted(child, depth + 1)) : tainted(value, depth + 1);
+            if (result) break;
+        }
+        active.delete(node);
+        if (result) taintMemo.set(node, true);
+        return result;
+    }
+    // Removing a dead read/output is safe. Unknown mutation-bearing calls are
+    // refused rather than silently changing state that a later expression uses.
+    const pureFunctions = new Set<any>();
+    function pureConsumer(node: any, depth = 0, inFunction = false): boolean {
+        if (!node || typeof node !== 'object') return true;
+        limit();
+        if (depth > 128) throw new Error('Request prefix projection exceeds the nesting limit.');
+        if (node.type === 'CallExpression') {
+            const owner = node.callee?.object?.name, member = node.callee?.property?.name;
+            if (owner === '$' && member === 'call') {
+                const target = dollarCallTarget(node), fn = target ? bindings.get(target) : undefined;
+                if (!fn || fn.type !== 'FunctionDeclaration' || pureFunctions.has(fn)) return false;
+                pureFunctions.add(fn);
+                const pure = pureConsumer(fn.body, depth + 1, true);
+                pureFunctions.delete(fn);
+                if (!pure) return false;
+            } else {
+                const allowed = isRequestSecurityCall(node) && namespaces.has('request')
+                    || fieldKey(node.callee?.object) === '$.pine.math'
+                        && ['__eq', '__neq', '__lt', '__le', '__gt', '__ge', '__and', '__or', '__idiv'].includes(member)
+                    || member === 'param' && (owner === '$' || namespaces.has(owner))
+                    || owner === '$' && ['get', 'init', 'initVar', 'toTuple', 'precision', 'peekCtx'].includes(member)
+                    || owner === '$' && member === 'set' && /^\$\$\.(?:var|varip|let|const)\.[^.]+$/.test(fieldKey(node.arguments?.[0]) ?? '')
+                    || owner === 'ta' && namespaces.has(owner)
+                    || owner === 'array' && namespaces.has(owner) && ['get', 'size'].includes(member)
+                    || owner === 'plot' && namespaces.has(owner) && member === 'any';
+                if (!allowed) return false;
+            }
+        }
+        if (node.type === 'UpdateExpression' || node.type === 'NewExpression' || isFunctionLike(node)) return false;
+        if (node.type === 'AssignmentExpression') {
+            const key = fieldKey(node.left) ?? '';
+            if (node.operator !== '=' || !/^\$\$?\.(?:var|varip|let|const)\.[^.]+$/.test(key)
+                || inFunction && key.startsWith('$.')) return false;
+        }
+        for (const key of Object.keys(node)) {
+            if (AST_SKIP_KEYS.has(key)) continue;
+            const value = node[key];
+            if (Array.isArray(value) ? value.some(child => !pureConsumer(child, depth + 1, inFunction)) : !pureConsumer(value, depth + 1, inFunction)) return false;
+        }
+        return true;
+    }
+    function project(node: any): any | null {
+        if (isFunctionLike(node)) return node;
+        if (node.type === 'BlockStatement') return { ...node, body: node.body.map(project).filter(Boolean) };
+        if (!tainted(node)) return node;
+        if (['IfStatement', 'ForStatement', 'WhileStatement', 'DoWhileStatement', 'ForInStatement', 'ForOfStatement', 'SwitchStatement'].includes(node.type)
+            || !pureConsumer(node)) {
+            throw new Error('Unrelated request consumers with shared state cannot be isolated safely.');
+        }
+        return null;
+    }
+    return body.map(project).filter(Boolean);
+}
+
 /** Prefix replay cannot reconstruct shared mutable state omitted after a request.
  * Follow only this expression and its original call-chain bodies, not unrelated globals.
  */
@@ -494,9 +602,11 @@ export function buildLtfSlices(ast: any): Record<string, Function> {
         if (!stmts || stmts.length === 0) continue;
 
         const dependencies = Object.freeze(requestDependencies(exprName, bindings, fields));
+        const unrelated = calls.filter(({ call }) => call.callee.property.name === 'security_lower_tf'
+            && ![exprName, ...dependencies].includes(exprNameOfCall(call, bindings) ?? '')).map(({ call }) => call);
         const makeSlice = (body: any[], roots: any[] = []): Function => {
             if (++generated > MAX_GENERATED_SLICES) throw new Error('Request isolation exceeds the generated slice limit.');
-            const fn = buildSliceFunction(wrapperFn, body);
+            const fn = buildSliceFunction(wrapperFn, unrelated.length ? pruneUnrelatedRequests(body, exprName, dependencies, bindings, fields, unrelated) : body);
             Object.defineProperty(fn, '_edgelabRequestDependencies', { value: dependencies });
             Object.defineProperty(fn, '_edgelabStaticReplaySafe', { value: staticReplaySafe(exprName, roots, bindings, fields) });
             return fn;

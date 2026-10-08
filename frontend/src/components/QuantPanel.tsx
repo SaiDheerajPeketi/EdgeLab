@@ -24,7 +24,8 @@ import type { EdgeIndicatorInputValue } from "../lib/indicatorDsl";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
 import { isPineScriptSource, pineContextForChart, type CustomIndicatorScript } from "../lib/customIndicators";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
-import type { PineExecutionResult } from "../lib/pineProtocol";
+import type { PineExecutionResult, PineSourceSnapshot } from "../lib/pineProtocol";
+import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { PineStrategyResults } from "./PineStrategyResults";
 import {
   DEFAULT_QUANT_BACKTEST_CONFIG,
@@ -60,6 +61,7 @@ import {
 type Props = {
   attachment: QuantCaptureAttachment | null;
   bars: Candle[];
+  sourceSnapshot?: PineSourceSnapshot;
   context: QuantChartContext;
   onAddGeneratedIndicator: (artifact: QuantGeneratedIndicator) => void;
   onCaptureChart: () => Promise<void>;
@@ -81,6 +83,7 @@ type QuantSendRequest = {
 export function QuantPanel({
   attachment,
   bars,
+  sourceSnapshot,
   context,
   onAddGeneratedIndicator,
   onCaptureChart,
@@ -125,8 +128,8 @@ export function QuantPanel({
   const activeConversation = conversations.find((conversation) => conversation.id === activeId) ?? conversations[0] ?? null;
   const selectedModel = provider.models.find((model) => model.id === modelId) ?? provider.models[0] ?? null;
   const selectedScript = scripts.find((script) => script.id === selectedScriptId) ?? scripts[0] ?? null;
-  const backtestContextRef = useRef({ bars, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig });
-  backtestContextRef.current = { bars, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig };
+  const backtestContextRef = useRef({ bars, sourceSnapshot, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig });
+  backtestContextRef.current = { bars, sourceSnapshot, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig };
   const busy = job?.status === "queued" || job?.status === "running";
 
   useEffect(() => {
@@ -173,7 +176,7 @@ export function QuantPanel({
   useEffect(() => {
     invalidateBacktest();
     return () => { backtestAttemptRef.current += 1; backtestCancelRef.current?.(); };
-  }, [bars, context.symbol, context.timeframe, selectedScript, backtestConfig]);
+  }, [bars, sourceSnapshot, context.symbol, context.timeframe, selectedScript, backtestConfig]);
 
   function updatePreferences(patch: Partial<QuantPreferences>) {
     setPreferences((current) => {
@@ -468,7 +471,7 @@ export function QuantPanel({
     const snapshot = backtestContextRef.current;
     const current = () => mountedRef.current && attempt === backtestAttemptRef.current
       && token === getApiBearerToken() && owner === (getStoredAuthSession()?.user.id ?? null)
-      && snapshot.bars === backtestContextRef.current.bars && snapshot.symbol === backtestContextRef.current.symbol
+      && snapshot.bars === backtestContextRef.current.bars && snapshot.sourceSnapshot === backtestContextRef.current.sourceSnapshot && snapshot.symbol === backtestContextRef.current.symbol
       && snapshot.timeframe === backtestContextRef.current.timeframe && snapshot.script === backtestContextRef.current.script
       && snapshot.config === backtestContextRef.current.config;
     setBacktestStatus("running");
@@ -476,7 +479,7 @@ export function QuantPanel({
     try {
       if (isPineScriptSource(selectedScript.source)) {
         if (selectedScript.pinePrepared?.declaration !== "strategy") throw new Error("This Pine indicator has no order rules. Open a Pine strategy in the editor to test its own entries and exits.");
-        const native = createPineRuntimeJob({ action: "run", bars: bars.slice(-20_000), inputs: selectedScript.inputs, strategySettings: selectedScript.strategySettings,
+        const native = createPineRuntimeJob({ action: "run", bars: bars.slice(-20_000), sourceSnapshot: sourceSnapshot ? pineSourceSnapshotForChart(sourceSnapshot.bars, sourceSnapshot.timeframe, bars.slice(-20_000), context.timeframe) : undefined, inputs: selectedScript.inputs, strategySettings: selectedScript.strategySettings,
           mode: "historical", source: selectedScript.source, context: pineContextForChart(context.symbol, context.timeframe) });
         backtestCancelRef.current = native.cancel;
         const execution = await native.promise;

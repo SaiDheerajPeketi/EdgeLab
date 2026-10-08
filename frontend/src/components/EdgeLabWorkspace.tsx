@@ -1,3 +1,4 @@
+import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
   ChangeEvent,
@@ -4207,10 +4208,13 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const [indicatorEditorRequest, setIndicatorEditorRequest] = useState<{ nonce: number; scriptId?: string; source?: string } | null>(null);
   const allCustomIndicatorScripts = useMemo(() => [...FIRST_PARTY_EDGE_INDICATORS, ...customIndicatorScripts], [customIndicatorScripts]);
   const editorSymbol = activeChartPane.symbol || symbolCode || symbol;
-  const editorBars = useMemo(() => aggregateBars(
+  const editorSourceBars = useMemo(() => (
     !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol)
-      ? bars : paneMarketData[activeChartPane.id]?.bars ?? [], activeChartPane.timeframe,
-  ).slice(-20_000), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id, activeChartPane.timeframe]);
+      ? bars : paneMarketData[activeChartPane.id]?.bars ?? []
+  ), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id]);
+  const editorBars = useMemo(() => aggregateBars(editorSourceBars, activeChartPane.timeframe).slice(-20_000), [editorSourceBars, activeChartPane.timeframe]);
+  const editorSourceTimeframe = !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? LIVE_SOURCE_TIMEFRAME : activeChartPane.timeframe;
+  const editorSourceSnapshot = useMemo(() => pineSourceSnapshotForChart(editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe), [editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe]);
 
   useEffect(() => {
     let active = true;
@@ -4955,7 +4959,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     symbol={pane.symbol || symbolCode || symbol}
                     syncedVisibleRange={journalFocusRange ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length } : null}
                     currency="USD"
-                    datasetTimeframe={LIVE_SOURCE_TIMEFRAME}
+                    datasetTimeframe={paneUsesPrimaryFeed ? LIVE_SOURCE_TIMEFRAME : pane.timeframe}
                     timeframe={pane.timeframe}
                     undoShortcutLabel="⌘Z"
                   /> : <div aria-label={`Pane ${index + 1} chart engine loading`} className="chart-engine-placeholder grid h-full min-h-0 place-items-center bg-black/20 text-xs text-slate-500" role="status">Loading chart engine…</div>}
@@ -4997,7 +5001,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
         )}
       </div>
       {indicatorEditorRequest && <Suspense fallback={<div role="status">Loading indicator editor…</div>}>
-        <LiveIndicatorEditor bars={editorBars} symbol={editorSymbol} timeframe={activeChartPane.timeframe}
+        <LiveIndicatorEditor bars={editorBars} sourceSnapshot={editorSourceSnapshot} symbol={editorSymbol} timeframe={activeChartPane.timeframe}
           pineLiveFeed={!journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? pineLiveFeed : undefined}
           onAddToChart={addCustomIndicator} onClose={() => setIndicatorEditorRequest(null)}
           onScriptsChange={changeCustomIndicatorScripts} request={indicatorEditorRequest} scripts={allCustomIndicatorScripts} />

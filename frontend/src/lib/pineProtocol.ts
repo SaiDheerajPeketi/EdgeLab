@@ -4,7 +4,7 @@ import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 
-export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100 });
+export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100 });
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
@@ -23,8 +23,9 @@ export type PineStrategySettings = {
   commission_value?: number; slippage?: number; pyramiding?: number; process_orders_on_close?: boolean;
 };
 export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number; mincontract?: number; quantityStep?: number; currency?: string; basecurrency?: string };
+export type PineSourceSnapshot = { timeframe: string; bars: readonly Candle[] };
 export type PineRequest = {
-  id: string; action: "prepare" | "run"; source: string; bars?: Candle[];
+  id: string; action: "prepare" | "run"; source: string; bars?: Candle[]; sourceSnapshot?: PineSourceSnapshot;
   strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext;
 };
 export type PinePrepareResult = {
@@ -122,6 +123,58 @@ export function canonicalPineTimeframe(timeframe: string): string {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1440 || (match[2] === "S" && ![1, 5, 10, 15, 30, 45].includes(amount))) fail("Invalid Pine timeframe.", "INVALID_CONTEXT");
   return `${amount}${match[2] ?? ""}`;
 }
+/** Fixed intraday durations; calendar/session timeframes need a real calendar feed. */
+export function pineFixedTimeframeDuration(timeframe: string): number | undefined {
+  if (/^(1|5|10|15|30|45)S$/.test(timeframe)) return Number(timeframe.slice(0, -1));
+  if (!/^[1-9]\d{0,3}$/.test(timeframe)) return undefined;
+  const minutes = Number(timeframe);
+  return minutes <= 1440 ? minutes * 60 : undefined;
+}
+function ordinaryFields(value: unknown): Record<string, unknown> {
+  const raw = record(value);
+  for (const key of Reflect.ownKeys(raw)) {
+    const descriptor = Object.getOwnPropertyDescriptor(raw, key)!;
+    if (typeof key !== "string" || ["__proto__", "constructor", "prototype"].includes(key)
+      || !("value" in descriptor) || !descriptor.enumerable) fail("Source snapshots require ordinary data fields.", "INVALID_BARS");
+  }
+  return raw;
+}
+function validateSourceSnapshot(value: unknown, bars: Candle[], context: PineContext): PineSourceSnapshot {
+  const raw = ordinaryFields(value);
+  if (Object.keys(raw).some(key => !["timeframe", "bars"].includes(key))
+    || !Object.prototype.hasOwnProperty.call(raw, "timeframe") || !Object.prototype.hasOwnProperty.call(raw, "bars")) fail("Source snapshots contain only timeframe and bars.", "INVALID_CONTEXT");
+  const timeframe = canonicalPineTimeframe(string(raw.timeframe, 8));
+  const base = pineFixedTimeframeDuration(timeframe), chart = pineFixedTimeframeDuration(canonicalPineTimeframe(context.timeframe));
+  if (!base || !chart || base > chart || chart % base !== 0) {
+    fail("Source snapshots require fixed UTC-aligned intraday multiples of the source timeframe.", "UNAVAILABLE_DATA");
+  }
+  for (const bar of bars) if (bar.time % chart !== 0) fail("Chart candles must align with their UTC grid when supplying intrabar data.", "INVALID_BARS");
+  const input = raw.bars;
+  if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype || input.length > PINE_LIMITS.sourceBars) {
+    fail("Source history exceeds 200,000 candle slots.", "BAR_LIMIT");
+  }
+  for (const key of Reflect.ownKeys(input)) {
+    if (key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(input, key)!;
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= input.length
+      || !("value" in descriptor) || !descriptor.enumerable) fail("Source history requires ordinary dense candle slots.", "INVALID_BARS");
+  }
+  const first = bars[0].time, cutoff = bars[bars.length - 1].time + chart;
+  let previous = -Infinity;
+  const copied: Candle[] = [];
+  for (let index = 0; index < input.length; index++) {
+    if (!Object.prototype.hasOwnProperty.call(input, index)) fail("Source history cannot contain missing array slots.", "INVALID_BARS");
+    const item = ordinaryFields(input[index]);
+    for (const key of ["time", "open", "high", "low", "close", "volume"]) if (!Object.prototype.hasOwnProperty.call(item, key)) fail("Source candles require explicit OHLCV fields.", "INVALID_BARS");
+    const bar = validatePineBar(item);
+    if (bar.time <= previous || bar.time % base !== 0 || bar.time < first || bar.time + base > cutoff) {
+      fail("Source candles must be ordered on their UTC grid within the supplied chart window.", "INVALID_BARS");
+    }
+    previous = bar.time;
+    copied.push(Object.freeze(bar));
+  }
+  return Object.freeze({ timeframe, bars: Object.freeze(copied) });
+}
 function decimalPlaces(value: number): number {
   const [coefficient, exponent = "0"] = value.toString().toLowerCase().split("e");
   return Math.max(0, (coefficient.split(".")[1]?.length ?? 0) - Number(exponent));
@@ -182,7 +235,14 @@ export function validatePineRequest(value: unknown): PineRequest {
     });
   }
   if (raw.action === "run" && (!context || !bars?.length)) fail("Pine execution needs chart bars, symbol and timeframe.", "INVALID_CONTEXT");
-  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}) };
+  let sourceSnapshot: PineSourceSnapshot | undefined;
+  const sourceDescriptor = Object.getOwnPropertyDescriptor(raw, "sourceSnapshot");
+  if (sourceDescriptor && (!("value" in sourceDescriptor) || !sourceDescriptor.enumerable)) fail("Source snapshots require an ordinary request field.", "INVALID_BARS");
+  if (sourceDescriptor?.value !== undefined) {
+    if (raw.action !== "run" || mode !== "historical" || !context || !bars?.length) fail("Intrabar source snapshots are available only for historical execution.", "UNAVAILABLE_DATA");
+    sourceSnapshot = validateSourceSnapshot(sourceDescriptor.value, bars, context);
+  }
+  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}) };
 }
 
 // Bound cumulative text before JSON allocation; binary is permitted only in the packed buffer list.

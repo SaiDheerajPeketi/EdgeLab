@@ -1,13 +1,9 @@
 import type { Candle } from "./api";
-import { PineProtocolError } from "./pineProtocol";
+import { PineProtocolError, pineFixedTimeframeDuration } from "./pineProtocol";
 
 /** Canonical Pine fixed-duration intraday timeframes, expressed in seconds. */
 export function pineHigherTimeframeDuration(timeframe: string): number | undefined {
-  if (typeof timeframe !== "string") return undefined;
-  if (/^(1|5|10|15|30|45)S$/.test(timeframe)) return Number(timeframe.slice(0, -1));
-  if (!/^[1-9]\d{0,3}$/.test(timeframe)) return undefined;
-  const minutes = Number(timeframe);
-  return minutes <= 1440 ? minutes * 60 : undefined;
+  return pineFixedTimeframeDuration(timeframe);
 }
 
 function unavailable(message: string): never {

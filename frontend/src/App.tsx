@@ -1,3 +1,4 @@
+import { pineSourceSnapshotForChart } from "./lib/pineSourceSnapshot";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
@@ -805,13 +806,16 @@ export function WorkspaceApp() {
     setDrawingTool(lastNeutralDrawingToolRef.current);
   }
   const effectiveTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
-  const customScriptBars = useMemo(() => {
+  const customScriptSourceBars = useMemo(() => {
     const sourceBars = chartSymbolsEqual(activeChartPane.symbol, state?.session.symbol)
       ? visibleBars : replayPaneMarketData[activeChartPane.id]?.bars ?? [];
-    return aggregateBars(filterBarsForTradingSession(sourceBars, chartSettings.tradingHoursMode,
-      resolveChartSessionTemplate(activeChartPane.symbol, chartSettings.sessionTemplate)), effectiveTimeframe);
+    return filterBarsForTradingSession(sourceBars, chartSettings.tradingHoursMode,
+      resolveChartSessionTemplate(activeChartPane.symbol, chartSettings.sessionTemplate));
   }, [activeChartPane.id, activeChartPane.symbol, state?.session.symbol, visibleBars, replayPaneMarketData,
-    chartSettings.tradingHoursMode, chartSettings.sessionTemplate, effectiveTimeframe]);
+    chartSettings.tradingHoursMode, chartSettings.sessionTemplate]);
+  const customScriptBars = useMemo(() => aggregateBars(customScriptSourceBars, effectiveTimeframe), [customScriptSourceBars, effectiveTimeframe]);
+  const customScriptSourceTimeframe = chartSymbolsEqual(activeChartPane.symbol, state?.session.symbol) ? sourceTimeframe : activeChartPane.timeframe;
+  const customScriptSourceSnapshot = useMemo(() => pineSourceSnapshotForChart(customScriptSourceBars, customScriptSourceTimeframe, customScriptBars, effectiveTimeframe), [customScriptSourceBars, customScriptSourceTimeframe, customScriptBars, effectiveTimeframe]);
 
   useEffect(() => {
     const invalidate = () => useBacktestStore.getState().invalidateReplaySelection();
@@ -3550,7 +3554,7 @@ export function WorkspaceApp() {
                                 : chartSyncSettings.visibleRange ? syncedVisibleRange : null}
                               symbol={pane.symbol}
                               currency={sessionCurrency}
-                              datasetTimeframe={state?.session.timeframe}
+                              datasetTimeframe={paneHasSessionData ? state?.session.timeframe : pane.timeframe}
                               timeframe={paneTimeframe}
                               undoShortcutLabel={undoShortcutLabel}
                             />
@@ -3704,6 +3708,7 @@ export function WorkspaceApp() {
         <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[#071018]" />}>
           <IndicatorEditorPanel
             bars={customScriptBars}
+            sourceSnapshot={customScriptSourceSnapshot}
             symbol={activeChartPane.symbol}
             timeframe={effectiveTimeframe}
             onAddToChart={addCustomIndicator}
@@ -3718,6 +3723,7 @@ export function WorkspaceApp() {
       {quantOpen ? (
         <Suspense fallback={<LazyPanelFallback className="fixed bottom-3 right-3 z-[80] h-72 w-96 rounded-xl bg-[#071018]" />}>
           <QuantPanel
+            sourceSnapshot={customScriptSourceSnapshot}
             attachment={quantAttachment}
             bars={customScriptBars}
             context={quantContext}
