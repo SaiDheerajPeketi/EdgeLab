@@ -17,6 +17,7 @@ import { flushSync } from "react-dom";
 import { chartRuntimeOwnerMatches, type ChartRuntimeOwner } from "../lib/chartRuntimeOwnership";
 import { PointOverlaySurface } from "./overlays/OverlaySurface";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowUpToLine,
   Camera,
@@ -5727,10 +5728,10 @@ function FloatingIndicatorToolbar({
         onMouseDown={startToolbarDrag}
         title="Drag indicator controls"
       >
-        <span
+        {nativePine ? <Activity aria-hidden="true" className="shrink-0 text-[var(--text-secondary)]" size={15} /> : <span
           className="h-2.5 w-2.5 rounded-sm"
           style={{ backgroundColor: settings.color }}
-        />
+        />}
         <span>{indicatorDisplayName({ ...indicator, settings })}</span>
       </div>
 
@@ -6634,6 +6635,7 @@ function FibLevelEditor({
                 ariaLabel="Fib level line style"
                 className="fib-level-style"
                 menuClassName="w-28"
+                portal
                 onChange={(value) =>
                   updateLevel(level.id, { lineStyle: value as DrawingLineStyle })
                 }

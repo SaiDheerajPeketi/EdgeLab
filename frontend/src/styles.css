@@ -2702,7 +2702,7 @@ button:disabled {
   }
 
   .chart-object-floating-toolbar {
-    @apply pointer-events-auto absolute z-30 flex max-w-[calc(100%-24px)] flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-[#070b10]/95 px-2 py-1.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply pointer-events-auto absolute z-30 flex max-w-[calc(100%-24px)] flex-wrap items-center gap-1.5 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] px-2 py-1.5 text-[var(--text-primary)] shadow-[var(--elevation-floating)] backdrop-blur;
   }
 
   .indicator-floating-toolbar {
@@ -2732,11 +2732,11 @@ button:disabled {
   }
 
   .indicator-floating-title {
-    @apply flex h-8 max-w-44 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-100;
+    @apply flex h-8 max-w-44 items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-semibold text-[var(--text-primary)];
   }
 
   .indicator-floating-title-draggable {
-    @apply cursor-move select-none transition hover:border-cyan-300/30 hover:bg-cyan-300/10;
+    @apply cursor-move select-none transition hover:border-[var(--ui-focus)] hover:bg-[var(--ui-selection)];
   }
 
   .indicator-floating-title span:last-child {
@@ -2748,15 +2748,15 @@ button:disabled {
   }
 
   .indicator-floating-field {
-    @apply flex min-w-[188px] flex-col gap-1 rounded border border-white/10 bg-black/20 px-2 py-1;
+    @apply flex min-w-[188px] flex-col gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 py-1;
   }
 
   .indicator-floating-field-label {
-    @apply text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500;
+    @apply text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)];
   }
 
   .indicator-floating-number {
-    @apply grid h-8 min-w-14 grid-cols-[auto_42px] items-center gap-1 rounded border border-white/10 bg-black/20 px-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+    @apply grid h-8 min-w-14 grid-cols-[auto_42px] items-center gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)];
   }
 
   input[data-number-draft][aria-invalid="true"] {
@@ -2769,15 +2769,15 @@ button:disabled {
   }
 
   .indicator-floating-number input {
-    @apply h-6 rounded border border-white/10 bg-[#0d141c] px-1 text-right text-xs font-semibold normal-case tracking-normal text-slate-100 outline-none transition focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/25;
+    @apply h-6 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-1 text-right text-xs font-semibold normal-case tracking-normal text-[var(--text-primary)] outline-none transition focus:border-[var(--ui-focus)] focus:ring-1 focus:ring-[var(--ui-selection)];
   }
 
   .chart-object-floating-label-input {
-    @apply h-8 w-32 rounded border border-white/10 bg-black/35 px-2 text-xs font-semibold text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/30;
+    @apply h-8 w-32 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-semibold text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--ui-focus)] focus:ring-1 focus:ring-[var(--ui-selection)];
   }
 
   .drawing-preset-controls {
-    @apply flex h-8 min-w-0 items-center gap-1 rounded border border-white/10 bg-black/20 p-0.5;
+    @apply flex h-8 min-w-0 items-center gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-0.5;
   }
 
   .drawing-preset-controls .themed-select-trigger {
@@ -2789,7 +2789,7 @@ button:disabled {
   }
 
   .preset-apply-trigger {
-    @apply flex h-full min-h-0 w-full min-w-0 items-center justify-between gap-2 rounded px-2 text-left text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500 disabled:hover:bg-transparent;
+    @apply flex h-full min-h-0 w-full min-w-0 items-center justify-between gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--ui-pressed)] disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:hover:bg-transparent;
   }
 
   .preset-apply-trigger span {
@@ -2797,7 +2797,7 @@ button:disabled {
   }
 
   .preset-apply-menu {
-    @apply absolute left-0 top-[calc(100%+6px)] z-[80] max-h-64 w-72 overflow-auto rounded-md border border-white/10 bg-[#0b1118] p-1 shadow-panel;
+    @apply absolute left-0 top-[calc(100%+6px)] z-[80] max-h-64 w-72 overflow-auto rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] p-1 shadow-[var(--elevation-floating)];
   }
 
   .preset-apply-row {
@@ -2805,15 +2805,15 @@ button:disabled {
   }
 
   .preset-apply-row-active {
-    @apply border-cyan-300/15 bg-cyan-300/10;
+    @apply border-[var(--ui-border-subtle)] bg-[var(--ui-selection)];
   }
 
   .preset-apply-option {
-    @apply flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06] hover:text-white;
+    @apply flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
   }
 
   .preset-apply-delete {
-    @apply grid min-h-10 w-9 shrink-0 place-items-center rounded text-rose-200 transition hover:bg-rose-300/15 hover:text-rose-100;
+    @apply grid min-h-10 w-9 shrink-0 place-items-center rounded text-[var(--loss-text)] transition hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)];
   }
 
   .chart-object-floating-picker {
@@ -2825,11 +2825,11 @@ button:disabled {
   }
 
   .position-color-controls {
-    @apply flex h-8 items-center gap-1 rounded border border-white/10 bg-black/20 p-0.5;
+    @apply flex h-8 items-center gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-0.5;
   }
 
   .position-color-control {
-    @apply flex h-7 items-center gap-1 rounded bg-white/[0.03] pl-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500;
+    @apply flex h-7 items-center gap-1 rounded bg-[var(--ui-hover)] pl-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)];
   }
 
   .position-color-control .themed-color-picker {
@@ -2850,45 +2850,45 @@ button:disabled {
   }
 
   .chart-object-floating-style {
-    @apply flex h-8 items-center gap-0.5 rounded border border-white/10 bg-black/20 p-0.5;
+    @apply flex h-8 items-center gap-0.5 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-0.5;
   }
 
   .chart-object-floating-style button,
   .chart-object-floating-button {
-    @apply grid h-7 w-7 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-white;
+    @apply grid h-7 w-7 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--ui-pressed)] hover:text-[var(--text-primary)];
   }
 
   .chart-object-floating-style button.active,
   .chart-object-floating-button.active {
-    @apply bg-cyan-300/15 text-cyan-100;
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-object-floating-toggle {
-    @apply flex h-8 items-center gap-2 rounded border border-white/10 bg-black/20 px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+    @apply flex h-8 items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-pressed)] hover:text-[var(--text-primary)];
   }
 
   .chart-object-floating-toggle.active {
-    @apply border-cyan-300/20 bg-cyan-300/15 text-cyan-100;
+    @apply border-[var(--ui-border-strong)] bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-object-floating-button.active-warn {
-    @apply bg-amber-300/15 text-amber-100;
+    @apply bg-[var(--warning-soft)] text-[var(--warning-text)];
   }
 
   .chart-object-floating-button.danger {
-    @apply text-rose-200 hover:bg-rose-300/15 hover:text-rose-100;
+    @apply text-[var(--loss-text)] hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)];
   }
 
   .chart-object-floating-toggle.danger {
-    @apply text-rose-200 hover:bg-rose-300/15 hover:text-rose-100;
+    @apply text-[var(--loss-text)] hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)];
   }
 
   .chart-object-floating-button:disabled {
-    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400;
+    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-secondary)];
   }
 
   .chart-object-floating-toggle:disabled {
-    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400;
+    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--text-secondary)];
   }
 
   .line-preview {
@@ -2896,7 +2896,7 @@ button:disabled {
   }
 
   .chart-object-floating-width {
-    @apply flex h-8 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-[10px] font-bold tabular-nums text-slate-400;
+    @apply flex h-8 items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-[10px] font-bold tabular-nums text-[var(--text-secondary)];
   }
 
   .indicator-floating-width-wide {
@@ -2904,27 +2904,27 @@ button:disabled {
   }
 
   .chart-object-floating-width input {
-    @apply h-1.5 w-14 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-300;
+    @apply h-1.5 w-14 cursor-pointer appearance-none rounded-full bg-[var(--ui-pressed)] accent-[var(--accent-primary)];
   }
 
   .indicator-floating-actions {
-    @apply flex w-full flex-wrap items-center gap-2 border-t border-white/10 pt-2;
+    @apply flex w-full flex-wrap items-center gap-2 border-t border-[var(--ui-border-subtle)] pt-2;
   }
 
   .fib-level-editor {
-    @apply grid min-w-0 max-w-full w-[min(780px,calc(100vw-48px))] gap-2 rounded border border-cyan-300/15 bg-black/25 p-2;
+    @apply grid min-w-0 max-w-full w-[min(780px,calc(100vw-48px))] gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-2;
   }
 
   .fib-level-editor-header {
-    @apply flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
+    @apply flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)];
   }
 
   .fib-level-editor-header .fib-icon-button {
-    @apply grid h-7 w-7 place-items-center rounded border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-white;
+    @apply grid h-7 w-7 place-items-center rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-hover)] text-[var(--text-secondary)] transition hover:bg-[var(--ui-pressed)] hover:text-[var(--text-primary)];
   }
 
   .fib-level-editor-header .fib-icon-button:disabled {
-    @apply cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5 hover:text-slate-400;
+    @apply cursor-not-allowed opacity-40 hover:border-[var(--ui-border-subtle)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-secondary)];
   }
 
   .fib-preset-controls {
@@ -2932,7 +2932,7 @@ button:disabled {
   }
 
   .fib-preset-name {
-    @apply h-7 w-32 rounded border border-white/10 bg-black/30 px-2 text-xs font-semibold normal-case tracking-normal text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
+    @apply h-7 w-32 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-semibold normal-case tracking-normal text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--ui-focus)] focus:ring-1 focus:ring-[var(--ui-selection)];
   }
 
   .fib-preset-controls .themed-select-trigger {
@@ -2940,15 +2940,15 @@ button:disabled {
   }
 
   .fib-extend-row {
-    @apply flex min-w-0 flex-wrap items-center gap-2 rounded border border-white/10 bg-black/15 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
+    @apply flex min-w-0 flex-wrap items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)];
   }
 
   .fib-level-extend {
-    @apply inline-flex h-7 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-300;
+    @apply inline-flex h-7 items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-semibold text-[var(--text-secondary)];
   }
 
   .fib-level-extend input {
-    @apply h-3.5 w-3.5 accent-cyan-300;
+    @apply h-3.5 w-3.5 accent-[var(--accent-primary)];
   }
 
   .fib-level-grid {
@@ -2956,11 +2956,11 @@ button:disabled {
   }
 
   .fib-level-row {
-    @apply grid min-w-[720px] grid-cols-[18px_116px_72px_92px_136px_minmax(92px,1fr)_24px] items-center gap-2 rounded bg-white/[0.03] px-2 py-1;
+    @apply grid min-w-[720px] grid-cols-[18px_116px_72px_92px_136px_minmax(92px,1fr)_24px] items-center gap-2 rounded bg-[var(--ui-hover)] px-2 py-1;
   }
 
   .fib-level-row > input[type="checkbox"] {
-    @apply h-3.5 w-3.5 accent-cyan-300;
+    @apply h-3.5 w-3.5 accent-[var(--accent-primary)];
   }
 
   .fib-level-color {
@@ -2972,7 +2972,7 @@ button:disabled {
   }
 
   .fib-level-value {
-    @apply h-7 min-w-0 w-full rounded border border-white/10 bg-black/30 px-2 text-xs font-bold tabular-nums text-slate-100 outline-none focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
+    @apply h-7 min-w-0 w-full rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-bold tabular-nums text-[var(--text-primary)] outline-none focus:border-[var(--ui-focus)] focus:ring-1 focus:ring-[var(--ui-selection)];
   }
 
   .fib-level-style {
@@ -2984,31 +2984,31 @@ button:disabled {
   }
 
   .fib-level-opacity {
-    @apply flex h-7 min-w-0 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-[10px] font-bold tabular-nums text-slate-400;
+    @apply flex h-7 min-w-0 items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-[10px] font-bold tabular-nums text-[var(--text-secondary)];
   }
 
   .fib-level-opacity input {
-    @apply h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-300;
+    @apply h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-[var(--ui-pressed)] accent-[var(--accent-primary)];
   }
 
   .fib-level-price {
-    @apply truncate text-right text-[10px] font-bold tabular-nums text-slate-400;
+    @apply truncate text-right text-[10px] font-bold tabular-nums text-[var(--text-secondary)];
   }
 
   .fib-level-remove-button {
-    @apply grid h-6 w-6 place-items-center rounded text-slate-500 transition hover:bg-rose-300/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-35;
+    @apply grid h-6 w-6 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)] disabled:cursor-not-allowed disabled:opacity-35;
   }
 
   .chart-side-panel {
-    @apply min-w-0 rounded-md border border-white/10 bg-[#090d12] shadow-panel;
+    @apply min-w-0 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] shadow-[var(--elevation-raised)];
   }
 
   .collapsed-layers-panel {
-    @apply flex min-h-[568px] min-w-0 flex-col items-center gap-2 rounded-md border border-white/10 bg-[#090d12] px-2 py-3 shadow-panel;
+    @apply flex min-h-[568px] min-w-0 flex-col items-center gap-2 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] px-2 py-3 shadow-[var(--elevation-raised)];
   }
 
   .chart-object-row {
-    @apply flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-400 transition;
+    @apply flex min-w-0 items-center gap-3 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 py-2 text-xs text-[var(--text-secondary)] transition;
   }
 
   .indicator-object-row {
@@ -3025,11 +3025,11 @@ button:disabled {
   }
 
   .indicator-object-action {
-    @apply inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-2 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300;
+    @apply inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-2 outline-none transition hover:bg-[var(--ui-pressed)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
   }
 
   .indicator-object-settings {
-    @apply mt-2 min-w-0 space-y-3 border-t border-white/10 pt-2;
+    @apply mt-2 min-w-0 space-y-3 border-t border-[var(--ui-border-subtle)] pt-2;
   }
 
   .indicator-object-settings label {
@@ -3043,11 +3043,11 @@ button:disabled {
   }
 
   .chart-object-row-active {
-    @apply border-cyan-300/25 bg-cyan-300/10;
+    @apply border-[var(--accent-primary)] bg-[var(--ui-selection)];
   }
 
   .chart-object-row-selected {
-    @apply border-amber-300/50 bg-amber-300/10 text-amber-50 shadow-[inset_0_0_0_1px_rgba(252,211,77,0.12)];
+    @apply border-[var(--warning-text)] bg-[var(--warning-soft)] text-[var(--warning-text)] shadow-none;
   }
 
   .drawing-object-row,
@@ -3057,32 +3057,23 @@ button:disabled {
 
   .drawing-symbol-cell,
   .object-symbol-cell {
-    @apply relative grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 bg-white/5;
+    @apply relative grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-hover)];
   }
 
   .drawing-row-actions {
-    @apply ml-auto flex shrink-0 items-center gap-1 text-slate-500;
+    @apply ml-auto flex shrink-0 items-center gap-1 text-[var(--text-secondary)];
   }
 
-  .drawing-hover-options {
-    @apply pointer-events-none absolute left-10 top-0 z-40 grid w-[244px] translate-x-1 gap-2 rounded-md border border-white/10 bg-[#080c11] p-2 text-left opacity-0 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur transition;
-  }
-
-  .object-row-with-hover:hover .drawing-hover-options,
-  .object-row-with-hover:focus-within .drawing-hover-options,
-  .drawing-symbol-cell:hover .drawing-hover-options,
-  .drawing-symbol-cell:focus-within .drawing-hover-options,
-  .object-symbol-cell:hover .drawing-hover-options,
-  .object-symbol-cell:focus-within .drawing-hover-options {
-    @apply pointer-events-auto translate-x-0 opacity-100;
+  .drawing-settings-popover {
+    @apply z-[var(--layer-popover)] grid gap-3 rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-floating)] p-3 text-left text-[var(--text-primary)] shadow-[var(--elevation-floating)];
   }
 
   .object-setting-field {
-    @apply grid gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
+    @apply grid gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)];
   }
 
   .object-setting-field input[type="range"] {
-    @apply h-1.5 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-300;
+    @apply h-1.5 cursor-pointer appearance-none rounded-full bg-[var(--ui-pressed)] accent-[var(--accent-primary)];
   }
 
 }

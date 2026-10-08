@@ -76,8 +76,9 @@ test("Label accepts ordinary Space without selecting its parent drawing row",asy
   const state = await fixture(page);
   const row = page.locator(".drawing-object-row").nth(0);
   await expect(row).toContainText("Audit Fib");
-  await row.hover();
-  const label = row.getByRole("textbox",{name:"Label",exact:true});
+  await row.getByRole("button",{name:"Settings for drawing Audit Fib",exact:true}).click();
+  const popupId = await row.getByRole("button",{name:"Settings for drawing Audit Fib",exact:true}).getAttribute("aria-controls");
+  const label = page.locator(`[id="${popupId}"]`).getByRole("textbox",{name:"Label",exact:true});
   await label.fill("Entry"); await label.press("End"); await label.press("Space"); await label.pressSequentially("zone");
   await expect(label).toHaveValue("Entry zone");
   await expect.poll(async()=> (await layout(page)).drawings.find((d:any)=>d.id==="audit-fib").label).toBe("Entry zone");
@@ -177,12 +178,14 @@ test("Drawing row keyboard selects only the row; nested layer actions retain sel
   const line=page.locator(".drawing-object-row").filter({hasText:"Audit Line"});
   await fib.focus(); await fib.press("Enter"); await expect(fib).toHaveClass(/chart-object-row-selected/);
   await line.focus(); await line.press("Space"); await expect(line).toHaveClass(/chart-object-row-selected/);
-  const action=fib.getByRole("button",{name:"Bring to front: Audit Fib",exact:true});
+  await fib.getByRole("button",{name:"Settings for drawing Audit Fib",exact:true}).click();
+  const popup=page.getByRole("dialog",{name:"Drawing settings for Audit Fib",exact:true});
+  const action=popup.getByRole("button",{name:"Bring to front: Audit Fib",exact:true});
   await action.focus(); await action.press("Space");
   await expect(line).toHaveClass(/chart-object-row-selected/);
   await expect(fib).not.toHaveClass(/chart-object-row-selected/);
   await expect.poll(async()=> (await layout(page)).drawings.at(-1).id).toBe("audit-fib");
-  const back=fib.getByRole("button",{name:"Send to back: Audit Fib",exact:true});
+  const back=popup.getByRole("button",{name:"Send to back: Audit Fib",exact:true});
   await back.focus(); await back.press("Enter");
   await expect(line).toHaveClass(/chart-object-row-selected/);
   await expect.poll(async()=> (await layout(page)).drawings[0].id).toBe("audit-fib");

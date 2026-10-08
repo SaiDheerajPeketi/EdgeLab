@@ -1,6 +1,6 @@
 import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Activity,
   ArrowDown,
@@ -48,6 +48,7 @@ import { pineSourceVersion } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 import { DockedWorkspacePanel } from "./ui/WorkspacePanelManager";
 import { useRestorableSurfaceState, type RestorableStateSchema } from "../lib/useRestorableSurfaceState";
 
@@ -243,7 +244,7 @@ export function ChartObjectsPanel({
               const Icon = drawingIcons[drawing.tool];
               return (
                 <div
-                  className={`chart-object-row drawing-object-row object-row-with-hover ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
+                  className={`chart-object-row drawing-object-row ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
                   key={drawing.id}
                   draggable={!drawing.locked && Boolean(onReorderDrawing)}
                   onDragStart={(event) => {
@@ -273,14 +274,6 @@ export function ChartObjectsPanel({
                     style={{ color: drawing.color }}
                   >
                     <Icon size={15} />
-                    <DrawingHoverControls
-                      drawing={drawing}
-                      onChange={(patch) => onUpdateDrawing({ ...drawing, ...patch })}
-                      onDelete={() => {
-                        onDeleteDrawing(drawing.id);
-                        onSelectDrawing(null);
-                      }}
-                    />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold capitalize text-slate-100">
@@ -302,29 +295,15 @@ export function ChartObjectsPanel({
                     {onReorderDrawing ? <GripVertical aria-hidden="true" size={13} /> : null}
                     {drawing.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
                     {drawing.locked ? <LockKeyhole size={13} /> : null}
-                    {onMoveDrawingLayer && !drawing.locked ? (
-                      <span className="flex items-center gap-0.5" role="group" aria-label={`Layer order for ${drawing.label || drawing.tool}`}>
-                        {([
-                          ["back", ArrowDownToLine, "Send to back"],
-                          ["backward", ArrowDown, "Move backward"],
-                          ["forward", ArrowUp, "Move forward"],
-                          ["front", ArrowUpToLine, "Bring to front"],
-                        ] as const).map(([action, ActionIcon, label]) => (
-                          <button
-                            aria-label={`${label}: ${drawing.label || drawing.tool}`}
-                            className="grid h-6 w-6 place-items-center rounded text-slate-400 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300"
-                            key={action}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onMoveDrawingLayer(drawing.id, action);
-                            }}
-                            type="button"
-                          >
-                            <ActionIcon size={11} />
-                          </button>
-                        ))}
-                      </span>
-                    ) : null}
+                    <DrawingSettingsControls
+                      drawing={drawing}
+                      onChange={(patch) => onUpdateDrawing({ ...drawing, ...patch })}
+                      onDelete={() => {
+                        onDeleteDrawing(drawing.id);
+                        onSelectDrawing(null);
+                      }}
+                      onMoveLayer={onMoveDrawingLayer ? (action) => onMoveDrawingLayer(drawing.id, action) : undefined}
+                    />
                   </div>
                 </div>
               );
@@ -352,15 +331,22 @@ function formatDrawingTime(time: number) {
   });
 }
 
-function DrawingHoverControls({
+function DrawingSettingsControls({
   drawing,
   onChange,
   onDelete,
+  onMoveLayer,
 }: {
   drawing: ChartDrawing;
   onChange: (patch: Partial<ChartDrawing>) => void;
   onDelete: () => void;
+  onMoveLayer?: (action: "back" | "backward" | "forward" | "front") => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const settingsId = useId();
+  const name = drawing.label || drawing.tool;
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
   const labelBackgroundOpacity = Math.round(
     (drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY) * 100,
@@ -370,17 +356,85 @@ function DrawingHoverControls({
   const canDelete = !drawing.locked;
   const hasRenderedLabel = drawing.tool === "text" || Boolean(drawing.label?.trim());
 
+  useEffect(() => {
+    if (!open) return;
+    const ownerWindow = triggerRef.current?.ownerDocument.defaultView ?? window;
+    const frame = ownerWindow.requestAnimationFrame(() => {
+      if (triggerRef.current?.ownerDocument.activeElement === triggerRef.current) {
+        surfaceRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      }
+    });
+    return () => ownerWindow.cancelAnimationFrame(frame);
+  }, [open]);
+
+  function remove() {
+    if (!canDelete) return;
+    const panel = triggerRef.current?.closest(".chart-side-panel");
+    const triggers = Array.from(panel?.querySelectorAll<HTMLButtonElement>("[data-drawing-settings-trigger]") ?? []).filter((trigger) => trigger.isConnected);
+    const index = triggers.indexOf(triggerRef.current!);
+    const fallback = triggers[index + 1] ?? triggers[index - 1] ?? panel?.querySelector<HTMLButtonElement>('[aria-label="Collapse chart objects"]');
+    fallback?.focus({ preventScroll: true });
+    setOpen(false);
+    onDelete();
+  }
+
   return (
+    <>
+      <button
+        aria-controls={settingsId}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={`Settings for drawing ${name}`}
+        className="indicator-object-action text-[var(--text-secondary)]"
+        data-drawing-settings-trigger="true"
+        draggable={false}
+        onClick={(event) => { event.stopPropagation(); setOpen((current) => !current); }}
+        onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); }
+          event.stopPropagation();
+        }}
+        onPointerDown={(event) => event.stopPropagation()}
+        ref={triggerRef}
+        title={`Settings for drawing ${name}`}
+        type="button"
+      ><Settings2 aria-hidden="true" size={16} /></button>
+      <OverlaySurface
+        align="right"
+        anchorRef={triggerRef}
+        ariaLabel={`Drawing settings for ${name}`}
+        className="drawing-settings-popover"
+        estimatedHeight={560}
+        id={settingsId}
+        onDismiss={() => setOpen(false)}
+        onKeyDown={(event) => {
+          // Nested portal menus keep their own Escape handler and overlay stack.
+          if (!surfaceRef.current?.contains(event.target as Node)) return;
+          if (event.key === "Escape" && !event.defaultPrevented) {
+            event.preventDefault();
+            setOpen(false);
+          }
+          event.stopPropagation();
+        }}
+        open={open}
+        preferredWidth={320}
+        role="dialog"
+        surfaceRef={surfaceRef}
+      >
     <div
-      className="drawing-hover-options"
+      className="drawing-settings-content grid gap-3"
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
-      role="group"
+      onPointerDown={(event) => event.stopPropagation()}
     >
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 text-sm font-semibold text-[var(--text-primary)]">Drawing settings</span>
+        <button aria-label={`Close settings for drawing ${name}`} className="indicator-object-action text-[var(--text-secondary)]" onClick={() => setOpen(false)} type="button"><X aria-hidden="true" size={16} /></button>
+      </div>
       <label className="object-setting-field">
         <span>Label</span>
         <input
-          className="input-control h-9"
+          className="input-control h-11"
           onChange={(event) => onChange({ label: event.target.value })}
           placeholder={`${drawing.tool} label`}
           value={drawing.label ?? ""}
@@ -401,7 +455,8 @@ function DrawingHoverControls({
           <span>Line</span>
           <ThemedSelect
             ariaLabel="Drawing line style"
-            className="h-9"
+            className="h-11"
+            portal
             onChange={(value) => onChange({ lineStyle: value as DrawingLineStyle })}
             options={[
               { label: "Solid", value: "solid" },
@@ -416,7 +471,7 @@ function DrawingHoverControls({
       <label className="object-setting-field">
         <span className="flex items-center justify-between">
           <span>Width</span>
-          <strong className="text-slate-300">{lineWidth.toFixed(1)}</strong>
+          <strong className="text-[var(--text-secondary)]">{lineWidth.toFixed(1)}</strong>
         </span>
         <input
           max={6}
@@ -434,7 +489,7 @@ function DrawingHoverControls({
         <label className="object-setting-field">
           <span className="flex items-center justify-between">
             <span>Fill</span>
-            <strong className="text-slate-300">{fillOpacity}%</strong>
+            <strong className="text-[var(--text-secondary)]">{fillOpacity}%</strong>
           </span>
           <input
             max={60}
@@ -453,7 +508,7 @@ function DrawingHoverControls({
         <label className="object-setting-field">
           <span className="flex items-center justify-between">
             <span>Label BG</span>
-            <strong className="text-slate-300">{labelBackgroundOpacity}%</strong>
+            <strong className="text-[var(--text-secondary)]">{labelBackgroundOpacity}%</strong>
           </span>
           <input
             max={100}
@@ -470,7 +525,7 @@ function DrawingHoverControls({
 
       <div className="grid grid-cols-2 gap-2">
         <button
-          className={`control-button h-9 text-xs ${drawing.visible === false ? "" : "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"}`}
+          className={`control-button h-11 text-xs ${drawing.visible === false ? "" : "border-[var(--ui-focus)] bg-[var(--ui-selection)] text-[var(--text-primary)]"}`}
           onClick={() => onChange({ visible: drawing.visible === false })}
           type="button"
         >
@@ -478,7 +533,7 @@ function DrawingHoverControls({
           {drawing.visible === false ? "Hidden" : "Visible"}
         </button>
         <button
-          className={`control-button h-9 text-xs ${drawing.locked ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : ""}`}
+          className={`control-button h-11 text-xs ${drawing.locked ? "border-[var(--warning-text)] bg-[var(--warning-soft)] text-[var(--warning-text)]" : ""}`}
           onClick={() => onChange({ locked: !drawing.locked })}
           type="button"
         >
@@ -486,14 +541,22 @@ function DrawingHoverControls({
           {drawing.locked ? "Locked" : "Unlocked"}
         </button>
       </div>
+      {onMoveLayer && !drawing.locked ? (
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label={`Layer order for ${name}`}>
+          {([
+            ["back", ArrowDownToLine, "Send to back"],
+            ["backward", ArrowDown, "Move backward"],
+            ["forward", ArrowUp, "Move forward"],
+            ["front", ArrowUpToLine, "Bring to front"],
+          ] as const).map(([action, ActionIcon, label]) => (
+            <button aria-label={`${label}: ${name}`} className="control-button min-h-11 text-xs" key={action} onClick={() => onMoveLayer(action)} type="button"><ActionIcon aria-hidden="true" size={14} />{label}</button>
+          ))}
+        </div>
+      ) : null}
       <button
-        className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100"
+        className="control-button h-11 border-[var(--loss-text)] bg-[var(--loss-soft)] text-xs text-[var(--loss-text)]"
         disabled={!canDelete}
-        onClick={() => {
-          if (canDelete) {
-            onDelete();
-          }
-        }}
+        onClick={remove}
         title={canDelete ? "Delete drawing" : "Unlock drawing to delete"}
         type="button"
       >
@@ -501,6 +564,8 @@ function DrawingHoverControls({
         Delete
       </button>
     </div>
+      </OverlaySurface>
+    </>
   );
 }
 
@@ -543,8 +608,8 @@ function IndicatorObjectRow({ indicator, onRemove, onToggleVisibility, onUpdate 
   };
   return <div className={`chart-object-row indicator-object-row text-left ${visible ? "chart-object-row-active" : ""}`}>
     <div className="indicator-object-header">
-      <span aria-hidden="true" className="object-symbol-cell" style={{ color: settings.color }}>
-        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: settings.color }} />
+      <span aria-hidden="true" className={`object-symbol-cell ${native ? "text-[var(--text-secondary)]" : ""}`} style={native ? undefined : { color: settings.color }}>
+        {native ? <Activity size={15} /> : <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: settings.color }} />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="indicator-object-name block text-sm font-semibold leading-5 text-slate-100">{name}</span>
