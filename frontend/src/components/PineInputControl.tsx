@@ -1,7 +1,8 @@
+import { pineInputActive } from "../lib/pineInputActivation";
 import type { PineInputDefinition, PineInputValue } from "../lib/pineProtocol";
 
-export function PineInputControl({ definition, value, onChange }: {
-  definition: PineInputDefinition;
+export function PineInputControl({ definition, definitions = [definition], inputs = {}, value, onChange }: {
+  definition: PineInputDefinition; definitions?: PineInputDefinition[]; inputs?: Record<string, PineInputValue>;
   value?: PineInputValue;
   onChange: (value: PineInputValue) => void;
 }) {
@@ -9,7 +10,7 @@ export function PineInputControl({ definition, value, onChange }: {
   const numeric = ["int", "float", "price", "time"].includes(definition.type);
   const options = definition.options ?? (definition.type === "source"
     ? ["open", "high", "low", "close", "hl2", "hlc3", "ohlc4", "hlcc4"] : undefined);
-  const disabled = definition.active === false;
+  const disabled = !pineInputActive(definition, definitions, inputs);
   return <label className="grid min-w-0 gap-1.5 text-xs text-slate-300" title={definition.tooltip}>
     <span>{definition.title || definition.name}{definition.group ? <span className="ml-2 text-slate-400">{definition.group}</span> : null}</span>
     {definition.type === "bool" ? <input checked={current === true} className="h-4 w-4 accent-cyan-300" disabled={disabled} onChange={(event) => onChange(event.target.checked)} type="checkbox" />

@@ -1,3 +1,5 @@
+import { validatePineInputCondition, pineInputConditionReferences, pineInputActive } from "./pineInputActivation";
+import type { PineInputCondition } from "./pineInputActivation";
 import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
@@ -9,7 +11,7 @@ export type PineDiagnostic = { code: string; message: string; severity: "warning
 export type PineInputDefinition = {
   id: string; name: string; type: string; defval: PineScalar;
   varId?: string; title?: string; tooltip?: string; group?: string; display?: string;
-  active?: boolean; confirm?: boolean; inline?: string; options?: PineScalar[];
+  active?: boolean; activeCondition?: PineInputCondition; confirm?: boolean; inline?: string; options?: PineScalar[];
   minval?: number; maxval?: number; step?: number;
 };
 export type PineStrategySettings = {
@@ -221,6 +223,9 @@ function inputDefinition(value: unknown): PineInputDefinition {
   for (const key of ["varId", "title", "tooltip", "group", "display", "inline"] as const) if (raw[key] !== undefined) result[key] = string(raw[key]);
   for (const key of ["active", "confirm"] as const) if (raw[key] !== undefined) result[key] = bool(raw[key]);
   for (const key of ["minval", "maxval", "step"] as const) if (raw[key] !== undefined) result[key] = finite(raw[key]);
+  if (raw.activeCondition !== undefined) {
+    try { result.activeCondition = validatePineInputCondition(raw.activeCondition); } catch { fail("Invalid Pine input activation metadata."); }
+  }
   if (raw.options !== undefined) result.options = array(raw.options, 128).map(scalar);
   return result;
 }
@@ -251,6 +256,12 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
+  for (const [index, definition] of inputDefinitions.entries()) {
+    if (definition.activeCondition && pineInputConditionReferences(definition.activeCondition).some((id) => !inputDefinitions.slice(0, index).some((item) => item.id === id))) fail("Pine input activation must reference an earlier declared input.");
+    if (definition.activeCondition) {
+      try { pineInputActive(definition, inputDefinitions, {}); } catch { fail("Pine input activation must be a boolean expression with compatible operands."); }
+    }
+  }
   const diagnostics = array(raw.diagnostics, PINE_LIMITS.diagnostics).map((item): PineDiagnostic => {
     const entry = record(item), line = finite(entry.line), column = finite(entry.column);
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");

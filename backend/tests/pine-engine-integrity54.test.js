@@ -39,8 +39,8 @@ test("reviewed sources and pristine reference resolve independently without pack
   const f = fixture();
   const patched = readPineEngineSources(f);
   const original = readPineEngineSources({ ...f, patched: false });
-  assert.equal(f.manifest.overrides.length, 14);
-  for (const source of ["src/namespaces/strategy/utils.ts", "src/namespaces/strategy/methods/entry.ts", "src/namespaces/strategy/methods/exit.ts", "src/namespaces/strategy/methods/cancel_all.ts"]) {
+  assert.equal(f.manifest.overrides.length, 16);
+  for (const source of ["src/transpiler/pineToJS/inputs/analyzeInputs.ts", "src/Indicator/scanInputs.ts", "src/namespaces/strategy/utils.ts", "src/namespaces/strategy/methods/entry.ts", "src/namespaces/strategy/methods/exit.ts", "src/namespaces/strategy/methods/cancel_all.ts"]) {
     assert.ok(f.manifest.overrides.some((override) => override.source === source));
     assert.notEqual(patched.get(source), original.get(source));
   }

@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse } from "../lib/pineProtocol";
@@ -34,6 +35,10 @@ function definitions(indicator: Indicator): PineInputDefinition[] {
     for (const key of ["varId", "title", "tooltip", "group", "display", "inline", "active", "confirm", "minval", "maxval", "step"] as const) {
       const val = item[key];
       if (val !== undefined) Object.assign(definition, { [key]: plainScalar(val) });
+    }
+    const condition = (item as typeof item & { activeCondition?: unknown }).activeCondition;
+    if (condition !== undefined) {
+      try { definition.activeCondition = validatePineInputCondition(condition); } catch { error("UNSUPPORTED_INPUT", "Input activation exceeds supported expression limits."); }
     }
     if (item.options) definition.options = item.options.map(plainScalar);
     return definition;
@@ -751,6 +756,9 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   for (const [key, value] of Object.entries(settings)) indicator.prop[key] = value;
   const inputDefinitions = definitions(indicator);
   const inputs = runtimeInputs(request, inputDefinitions);
+  for (const definition of inputDefinitions) if (definition.activeCondition) {
+    try { definition.active = pineInputActive(definition, inputDefinitions, inputs); } catch { error("UNSUPPORTED_INPUT", "Input activation must resolve to a supported boolean expression."); }
+  }
   const parsedLayer = indicator.prop.behind_chart;
   if (parsedLayer !== undefined && typeof parsedLayer !== "boolean" && typeof parsedLayer !== "string") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
   if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");

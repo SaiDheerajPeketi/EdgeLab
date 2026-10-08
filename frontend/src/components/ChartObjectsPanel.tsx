@@ -1,3 +1,4 @@
+import { usePineInputMetadata } from "../lib/usePineInputMetadata";
 import { useId, useRef, useState } from "react";
 import {
   Activity,
@@ -576,7 +577,7 @@ function IndicatorSettingsControls({
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const isVwap = indicator.kind === "vwap";
   const native = indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "");
-  const prepared = native ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+  const prepared = usePineInputMetadata(native ? indicator.customScriptSource : undefined, native ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined);
 
   return (
     <div
@@ -587,7 +588,7 @@ function IndicatorSettingsControls({
       role="group"
     >
       {native ? <div className="grid min-w-0 gap-3">
-        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={settings.customInputs} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
         {!prepared ? <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-slate-300">No configurable Pine inputs.</p> : null}
       </div> : (
         <>

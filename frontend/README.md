@@ -218,3 +218,5 @@ The browser build generates `/source/` with the matching frontend/backend applic
 Chart settings templates use acknowledged, atomic save/delete/selection commands. Failed operations retain the current chart and editable name with retry feedback; a late reply cannot apply a template over newer chart edits or close a reopened dialog. Other template actions are blocked while one is pending.
 
 Modern settings menus use the shared themed combobox with keyboard selection, typeahead, and Escape dismissal. Chart, journal, and backtest menus remain disabled until their owning settings have loaded; compatibility settings retain native selects. Appearance stages chart colors and controls settings density.
+
+Pine input activation follows current custom inputs immediately in the editor and all chart input settings. Checkbox, option, numeric and constant-alias conditions keep inactive values intact. The reviewed scanner emits bounded data-only expressions; unsupported activation expressions report a compile error. Older saved activation metadata is refreshed in the isolated worker when its settings are opened, preserving authored source and selected values.

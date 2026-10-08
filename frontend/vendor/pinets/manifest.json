@@ -93,6 +93,18 @@
       "file": "overrides/namespaces/strategy/methods/cancel_all.ts",
       "upstreamSha256": "04db29ab75e1009da5b0b7e67574931fef4f9d3b236467a4b9efbd806f5952b0",
       "sha256": "de83f6b187599ee43d16fd290a9a4d52e35a83f74631d310668bfd54613f6bdb"
+    },
+    {
+      "source": "src/transpiler/pineToJS/inputs/analyzeInputs.ts",
+      "file": "overrides/transpiler/pineToJS/inputs/analyzeInputs.ts",
+      "upstreamSha256": "f6a75e0b4a9250a8115c2efecf0a26162cac7f519f43f5ee35ca4974f81bd940",
+      "sha256": "bb9401e7aa893814140767ca73173bfdc1892aeecde9833a12ff2d673920ac0a"
+    },
+    {
+      "source": "src/Indicator/scanInputs.ts",
+      "file": "overrides/Indicator/scanInputs.ts",
+      "upstreamSha256": "fc9dac44f500801fd8bf820dc986253098935d376cb03b61712e7b195022408a",
+      "sha256": "8a859ca9085f28c18a5bbcabb5a24293631ae96b5ce640107c7de89cc6021bb0"
     }
   ]
 }

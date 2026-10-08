@@ -1,3 +1,4 @@
+import { usePineInputMetadata } from "../lib/usePineInputMetadata";
 import {
   Activity,
   AreaChart,
@@ -1895,7 +1896,7 @@ function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
   const disclosureId = useId();
   const name = indicatorDisplayName(indicator);
   const source = indicator.customScriptSource!;
-  const prepared = sanitizePinePrepared(indicator.customPinePrepared, source);
+  const prepared = usePineInputMetadata(source, sanitizePinePrepared(indicator.customPinePrepared, source));
   let version: number | undefined = prepared?.pineVersion;
   if (version === undefined) { try { version = pineSourceVersion(source); } catch { /* Unsupported source stays native. */ } }
   const close = () => { setExpanded(false); trigger.current?.focus({ preventScroll: true }); };
@@ -1914,7 +1915,7 @@ function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
         <button aria-label={`Close inputs for ${name}`} className="study-action-button" onClick={close} type="button"><X aria-hidden="true" size={14} /></button>
       </div>
       <div className="native-study-input-list">
-        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definition={definition} value={indicator.settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...indicator.settings.customInputs, [definition.id]: value } })} />)}
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={indicator.settings.customInputs} definition={definition} value={indicator.settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...indicator.settings.customInputs, [definition.id]: value } })} />)}
         {!prepared ? <div className="grid min-w-0 gap-2">
           <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p>
           {onEdit ? <button className="study-action-button justify-start px-2 text-cyan-100" onClick={onEdit} type="button">Open saved script in editor</button> : null}

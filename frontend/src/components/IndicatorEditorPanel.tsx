@@ -1,3 +1,4 @@
+import { usePineInputMetadata } from "../lib/usePineInputMetadata";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import {
@@ -122,7 +123,7 @@ export function IndicatorEditorPanel({
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
   const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
-  const currentPrepared = prepared?.source === source ? prepared : null;
+  const currentPrepared = usePineInputMetadata(pine ? source : undefined, prepared?.source === source ? prepared : undefined);
   let strategySettingsError: string | null = null;
   try { validatePineStrategySettings(strategySettings); } catch (cause) { strategySettingsError = cause instanceof Error ? cause.message : "Check your strategy test settings."; }
   const canSave = !strategySettingsError && (pine ? Boolean(currentPrepared) : Boolean(parsed.program));
@@ -502,7 +503,7 @@ export function IndicatorEditorPanel({
             </div>
             <h3 className="mt-5 text-sm font-semibold text-white">Generated settings</h3>
             <div className="mt-2 grid gap-3">
-              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={inputs[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
+              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definitions={currentPrepared.inputDefinitions} inputs={inputs} definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={inputs[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
             {currentPrepared?.declaration === "strategy" ? <PineStrategySettingsControl value={strategySettings} onChange={changeStrategySettings} error={strategySettingsError} /> : null}
             {execution?.strategy && executionOwnerRef.current && currentContext(executionOwnerRef.current) ? <PineStrategyResults result={execution} /> : null}

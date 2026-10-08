@@ -1,3 +1,4 @@
+import { usePineInputMetadata } from "../lib/usePineInputMetadata";
 import {
   useEffect,
   useLayoutEffect,
@@ -5611,7 +5612,8 @@ function FloatingIndicatorToolbar({
   const isVwap = indicator.kind === "vwap";
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const nativePine = indicator.kind === "custom" && !!indicator.customScriptSource && isPineScriptSource(indicator.customScriptSource);
-  const pineInputs = nativePine ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!)?.inputDefinitions ?? [] : [];
+  const pinePrepared = usePineInputMetadata(nativePine ? indicator.customScriptSource : undefined, nativePine ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined);
+  const pineInputs = pinePrepared?.inputDefinitions ?? [];
   const customInputs = indicator.kind === "custom" && indicator.customScriptSource && !nativePine
     ? parseEdgeIndicator(indicator.customScriptSource).program?.inputs ?? []
     : [];
@@ -5742,7 +5744,7 @@ function FloatingIndicatorToolbar({
       ) : null}
 
       {nativePine ? <div className="flex max-w-lg flex-wrap gap-3">
-        {pineInputs.map((definition) => <PineInputControl key={definition.id} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onChange({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {pineInputs.map((definition) => <PineInputControl key={definition.id} definitions={pineInputs} inputs={settings.customInputs} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onChange({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
       {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}
