@@ -1,5 +1,5 @@
 import type { Candle } from "./api";
-import type { PineExecutionResult, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PinePlot, PineScalar } from "./pineProtocol";
+import type { PineExecutionResult, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PinePlot, PineScalar } from "./pineProtocol";
 import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 import { PineLinePrimitive } from "./pineLinePrimitive";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
@@ -10,7 +10,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor" | "drawing_line";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  drawing?: { lines: readonly PineLineDrawing[]; lineFills?: readonly PineLineFillDrawing[]; boxes?: readonly PineBoxDrawing[]; bars: readonly Candle[] };
+  drawing?: { lines: readonly PineLineDrawing[]; lineFills?: readonly PineLineFillDrawing[]; boxes?: readonly PineBoxDrawing[]; labels?: readonly PineLabelDrawing[]; bars: readonly Candle[] };
   visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot; upperOffset: number; lowerOffset: number } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
@@ -290,11 +290,12 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     if (!visual && optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== plot.options.linewidth)) warn("Per-point line width is not supported; the declared plot width is used.");
     return [{ id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, kind, color: baseColor, width: Math.max(1, Math.min(4, Math.round(declaredWidth))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: ["circles", "cross"].includes(style), base: number(plot.options.histbase, 0), segments: nonempty, markers, visual }];
   });
-  if (result.lines?.length || result.lineFills?.length || result.boxes?.length) {
+  if (result.lines?.length || result.lineFills?.length || result.boxes?.length || result.labels?.length) {
     if (result.audit.bars !== bars.length) warnings.push("Pine drawings require their execution's owned chart snapshot; mismatched drawings were omitted.");
     else for (const overlay of [false, true]) {
       const lines = (result.lines ?? []).filter(line => line.overlay === overlay);
       const boxes = (result.boxes ?? []).filter(box => box.overlay === overlay);
+      const labels = (result.labels ?? []).filter(label => label.overlay === overlay);
       const lineIds = new Set(lines.map(line => line.id));
       const lineFills = (result.lineFills ?? []).filter(fill => fill.overlay === overlay && lineIds.has(fill.line1) && lineIds.has(fill.line2));
       if ((result.lineFills ?? []).some(fill => fill.overlay === overlay && (!lineIds.has(fill.line1) || !lineIds.has(fill.line2)))) warnings.push("Line fills across separate chart panes are not drawn; both boundaries must share a placement.");
@@ -303,15 +304,25 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (boxes.length) warnings.push("Boxes extend horizontal borders while backgrounds and text keep their authored rectangle. Reversed corners, fonts, wrapping and dash metrics use local canvas policies; size.auto uses a 14-pixel default and explicit newlines remain separate; exact TradingView pixels have not been verified.");
       if (boxes.some(box => [box.borderColor, box.bgcolor, box.textColor].some(shade => pineGradientColor(shade) === undefined))) warnings.push("Unsupported box colors are not painted.");
       if (boxes.some(box => box.xloc === "bar_time" && [box.left, box.right].some(time => time !== null && !barsByTime.has(time)))) warnings.push("Box times between loaded candles interpolate chart positions; times outside history use the nearest known interval. Exchange-session time placement has not been verified.");
-      if (!lines.length && !boxes.length) continue;
+      if (labels.length) warnings.push("Label shapes, fonts and padding use local canvas metrics; size.auto uses 12 pixels and omitted colors use blue/white. Oversized glyphs clip to the pane; total label scale padding is capped at 20% of pane height. Exact TradingView pixels have not been verified.");
+      if (labels.some(label => [label.color, label.textColor].some(shade => pineGradientColor(shade) === undefined))) warnings.push("Unsupported label colors are not painted.");
+      if (labels.some(label => label.xloc === "bar_time" && label.x !== null && !barsByTime.has(label.x))) warnings.push("Label times between candles interpolate positions. Above/below-bar labels require an actual referenced candle; missing-session anchors are not fabricated.");
+      if (labels.some(label => label.yloc !== "price" && label.xloc === "bar_index" && label.x !== null && (label.x < 0 || label.x >= bars.length))) warnings.push("Above/below-bar labels outside loaded history have no candle anchor and are not painted.");
+      const behindChart = result.overlay && result.behindChart !== false;
+      const forcedLabels = behindChart ? labels.filter(label => label.forceOverlay) : [];
+      const regularLabels = behindChart ? labels.filter(label => !label.forceOverlay) : labels;
+      if (forcedLabels.length) plots.push({ id: "pine-labels-overlay-front", name: "Labels", overlay: true, behindChart: false,
+        kind: "drawing_line", color: "#2962FF", width: 1, step: false, pointsOnly: false, base: 0, segments: [], markers: [],
+        drawing: { lines: [], labels: forcedLabels, bars } });
+      if (!lines.length && !boxes.length && !regularLabels.length) continue;
       const unsupportedColors = lines.some(line => pineGradientColor(line.color) === undefined);
       if (unsupportedColors) warnings.push("Unsupported line-drawing colors are not painted.");
       if (lines.some(line => line.xloc === "bar_time" && [line.x1, line.x2].some(time => time !== null && !barsByTime.has(time)))) warnings.push("Line times between loaded candles interpolate chart positions; times outside history use the nearest known interval. Exchange-session time placement has not been verified.");
       if (lines.some(line => line.style !== "solid")) warnings.push("Line dashes, dots and arrowheads use local canvas metrics; TradingView pixel calibration has not been verified.");
-      plots.push({ id: `pine-lines-${overlay ? "overlay" : "pane"}`, name: boxes.length ? "Drawings" : "Lines", overlay,
-        behindChart: result.overlay && result.behindChart !== false,
+      plots.push({ id: `pine-lines-${overlay ? "overlay" : "pane"}`, name: boxes.length || regularLabels.length ? "Drawings" : "Lines", overlay,
+        behindChart,
         kind: "drawing_line", color: lines.find(line => line.color !== null)?.color ?? "#2962FF", width: 1,
-        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, boxes, bars } });
+        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, boxes, labels: regularLabels, bars } });
     }
   }
   const strategyMarkers: SeriesMarker<UTCTimestamp>[] = [];

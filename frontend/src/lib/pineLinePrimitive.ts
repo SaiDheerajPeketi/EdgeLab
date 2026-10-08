@@ -1,9 +1,25 @@
-import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, Logical, SeriesAttachedParameter, SeriesType, UTCTimestamp } from "lightweight-charts";
+import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, Logical, MouseEventParams, SeriesAttachedParameter, SeriesType, UTCTimestamp } from "lightweight-charts";
 import type { PineChartPlot } from "./pineChartAdapter";
-import type { PineLineDrawing, PineLineFillDrawing, PineBoxDrawing } from "./pineProtocol";
+import type { PineLineDrawing, PineLineFillDrawing, PineBoxDrawing, PineLabelDrawing } from "./pineProtocol";
+import { pineLabelLayout, paintPineLabel, hitPineLabel } from "./pineLabelLayout";
+import type { PineLabelLayout } from "./pineLabelLayout";
 import { clipFillPolygon, fillLobes, pineGradientColor } from "./pineVisualPrimitive";
 type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
+const tooltipContainers = new WeakMap<HTMLDivElement, { count: number; previous: string }>();
+function acquireTooltipContainer(element: HTMLDivElement) {
+  const owned = tooltipContainers.get(element);
+  if (owned) { owned.count++; return; }
+  if (typeof window !== "undefined" && window.getComputedStyle(element).position === "static") {
+    tooltipContainers.set(element, { count: 1, previous: element.style.position }); element.style.position = "relative";
+  }
+}
+function releaseTooltipContainer(element: HTMLDivElement) {
+  const owned = tooltipContainers.get(element);
+  if (!owned || --owned.count) return;
+  if (element.style.position === "relative") element.style.position = owned.previous;
+  tooltipContainers.delete(element);
+}
 
 function interval(line: PineLineDrawing, dx: number): [number, number] {
   // Left/right mean earlier/later chart positions even when endpoints are reversed.
@@ -27,7 +43,40 @@ export class PineLinePrimitive implements ISeriesPrimitive {
   private chart?: IChartApi;
   private series?: ISeriesApi<SeriesType>;
   private requestUpdate?: () => void;
-  private readonly onRange = () => this.requestUpdate?.();
+  private tooltip?: HTMLDivElement;
+  private labelsAttached = false;
+  private tooltipGeometry?: { plot: PineChartPlot; label: PineLabelDrawing; x: number; y: number; width: number; height: number; leftAxis: number; transform: string };
+  private readonly labelLayouts = new WeakMap<PineLabelDrawing, PineLabelLayout | null>();
+  private readonly hideTooltip = () => { if (this.tooltip) this.tooltip.hidden = true; this.tooltipGeometry = undefined; };
+  private readonly onRange = () => { this.hideTooltip(); this.requestUpdate?.(); };
+  private readonly onCrosshair = (event: MouseEventParams) => {
+    if (!this.chart || !event.point || !event.sourceEvent) { this.hideTooltip(); return; }
+    // Magnet crosshairs can snap to a candle far from the actual mouse/touch hit.
+    const { localX: x, localY: y } = event.sourceEvent, { width, height } = this.chart.paneSize();
+    if (x < 0 || x >= width || y < 0 || y >= height) { this.hideTooltip(); return; }
+    const ordered = [...this.plots].reverse().sort((a, b) => Number(a.behindChart !== false) - Number(b.behindChart !== false));
+    // Frontmost labels win. Non-tooltip labels also occlude lower labels.
+    for (const plot of ordered) for (const label of [...(plot.drawing!.labels ?? [])].reverse()) {
+      const layout = this.labelLayout(label), position = this.labelAnchor(plot, label);
+      if (!layout || !position || !hitPineLabel(layout, x - position.x, y - position.y)) continue;
+      if (!label.tooltip) { this.hideTooltip(); return; }
+      if (!this.tooltip) {
+        const tooltip = document.createElement("div"); tooltip.setAttribute("role", "tooltip"); tooltip.dataset.pineLabelTooltip = "";
+        Object.assign(tooltip.style, { position: "absolute", pointerEvents: "none", zIndex: "50", maxWidth: "min(320px, 80%)",
+          maxHeight: "80%", overflow: "hidden", whiteSpace: "pre-wrap", overflowWrap: "anywhere", padding: "8px 10px",
+          borderRadius: "6px", border: "1px solid var(--ui-border-strong, #3f4652)", background: "var(--ui-floating, #171c24)",
+          color: "var(--text-primary, #f0f2f5)", font: "12px/1.4 system-ui, sans-serif", boxShadow: "0 4px 20px #0004" });
+        this.chart.chartElement().append(tooltip); this.tooltip = tooltip;
+      }
+      this.tooltip.textContent = label.tooltip; this.tooltip.hidden = false;
+      const leftAxis = this.chart.priceScale("left").width();
+      this.tooltip.style.left = `${leftAxis + Math.max(0, Math.min(x + 12, width - this.tooltip.offsetWidth))}px`;
+      this.tooltipGeometry = { plot, label, x: position.x, y: position.y, width, height, leftAxis, transform: this.priceTransform() };
+      this.tooltip.style.top = `${Math.max(0, Math.min(y + 12, height - this.tooltip.offsetHeight))}px`;
+      return;
+    }
+    this.hideTooltip();
+  };
   private readonly views: readonly ISeriesPrimitivePaneView[];
   private textMeasurementContext?: CanvasRenderingContext2D | null;
   private readonly boxTextBounds = new WeakMap<PineBoxDrawing, { font: string; left: number; right: number }>();
@@ -39,13 +88,31 @@ export class PineLinePrimitive implements ISeriesPrimitive {
   }
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter) {
     this.chart = chart; this.series = series; this.requestUpdate = requestUpdate;
-    chart.timeScale().subscribeVisibleTimeRangeChange(this.onRange); requestUpdate();
+    chart.timeScale().subscribeVisibleTimeRangeChange(this.onRange);
+    if (this.plots.some(plot => plot.drawing!.labels?.length)) { this.labelsAttached = true; acquireTooltipContainer(chart.chartElement()); chart.subscribeCrosshairMove(this.onCrosshair); chart.chartElement().addEventListener('pointerleave', this.hideTooltip); }
+    requestUpdate();
   }
   detached() {
     this.chart?.timeScale().unsubscribeVisibleTimeRangeChange(this.onRange);
+    if (this.labelsAttached) { this.chart?.unsubscribeCrosshairMove(this.onCrosshair); this.chart?.chartElement().removeEventListener('pointerleave', this.hideTooltip); if (this.chart) releaseTooltipContainer(this.chart.chartElement()); }
+    this.labelsAttached = false;
+    this.tooltip?.remove(); this.tooltip = undefined; this.tooltipGeometry = undefined;
     this.chart = undefined; this.series = undefined; this.requestUpdate = undefined; this.plots = []; this.textMeasurementContext = undefined;
   }
-  updateAllViews() { /* Read current chart transforms on every render, including price zoom. */ }
+  updateAllViews() {
+    // Crosshair redraws retain the tooltip; actual transform/size changes retire its old hit.
+    const owned = this.tooltipGeometry;
+    if (!owned || !this.chart) return;
+    const position = this.labelAnchor(owned.plot, owned.label), size = this.chart.paneSize();
+    if (!position || position.x !== owned.x || position.y !== owned.y || size.width !== owned.width || size.height !== owned.height || this.chart.priceScale('left').width() !== owned.leftAxis || this.priceTransform() !== owned.transform) this.hideTooltip();
+  }
+  private priceTransform() {
+    if (!this.chart || !this.series) return "";
+    const scale = this.series.priceScale().options(), height = this.chart.paneSize().height;
+    type Coordinate = Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0];
+    return JSON.stringify([scale.mode, scale.invertScale, scale.scaleMargins.top, scale.scaleMargins.bottom,
+      this.series.coordinateToPrice(0 as Coordinate), this.series.coordinateToPrice(height as Coordinate)]);
+  }
   paneViews() { return this.views; }
   autoscaleInfo(_from: Logical, _to: Logical) { return this.rangeForVisible(); }
   private logical(plot: PineChartPlot, line: Pick<PineLineDrawing, "xloc">, value: number): number | null {
@@ -128,6 +195,39 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     const vertices: [Point, Point, Point, Point] = [{ x: left, y: at(a, left) }, { x: right, y: at(a, right) }, { x: right, y: at(b, right) }, { x: left, y: at(b, left) }];
     if (!vertices.every(point => Number.isFinite(point.y)) || vertices[0].y === vertices[3].y && vertices[1].y === vertices[2].y) return null;
     return vertices;
+  }
+  private labelLayout(label: PineLabelDrawing): PineLabelLayout | null {
+    if (this.labelLayouts.has(label)) return this.labelLayouts.get(label)!;
+    if (this.textMeasurementContext === undefined) this.textMeasurementContext = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+    const ctx = this.textMeasurementContext;
+    if (!ctx) return null;
+    ctx.save(); const layout = pineLabelLayout(label, ctx); ctx.restore();
+    this.labelLayouts.set(label, layout); return layout;
+  }
+  private labelPosition(plot: PineChartPlot, label: PineLabelDrawing) {
+    if (label.x === null) return null;
+    const logical = this.logical(plot, label, label.x);
+    if (logical === null) return null;
+    if (label.yloc === "price") return label.y === null ? null : { logical, prices: [label.y] };
+    const bars = plot.drawing!.bars;
+    let bar: typeof bars[number] | undefined;
+    if (label.xloc === "bar_index") bar = bars[label.x];
+    else {
+      let lo = 0, hi = bars.length;
+      while (lo < hi) { const mid = (lo + hi) >>> 1; if (bars[mid].time < label.x) lo = mid + 1; else hi = mid; }
+      if (bars[lo]?.time === label.x) bar = bars[lo];
+    }
+    // Relative y locations ignore y, but require the actual referenced candle.
+    return bar ? { logical, prices: [bar.high, bar.low] } : null;
+  }
+  private labelAnchor(plot: PineChartPlot, label: PineLabelDrawing) {
+    const position = this.labelPosition(plot, label);
+    if (!position) return null;
+    const x = this.coordinate(position.logical), values = position.prices.map(price => this.series!.priceToCoordinate(price));
+    if (x === null || !Number.isFinite(x) || values.some(value => value === null || !Number.isFinite(value))) return null;
+    const y = label.yloc === "abovebar" ? Math.min(...values as number[]) - 12
+      : label.yloc === "belowbar" ? Math.max(...values as number[]) + 12 : values[0]!;
+    return { x, y };
   }
   private boxPosition(plot: PineChartPlot, box: PineBoxDrawing) {
     if (box.left === null || box.right === null || box.top === null || box.bottom === null
@@ -246,7 +346,7 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     if (!this.chart || !this.series) return null;
     const range = this.chart.timeScale().getVisibleLogicalRange();
     if (!range) return null;
-    let min = Infinity, max = -Infinity;
+    let min = Infinity, max = -Infinity, above = 0, below = 0;
     for (const plot of this.plots) for (const line of plot.drawing!.lines) {
       if (!visible(line)) continue;
       const x1 = this.logical(plot, line, line.x1!), x2 = this.logical(plot, line, line.x2!);
@@ -280,13 +380,30 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       if ((left > range.to || right < range.from) && !(text && this.overflowingBoxTextVisible(box, position))) continue;
       min = Math.min(min, box.top!, box.bottom!); max = Math.max(max, box.top!, box.bottom!);
     }
+    for (const plot of this.plots) for (const label of plot.drawing!.labels ?? []) {
+      const layout = this.labelLayout(label), position = this.labelPosition(plot, label);
+      if (!layout || !position) continue;
+      const x = this.coordinate(position.logical);
+      if (x === null || x + layout.bounds.right <= 0 || x + layout.bounds.left >= this.chart.timeScale().width()) continue;
+      for (const price of position.prices) { min = Math.min(min, price); max = Math.max(max, price); }
+      const shift = label.yloc === "abovebar" ? -12 : label.yloc === "belowbar" ? 12 : 0;
+      above = Math.max(above, -layout.bounds.top - shift); below = Math.max(below, layout.bounds.bottom + shift);
+    }
     // Shading does not expand an established scale. A fill-only study can seed
     // a scale from its visible positive-area boundaries; main-chart owners disable this.
     if (min === Infinity && this.options.allowFillOnlyScale !== false && !this.options.hasScalePeer?.()) for (const plot of this.plots) for (const fill of plot.drawing!.lineFills ?? []) {
       const vertices = this.fillVertices(plot, fill, Number(range.from), Number(range.to), false);
       if (vertices) for (const point of vertices) { min = Math.min(min, point.y); max = Math.max(max, point.y); }
     }
-    return min === Infinity ? null : { priceRange: { minValue: min, maxValue: max } };
+    if (above || below) {
+      const height = this.chart.paneSize().height, scale = this.series.priceScale().options();
+      const available = height * (1 - scale.scaleMargins.top - scale.scaleMargins.bottom);
+      // Oversized text is pane-clipped, never allowed to invert the chart's drawable height.
+      const budget = Math.max(0, Math.min(height * 0.2, (available - 16) / 2)), total = above + below;
+      if (total > budget) { above *= budget / total; below *= budget / total; }
+      if (scale.invertScale) [above, below] = [below, above];
+    }
+    return min === Infinity ? null : { priceRange: { minValue: min, maxValue: max }, ...(above || below ? { margins: { above, below } } : {}) };
   }
   private draw(target: Target, behind: boolean) {
     if (!this.chart || !this.series) return;
@@ -355,6 +472,15 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       for (const plot of this.plots) {
         if ((plot.behindChart !== false) !== behind) continue;
         for (const box of plot.drawing!.boxes ?? []) this.drawBox(plot, box, ctx, width, height);
+      }
+      for (const plot of this.plots) {
+        if ((plot.behindChart !== false) !== behind) continue;
+        for (const label of plot.drawing!.labels ?? []) {
+          const layout = this.labelLayout(label), position = this.labelAnchor(plot, label);
+          if (!layout || !position || position.x + layout.bounds.right <= 0 || position.x + layout.bounds.left >= width
+            || position.y + layout.bounds.bottom <= 0 || position.y + layout.bounds.top >= height) continue;
+          paintPineLabel(label, layout, ctx, position.x, position.y, width, height);
+        }
       }
       ctx.restore();
     });

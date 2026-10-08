@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-box-drawings-123",
+  "patch": "edgelab-label-drawings-124",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "7e62a6f4db7b32bfe757c41943686419f1255a78bbeb08e168144ed9b0545893"
+      "sha256": "232bda2eff4616f46f554175a33fb44f8fcdff6317b10325dd70dbd5c6e02697"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -183,10 +183,16 @@
       "file": "overrides/namespaces/box/BoxHelper.ts",
       "upstreamSha256": "ad32f7673eab514d7a8fa9014701d141bfe14ddb8dc0f78acf061685c6730f09",
       "sha256": "454402d2246c5752b234d171a7731029f1e2b62ebaad2da7743bd6a323bd76f9"
+    },
+    {
+      "source": "src/namespaces/label/LabelHelper.ts",
+      "file": "overrides/namespaces/label/LabelHelper.ts",
+      "upstreamSha256": "615a7b099515e8f21dbfc0598b856f35811be8d6fddb64818498035aac881c4a",
+      "sha256": "dca7e8d9f9882354abccad6eb6256f1e650d6ef95a3a4f21cde18156c5e35275"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "1527ab921a635f738c6b0c4ebf80a1a52f5a4ab00e034920019581809c8328ae"
+    "sha256": "89455162754b8e0573403d7fcbaa00fc0cbfd4e3431adb956f627497ca1e6575"
   }
 }

@@ -3,13 +3,13 @@ import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../li
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
-import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata } from "../lib/pineProtocol";
+import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata } from "../lib/pineProtocol";
 import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineDiagnostic, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -332,6 +332,52 @@ function lineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   return lines;
 }
 
+function labelResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PineLabelDrawing[] {
+  const labels: PineLabelDrawing[] = [];
+  const sizes: Record<string, number> = { auto: 0, tiny: 7, small: 10, normal: 12, large: 18, huge: 24 };
+  let count = 0, omitted = false;
+  for (const value of Object.values(raw)) {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (plot.options?.style !== "label") continue;
+    const snapshot = plot.data?.at(-1)?.value;
+    if (!Array.isArray(snapshot)) error("UNSUPPORTED_RESULT", "Native labels require a final object snapshot.");
+    count += snapshot.length;
+    if (count > PINE_LIMITS.labels) error("DRAWING_LIMIT", "Pine output exceeds 500 active labels.");
+    for (const item of snapshot) {
+      const label = item as Record<string, unknown>;
+      if (!label || typeof label !== "object") error("UNSUPPORTED_RESULT", "Invalid native label.");
+      if (label._deleted === true) continue;
+      const xloc = label.xloc === "bi" ? "bar_index" : label.xloc === "bt" ? "bar_time" : undefined;
+      const yloc = label.yloc === "pr" ? "price" : label.yloc === "ab" ? "abovebar" : label.yloc === "bl" ? "belowbar" : undefined;
+      const style = String(label.style).replace(/^style_/, "") as PineLabelDrawing["style"];
+      const textSize = typeof label.size === "number" ? label.size : sizes[String(label.size)];
+      const textFormatting = String(label.text_formatting).replace(/^format_/, "").replace("italicbold", "bolditalic");
+      if (!xloc || !yloc || !PINE_LABEL_STYLES.includes(style) || !Number.isInteger(textSize) || textSize < 0 || textSize > 512
+        || label.text != null && (typeof label.text !== "string" || label.text.length > 4096) || label.tooltip != null && (typeof label.tooltip !== "string" || label.tooltip.length > 4096)
+        || !["left", "center", "right"].includes(String(label.textalign)) || !["default", "monospace"].includes(String(label.text_font_family))
+        || !["none", "bold", "italic", "bolditalic"].includes(textFormatting)) { omitted = true; continue; }
+      const coordinate = (key: "x" | "y") => {
+        const value = label[key];
+        if (value == null || typeof value === "number" && Number.isNaN(value)) return null;
+        if (typeof value !== "number" || !Number.isFinite(value)) error("UNSUPPORTED_RESULT", "Invalid native label coordinate.");
+        return key === "x" && xloc === "bar_time" ? value / 1000 : value;
+      };
+      const x = coordinate("x");
+      if (x !== null && (xloc === "bar_index" ? !Number.isSafeInteger(x) || x < -10000 || x > bars.length - 1 + 500 : x < 0 || x > 253402300799 || !Number.isSafeInteger(x * 1000))) { omitted = true; continue; }
+      // Empty upstream defaults are distinct from explicit NA colors.
+      const shades = [plainScalar(label.color === "" || label.color === undefined ? "#2962FF" : label.color),
+        plainScalar(label.textcolor === "" || label.textcolor === undefined ? "#FFFFFF" : label.textcolor)];
+      if (shades.some(shade => shade !== null && (typeof shade !== "string" || !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade)))) { omitted = true; continue; }
+      labels.push({ id: `label:${String(label.id)}`, x, y: coordinate("y"), xloc, yloc, style, color: shades[0] as string | null,
+        text: label.text as string ?? '', textColor: shades[1] as string | null, textSize, textAlign: label.textalign as PineLabelDrawing["textAlign"],
+        tooltip: label.tooltip as string ?? '', textFontFamily: label.text_font_family as PineLabelDrawing["textFontFamily"],
+        textFormatting: textFormatting as PineLabelDrawing["textFormatting"], overlay: overlay || label.force_overlay === true, forceOverlay: label.force_overlay === true });
+    }
+  }
+  if (omitted) diagnostics.push(warning("UNSUPPORTED_LABEL_SETTING", "Some labels use unsupported coordinates or settings and are not drawn. Text sizes 0–512 and text/tooltip strings up to 4096 characters are supported."));
+  return labels;
+}
+
 function boxResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PineBoxDrawing[] {
   const boxes: PineBoxDrawing[] = [];
   const extendNames: Record<string, PineBoxDrawing["extend"]> = { n: "none", l: "left", r: "right", b: "both", none: "none", left: "left", right: "right", both: "both" };
@@ -410,7 +456,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
     if (!drawings.has(plot.options?.style ?? "")) return true;
-    if (!["drawing_line", "linefill", "drawing_box"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    if (!["drawing_line", "linefill", "drawing_box", "label"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
   if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
@@ -1135,8 +1181,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const lines = lineResults(context.plots, overlay, diagnostics, request.bars!);
   const lineFills = lineFillResults(context.plots, lines, overlay, diagnostics);
   const boxes = boxResults(context.plots, overlay, diagnostics, request.bars!);
+  const labels = labelResults(context.plots, overlay, diagnostics, request.bars!);
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 
