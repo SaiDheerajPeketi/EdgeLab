@@ -475,3 +475,54 @@ test("pane-edge Pine signals stay pinned through resizing and inversion without 
   const removed = await inspect(); expect(removed.bounds.red).toBeNull(); expect(removed.bounds.green).toBeNull();
   expect(harness.workerRequests).toHaveLength(1); expect(harness.otherRequests).toEqual([]);
 });
+
+async function captureChars80(page: any, name: string, project: string) {
+  const directory = path.join(root, ".artifacts/pine-chars80"); fs.mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true });
+}
+test("genuine native character signals paint Unicode offsets defaults and text-only labels", async ({ page, harness }, info) => {
+  const body = 'plotchar(bar_index==118?100:na,"Lambda",char="λ",location=location.absolute,color=#0000ff,size=size.huge,offset=2)\n'
+    + 'plotchar(bar_index==126?100:na,"Check",char="✓",location=location.absolute,color=#ff0000,size=size.huge,offset=-2)\n'
+    + 'plotchar(bar_index==130?100:na,"Text only",char="",location=location.absolute,color=na,text="Text",textcolor=#ffffff,size=size.large)\n'
+    + 'plotchar(bar_index==134,"Default star",location=location.top)\n'
+    + 'plotchar(bar_index==120?1e9:na,"Invisible",char="λ",location=location.absolute,color=na)';
+  for (const overlay of [true, false]) {
+    const output = await run(page, program(body, overlay, false), bars, { from: 116, to: 138 });
+    expect(output.drawn).toEqual(["Lambda", "Check", "Text only", "Default star", "Invisible"]);
+    expect(output.plots.every((plot: any) => plot.style === "char")).toBe(true);
+    expect(output.adapterWarnings.some((warning: string) => /not drawn|not rendered/i.test(warning))).toBe(false);
+    expect(output.adapterWarnings.some((warning: string) => /local|calibration/i.test(warning))).toBe(true);
+    const placement = overlay ? 0 : 1;
+    expect(output.placements[placement].range.priceRange).toEqual({ minValue: 100, maxValue: 100 });
+    expect((await probe(page, 120, 100, { placement, radius: 18 })).blue).toBeGreaterThan(8);
+    expect((await probe(page, 124, 100, { placement, radius: 18 })).red).toBeGreaterThan(8);
+    expect((await probe(page, 130, 100, { placement, radius: 32 })).white).toBeGreaterThan(8);
+    const star = await page.evaluate(input => window.pineVisualFixture.screenMarkerProbe(input.time, { placement: input.placement, radius: 9 }), { time: bars[134].time, placement });
+    expect(star.bounds.cyan).not.toBeNull();
+    await captureChars80(page, overlay ? "overlay-characters" : "pane-characters", info.project.name);
+  }
+  expect(harness.workerRequests).toHaveLength(2); expect(harness.otherRequests).toEqual([]);
+});
+test("native pane-edge characters stay visible after resize and scale inversion without autoscale leaks", async ({ page, harness }, info) => {
+  const source = program('plotchar(bar_index==124,"Top",char="λ",location=location.top,color=#ff0000,size=size.huge)\nplotchar(bar_index==124,"Bottom",char="✓",location=location.bottom,color=#00ff00,size=size.huge)', false);
+  const output = await run(page, source, bars, { from: 116, to: 132 });
+  expect(output.drawn).toEqual(["Top", "Bottom"]);
+  expect(output.placements[1].range).toBeNull();
+  expect(output.placements[1].primaryCoordinate).toBe(output.placements[1].beforeCoordinate);
+  const inspect = () => page.evaluate(time => window.pineVisualFixture.screenMarkerProbe(time, { placement: 1 }), bars[124].time);
+  const initial = await inspect();
+  expect(initial.bounds.red).not.toBeNull(); expect(initial.bounds.green).not.toBeNull();
+  expect(initial.bounds.red[0]).toBeGreaterThanOrEqual(3); expect(initial.bounds.red[0]).toBeLessThanOrEqual(5);
+  expect(initial.height - 1 - initial.bounds.green[1]).toBeGreaterThanOrEqual(3);
+  expect(initial.height - 1 - initial.bounds.green[1]).toBeLessThanOrEqual(5);
+  await page.evaluate(() => window.pineVisualFixture.invertPriceScale());
+  const inverted = await inspect(); expect(inverted.bounds).toEqual(initial.bounds); expect(inverted.range).toBeNull();
+  await page.evaluate(() => window.pineVisualFixture.resize());
+  const resized = await inspect(); expect(resized.bounds.red).toEqual(initial.bounds.red);
+  expect(resized.height - 1 - resized.bounds.green[1]).toBeGreaterThanOrEqual(3);
+  expect(resized.height - 1 - resized.bounds.green[1]).toBeLessThanOrEqual(5);
+  await captureChars80(page, "pane-edge-characters", info.project.name);
+  await page.evaluate(() => window.pineVisualFixture.dispose());
+  const removed = await inspect(); expect(removed.bounds.red).toBeNull(); expect(removed.bounds.green).toBeNull();
+  expect(harness.workerRequests).toHaveLength(1); expect(harness.otherRequests).toEqual([]);
+});

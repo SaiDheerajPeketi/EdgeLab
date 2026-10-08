@@ -63,7 +63,8 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       return [];
     }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
-    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
+    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers" };
+    const characterPlot = style === "char" || style === "plotchar";
     const packed = getPackedPinePlot(plot);
     const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
@@ -135,7 +136,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const plotOffset = supportsOffset && plot.options.offset !== undefined ? plot.options.offset : 0;
     if (typeof plotOffset !== "number" || !Number.isSafeInteger(plotOffset)) { warn("Plot offsets require a constant safe integer."); return []; }
     if (supportsOffset && optionSets.some((options) => {
-      // PineTS emits null per-sample defaults for omitted plotshape arguments.
+      // PineTS emits null per-sample defaults for omitted signal arguments.
       // Only that absent global declaration means zero; authored nulls and
       // changing resolved offsets retain the strict constant-offset guard.
       const omittedMarkerOffset = kind === "markers" && plot.options.offset === undefined && options.offset === null;
@@ -195,13 +196,16 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       const supported = optionSets.every((options) => {
         const shape = String(options.shape ?? plot.options.shape ?? "circle").toLowerCase().replace(/^shape[._]/, "").replace(/_/g, "");
         const location = String(options.location ?? plot.options.location ?? "abovebar").toLowerCase().replace(/^location[._]/, "");
-        return allowedShapes.includes(shape) && ["absolute", "abovebar", "belowbar", "top", "bottom"].includes(location);
+        return (characterPlot || allowedShapes.includes(shape)) && ["absolute", "abovebar", "belowbar", "top", "bottom"].includes(location);
       });
       if (!supported) { warn("This shape or location is not rendered by this chart adapter."); return []; }
-      if (plot.options.size != null || optionSets.some((options) => options.size != null)) warnings.push("Shape sizes and text use local pixel metrics; TradingView font and size calibration has not been verified.");
+      if (characterPlot) {
+        warn("Characters display the first Unicode codepoint using local fonts and sizes; TradingView glyph and pixel calibration has not been verified.");
+        if (["char", "color", "textcolor"].some((key) => plot.options[key] === undefined)) warn("Omitted character options use local defaults, including the star glyph and inherited text color.");
+      } else if (plot.options.size != null || optionSets.some((options) => options.size != null)) warnings.push("Shape sizes and text use local pixel metrics; TradingView font and size calibration has not been verified.");
     }
     if (kind !== "markers" && kind !== "candles" && (packed ? packed.kinds.some((kind) => kind > 1 && kind !== 4) : plot.points.some((point) => point.value !== null && typeof point.value !== "number"))) warn("Non-numeric values are not rendered as a numeric series.");
-    if (visual && !smallProjection) return [{ ...common, kind, segments: [], markers: [], visual }];
+    if (visual && (!smallProjection || characterPlot)) return [{ ...common, kind, segments: [], markers: [], visual }];
     const segments: PineChartPoint[][] = [[]];
     const markers: SeriesMarker<UTCTimestamp>[] = [];
     const breakGaps = ["linebr", "steplinebr", "areabr"].includes(style);

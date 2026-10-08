@@ -132,14 +132,15 @@ export function levelProbe(price, { placement = 0, channel = "red" } = {}) {
 export function screenMarkerProbe(time, { placement = 0, radius = 24 } = {}) {
   const p = state.placements[placement], after = image(p.chart, p.element);
   const x = p.chart.timeScale().timeToCoordinate(time), height = p.chart.paneSize().height;
-  const rows = { red: [], green: [], blue: [] };
+  const rows = { red: [], green: [], blue: [], cyan: [] };
   if (x !== null) for (let y = 0; y < height; y++) {
-    const hit = { red: false, green: false, blue: false };
+    const hit = { red: false, green: false, blue: false, cyan: false };
     for (let xx = Math.max(0, Math.floor(x - radius)); xx <= Math.min(after.width - 1, Math.ceil(x + radius)); xx++) {
       const offset = (y * after.width + xx) * 4, [r, g, b] = after.pixels.slice(offset, offset + 3);
       if (r > 120 && r > g * 1.5 && r > b * 1.5) hit.red = true;
       if (g > 120 && g > r * 1.5 && g > b * 1.5) hit.green = true;
       if (b > 120 && b > r * 1.5 && b > g * 1.5) hit.blue = true;
+      if (g > 120 && b > 120 && g > r * 1.5 && b > r * 1.5) hit.cyan = true;
     }
     for (const channel of Object.keys(rows)) if (hit[channel]) rows[channel].push(y);
   }

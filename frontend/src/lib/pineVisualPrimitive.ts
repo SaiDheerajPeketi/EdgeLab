@@ -12,7 +12,7 @@ type Sample = { value: number | boolean | null | number[]; options: Record<strin
 type Bounds = { min: number; max: number };
 type MarkerBounds = { bounds: Bounds | null; above: number; below: number };
 type TextLayout = { lines: string[]; width: number; measured: boolean; maxAscent: number; maxDescent: number; glyphs: { ascent: number; descent: number }[] };
-type MarkerGeometry = { shape: string; size: number; offset: number; direction: number; shade: string; textColor: string; layout: TextLayout; lineHeight: number; textY: number; labelTop: number; labelHeight: number; min: number; max: number };
+type MarkerGeometry = { character?: string; shape: string; size: number; offset: number; direction: number; shade: string; textColor: string; layout: TextLayout; lineHeight: number; textY: number; labelTop: number; labelHeight: number; min: number; max: number };
 let markerMetrics: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null | undefined;
 export function pineVisualColor(value: PineScalar | undefined, fallback = "#22d3ee"): string {
   if (value === null) return "rgba(0,0,0,0)";
@@ -49,7 +49,18 @@ function gradientColorAt(gradient: Gradient, y: number, topY: number, bottomY: n
   return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3]})`;
 }
 function painted(value: string) { return value.toLowerCase() !== "transparent" && !/^#[\da-f]{3}0$/i.test(value) && !/^rgba\([^)]*,\s*0(?:\.0*)?\s*\)$/.test(value) && !/^#[\da-f]{6}00$/i.test(value); }
-function option(source: PinePlot, sample: Sample | undefined, key: string) { return sample?.options[key] !== undefined ? sample.options[key] : source.options[key]; }
+function characterSource(source: PinePlot) { return source.style === "char" || source.style === "plotchar"; }
+function option(source: PinePlot, sample: Sample | undefined, key: string) {
+  const value = sample?.options[key];
+  // The worker canonicalizes PineTS's absent plotchar fields to null. Only an
+  // absent global declaration permits defaults; authored na remains invisible.
+  if (characterSource(source) && value === null && source.options[key] === undefined) return undefined;
+  return value !== undefined ? value : source.options[key];
+}
+function character(source: PinePlot, sample: Sample) {
+  const value = option(source, sample, "char");
+  return value === undefined ? "★" : typeof value === "string" ? Array.from(value)[0] ?? "" : "";
+}
 function norm(value: PineScalar | undefined, prefix: string, fallback: string) { return String(value ?? fallback).toLowerCase().replace(new RegExp(`^${prefix}[._]`), ""); }
 function seconds(value: unknown): number | null { return typeof value === "number" ? value : null; }
 function search(bars: readonly { time: number }[], time: number, upper = false) {
@@ -298,6 +309,14 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         const sample: Sample = { value: true, options };
         const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
         reach = Math.max(reach, size);
+        ctx.font = `${size + 3}px sans-serif`; ctx.textAlign = "center";
+        if (characterSource(source)) {
+          const glyph = character(source, sample);
+          if (glyph.trim()) {
+            const metrics = ctx.measureText(glyph);
+            reach = Math.max(reach, metrics.width / 2 + 4, Math.abs(metrics.actualBoundingBoxLeft ?? 0), Math.abs(metrics.actualBoundingBoxRight ?? 0));
+          }
+        }
         const text = option(source, sample, "text");
         if (typeof text !== "string" || (text === previousText && size === previousSize)) continue;
         previousText = text; previousSize = size;
@@ -941,17 +960,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     }
     flush();
   }
-  /** Shared vertical geometry keeps drawing and directional autoscale margins in agreement. */
-  private markerGeometry(plot: PineChartPlot, sample: Sample, ctx?: CanvasRenderingContext2D): MarkerGeometry | null {
-    const source = plot.visual!.source;
-    const shape = norm(option(source, sample, "shape"), "shape", "circle").replace(/_/g, "");
-    const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
-    const location = norm(option(source, sample, "location"), "location", "abovebar");
-    const offset = location === "abovebar" ? -size - 4 : location === "belowbar" ? size + 4 : 0;
-    const shade = pineVisualColor(option(source, sample, "color"), plot.color);
-    const textColor = pineVisualColor(option(source, sample, "textcolor"), shade);
-    const rawText = option(source, sample, "text");
-    const text = typeof rawText === "string" ? rawText : "";
+  private markerTextLayout(size: number, text: string, ctx?: CanvasRenderingContext2D): TextLayout {
     let layouts = this.textLayouts.get(size);
     if (!layouts) { layouts = new Map(); this.textLayouts.set(size, layouts); }
     let layout = layouts.get(text);
@@ -972,14 +981,34 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       });
       layout = { lines, width, glyphs, maxAscent: Math.max(0, ...glyphs.map((glyph) => glyph.ascent)), maxDescent: Math.max(0, ...glyphs.map((glyph) => glyph.descent)), measured: !!metrics || !lines.some((line) => line.trim()) }; layouts.set(text, layout);
     }
+    return layout;
+  }
+  /** Shared vertical geometry keeps drawing and directional autoscale margins in agreement. */
+  private markerGeometry(plot: PineChartPlot, sample: Sample, ctx?: CanvasRenderingContext2D): MarkerGeometry | null {
+    const source = plot.visual!.source;
+    const shape = characterSource(source) ? "char" : norm(option(source, sample, "shape"), "shape", "circle").replace(/_/g, "");
+    const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
+    const location = norm(option(source, sample, "location"), "location", "abovebar");
+    const offset = location === "abovebar" ? -size - 4 : location === "belowbar" ? size + 4 : 0;
+    const shade = pineVisualColor(option(source, sample, "color"), plot.color);
+    const textColor = pineVisualColor(option(source, sample, "textcolor"), shade);
+    const rawText = option(source, sample, "text");
+    const text = typeof rawText === "string" ? rawText : "";
+    const layout = this.markerTextLayout(size, text, ctx);
+    const char = characterSource(source) ? character(source, sample) : undefined;
+    const glyph = char?.trim() ? this.markerTextLayout(size, char, ctx).glyphs[0] : undefined;
     const direction = ["triangledown", "arrowdown", "labeldown"].includes(shape) ? -1 : 1;
     const lineHeight = size + 5;
     const labelHeight = Math.max(size + 8, layout.lines.length * lineHeight + 6);
     const labelTop = direction > 0 ? offset + 4 : offset - labelHeight - 4;
-    const textY = shape.startsWith("label") ? labelTop + 3 + lineHeight / 2 : ["belowbar", "bottom"].includes(location) ? offset + size + 6 : offset - size - 6 - (layout.lines.length - 1) * lineHeight;
+    const textY = glyph ? ["belowbar", "bottom"].includes(location)
+      ? offset + glyph.descent + 6 + (layout.glyphs[0]?.ascent ?? 0)
+      : offset - glyph.ascent - 6 - (layout.glyphs.at(-1)?.descent ?? 0) - (layout.lines.length - 1) * lineHeight
+      : shape.startsWith("label") ? labelTop + 3 + lineHeight / 2 : ["belowbar", "bottom"].includes(location) ? offset + size + 6 : offset - size - 6 - (layout.lines.length - 1) * lineHeight;
     let min = Infinity, max = -Infinity;
     if (painted(shade)) {
-      if (["circle", "square", "cross", "xcross", "diamond"].includes(shape)) { min = offset - size / 2; max = offset + size / 2; }
+      if (shape === "char") { if (glyph) { min = offset - glyph.ascent; max = offset + glyph.descent; } }
+      else if (["circle", "square", "cross", "xcross", "diamond"].includes(shape)) { min = offset - size / 2; max = offset + size / 2; }
       else if (shape === "flag") { min = offset - size; max = offset; }
       else if (shape.startsWith("label")) { min = Math.min(offset, labelTop); max = Math.max(offset, labelTop + labelHeight); }
       else { const end = offset + direction * size * (shape.startsWith("arrow") ? 1.6 : 1); min = Math.min(offset, end); max = Math.max(offset, end); }
@@ -989,17 +1018,24 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       const y = textY + index * lineHeight, glyph = layout!.glyphs[index];
       min = Math.min(min, y - glyph.ascent); max = Math.max(max, y + glyph.descent);
     });
-    return min === Infinity ? null : { shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight, min, max };
+    return min === Infinity ? null : { character: char, shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight, min, max };
   }
   private shape(ctx: CanvasRenderingContext2D, plot: PineChartPlot, sample: Sample, x: number, anchorY: number, paneHeight: number) {
     const geometry = this.markerGeometry(plot, sample, ctx);
     if (!geometry) return;
-    const { shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight } = geometry;
+    const { character: char, shape, size, offset, direction, shade, textColor, layout, lineHeight, textY, labelTop, labelHeight } = geometry;
     const y = anchorY + offset;
     ctx.font = `${size + 3}px sans-serif`;
     ctx.fillStyle = shade; ctx.strokeStyle = shade; ctx.lineWidth = 1;
     if (painted(shade)) {
-      if (shape === "circle") { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
+      if (shape === "char") {
+        if (char?.trim()) {
+          const glyph = this.markerTextLayout(size, char, ctx).glyphs[0];
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          if (y + glyph.descent >= 0 && y - glyph.ascent <= paneHeight) ctx.fillText(char, x, y);
+        }
+      }
+      else if (shape === "circle") { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
       else if (shape === "square") ctx.fillRect(x - size / 2, y - size / 2, size, size);
       else if (shape === "cross") {
         const radius = size / 2, halfArm = Math.max(1, size / 5) / 2;
