@@ -11,6 +11,7 @@ import {
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
+  allowAlpha?: boolean;
   ariaLabel?: string;
   className?: string;
   compact?: boolean;
@@ -48,6 +49,7 @@ const CHANNELS: Array<{ key: ColorChannel; label: string }> = [
 ];
 
 export function ThemedColorPicker({
+  allowAlpha = false,
   ariaLabel = "Color",
   className = "",
   compact = false,
@@ -56,8 +58,8 @@ export function ThemedColorPicker({
   value,
 }: Props) {
   const normalizedValue = useMemo(
-    () => normalizeHexColor(value) ?? FALLBACK_COLOR,
-    [value],
+    () => normalizeHexColor(value, { allowAlpha }) ?? FALLBACK_COLOR,
+    [allowAlpha, value],
   );
   const [draft, setDraft] = useState(normalizedValue);
   const [isEditing, setIsEditing] = useState(false);
@@ -71,17 +73,21 @@ export function ThemedColorPicker({
   const titleId = `${pickerId}-title`;
   const errorId = `${pickerId}-error`;
   const rgb = hexToRgb(normalizedValue);
+  const alpha = normalizedValue.length === 9 ? Number.parseInt(normalizedValue.slice(7), 16) : 255;
+  const emittedRef = useRef<{ draft: string; value: string } | null>(null);
+  const errorMessage = allowAlpha ? "Enter a 3-, 6- or 8-digit hex color, such as #32D3EE80." : "Enter a 3- or 6-digit hex color, such as #32D3EE.";
 
   useLayoutEffect(() => {
     // Keep our own typing acknowledgments intact, but replace stale focused
     // drafts before blur can send them back over an incoming preset color.
-    if (!isEditing || normalizeHexColor(draft, { allowShorthand: false }) !== normalizedValue) {
+    const ownAcknowledgment = emittedRef.current?.draft === draft && emittedRef.current?.value === normalizedValue;
+    if (!isEditing || (!ownAcknowledgment && normalizeHexColor(draft, { allowAlpha, allowShorthand: false }) !== normalizedValue)) {
       setDraft(normalizedValue);
       setHexError(null);
     }
     // Only a new committed value resets drafts; blur alone preserves errors.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalizedValue]);
+  }, [allowAlpha, normalizedValue]);
 
   useEffect(() => {
     if (disabled) {
@@ -102,11 +108,16 @@ export function ThemedColorPicker({
     return () => window.cancelAnimationFrame(frame);
   }, [open]);
 
+  function withCurrentAlpha(color: string) {
+    return allowAlpha && normalizedValue.length === 9 && color.length === 7 ? `${color}${normalizedValue.slice(7)}` : color;
+  }
+
   function applyColor(nextValue: string) {
     if (disabled) {
       return;
     }
-    const normalized = normalizeHexColor(nextValue);
+    const parsed = normalizeHexColor(nextValue, { allowAlpha });
+    const normalized = parsed && withCurrentAlpha(parsed);
     if (!normalized) {
       return;
     }
@@ -117,9 +128,9 @@ export function ThemedColorPicker({
   }
 
   function validateDraft(nextDraft: string) {
-    const normalized = normalizeHexColor(nextDraft);
+    const normalized = normalizeHexColor(nextDraft, { allowAlpha });
     if (!normalized) {
-      setHexError("Enter a 3- or 6-digit hex color, such as #32D3EE.");
+      setHexError(errorMessage);
       return null;
     }
     setHexError(null);
@@ -155,12 +166,14 @@ export function ThemedColorPicker({
     }
     const nextValue = nextRawValue.toUpperCase();
     setDraft(nextValue);
-    const normalized = normalizeHexColor(nextValue, { allowShorthand: false });
+    const parsed = normalizeHexColor(nextValue, { allowAlpha, allowShorthand: false });
+    const normalized = parsed && withCurrentAlpha(parsed);
     if (normalized) {
       setHexError(null);
+      emittedRef.current = { draft: nextValue, value: normalized };
       onChange(normalized);
     } else {
-      setHexError("Enter a 3- or 6-digit hex color, such as #32D3EE.");
+      setHexError(errorMessage);
     }
   }
 
@@ -200,7 +213,7 @@ export function ThemedColorPicker({
         aria-label={`${ariaLabel} hex code`}
         className="themed-color-hex motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
         disabled={disabled}
-        maxLength={7}
+        maxLength={allowAlpha ? 9 : 7}
         onBlur={handleDraftBlur}
         onChange={(event) => handleDraftChange(event.target.value)}
         onFocus={() => setIsEditing(true)}
@@ -252,7 +265,7 @@ export function ThemedColorPicker({
             aria-describedby={hexError ? errorId : undefined}
             aria-invalid={Boolean(hexError)}
             aria-label={`${ariaLabel} selected color hex code`}
-            maxLength={7}
+            maxLength={allowAlpha ? 9 : 7}
             onBlur={handleDraftBlur}
             onChange={(event) => handleDraftChange(event.target.value)}
             onFocus={() => setIsEditing(true)}
@@ -276,7 +289,7 @@ export function ThemedColorPicker({
                 <span>{channel.label}</span>
                 <input
                   aria-valuetext={`${rgb[channel.key]} of 255`}
-                  className="h-11 w-full cursor-pointer touch-manipulation accent-cyan-300"
+                  className="h-11 w-full cursor-pointer touch-manipulation accent-[var(--ui-focus)]"
                   id={inputId}
                   max={255}
                   min={0}
@@ -292,15 +305,34 @@ export function ThemedColorPicker({
           })}
         </div>
 
+        {allowAlpha && (
+          <label className="grid grid-cols-[3rem_minmax(0,1fr)_2.5rem] items-center gap-2 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-2 text-xs text-[var(--text-secondary)]">
+            <span>Opacity</span>
+            <input
+              aria-label={`${ariaLabel} opacity`}
+              aria-valuetext={`${Math.round(alpha / 255 * 100)}% opacity`}
+              className="h-11 w-full cursor-pointer touch-manipulation accent-[var(--ui-focus)]"
+              disabled={disabled}
+              max={255}
+              min={0}
+              onChange={(event) => applyColor(`${normalizedValue.slice(0, 7)}${Number(event.target.value).toString(16).padStart(2, "0")}`)}
+              step={1}
+              type="range"
+              value={alpha}
+            />
+            <output className="text-right tabular-nums">{Math.round(alpha / 255 * 100)}%</output>
+          </label>
+        )}
+
         {COLOR_PALETTES.map((palette) => (
           <div className="themed-color-group" key={palette.label}>
             <div className="themed-color-section-title">{palette.label}</div>
             <div className="themed-color-grid">
               {palette.swatches.map((color) => (
                 <button
-                  aria-current={normalizedValue === color ? "true" : undefined}
+                  aria-current={normalizedValue.slice(0, 7) === color ? "true" : undefined}
                   aria-label={`Use ${color}`}
-                  className={`themed-color-option min-h-11 touch-manipulation motion-reduce:transition-none ${normalizedValue === color ? "themed-color-option-active" : ""}`}
+                  className={`themed-color-option min-h-11 touch-manipulation motion-reduce:transition-none ${normalizedValue.slice(0, 7) === color ? "themed-color-option-active" : ""}`}
                   key={color}
                   onClick={() => {
                     applyColor(color);
@@ -323,9 +355,9 @@ export function ThemedColorPicker({
 
 function normalizeHexColor(
   value: string | undefined,
-  options: { allowShorthand?: boolean } = {},
+  options: { allowAlpha?: boolean; allowShorthand?: boolean } = {},
 ) {
-  const { allowShorthand = true } = options;
+  const { allowAlpha = false, allowShorthand = true } = options;
   const raw = value?.trim();
   if (!raw) {
     return null;
@@ -338,7 +370,7 @@ function normalizeHexColor(
       .join("")
       .toUpperCase()}`;
   }
-  if (/^[\da-f]{6}$/i.test(withoutHash)) {
+  if (/^[\da-f]{6}$/i.test(withoutHash) || (allowAlpha && /^[\da-f]{8}$/i.test(withoutHash))) {
     return `#${withoutHash.toUpperCase()}`;
   }
   return null;

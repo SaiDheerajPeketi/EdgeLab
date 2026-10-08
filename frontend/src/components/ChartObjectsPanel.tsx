@@ -445,6 +445,7 @@ function DrawingSettingsControls({
         <label className="object-setting-field">
           <span>Color</span>
           <ThemedColorPicker
+            allowAlpha
             ariaLabel="Drawing color"
             compact
             onChange={(color) => onChange({ color })}

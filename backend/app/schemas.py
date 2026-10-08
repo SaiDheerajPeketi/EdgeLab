@@ -696,14 +696,26 @@ class WorkspaceShareDrawingPoint(WorkspaceShareStrictModel):
     price: float
 
 
+def canonical_share_drawing_color(value: str) -> str:
+    raw = value[1:]
+    if len(raw) == 3:
+        raw = "".join(char * 2 for char in raw)
+    return "#" + raw.upper()
+
+
 class WorkspaceShareFibLevel(WorkspaceShareStrictModel):
     id: str = Field(min_length=1, max_length=64)
     value: float
-    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color: str = Field(pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
     background_opacity: float | None = Field(default=None, ge=0, le=1)
     label: str | None = Field(default=None, max_length=80)
     line_style: Literal["solid", "dashed", "dotted"] | None = None
     visible: bool = True
+
+    @field_validator("color")
+    @classmethod
+    def canonical_color(cls, value: str) -> str:
+        return canonical_share_drawing_color(value)
 
 
 class WorkspaceShareDrawing(WorkspaceShareStrictModel):
@@ -719,7 +731,7 @@ class WorkspaceShareDrawing(WorkspaceShareStrictModel):
         "shortPosition",
         "text",
     ]
-    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color: str = Field(pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
     points: list[WorkspaceShareDrawingPoint] = Field(min_length=1, max_length=64)
     created_at: str = Field(min_length=1, max_length=64)
     fib_extend_left: bool | None = None
@@ -729,11 +741,16 @@ class WorkspaceShareDrawing(WorkspaceShareStrictModel):
     line_style: Literal["solid", "dashed", "dotted"] | None = None
     line_width: float | None = Field(default=None, ge=1, le=8)
     locked: bool = False
-    reward_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
-    risk_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    reward_color: str | None = Field(default=None, pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+    risk_color: str | None = Field(default=None, pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
     label: str | None = Field(default=None, max_length=160)
     label_background_opacity: float | None = Field(default=None, ge=0, le=1)
     visible: bool = True
+
+    @field_validator("color", "reward_color", "risk_color")
+    @classmethod
+    def canonical_colors(cls, value: str | None) -> str | None:
+        return canonical_share_drawing_color(value) if value is not None else None
 
 
 class WorkspaceShareChartSettings(WorkspaceShareStrictModel):

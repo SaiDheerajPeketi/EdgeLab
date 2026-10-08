@@ -389,7 +389,7 @@ function sanitizeDrawing(drawing: ChartDrawing): ChartDrawing[] {
   return [{
     id: cleanText(drawing.id, 96, "drawing"),
     tool: drawing.tool,
-    color: safeColor(drawing.color, "#32D3EE"),
+    color: safeColor(drawing.color, "#32D3EE", true),
     points,
     createdAt: cleanText(drawing.createdAt, 64, new Date(0).toISOString()),
     ...(drawing.fibExtendLeft != null ? { fibExtendLeft: drawing.fibExtendLeft === true } : {}),
@@ -398,7 +398,7 @@ function sanitizeDrawing(drawing: ChartDrawing): ChartDrawing[] {
       fibLevels: drawing.fibLevels.slice(0, 32).map((level) => ({
         id: cleanText(level.id, 64, "level"),
         value: finite(level.value, 0),
-        color: safeColor(level.color, "#32D3EE"),
+        color: safeColor(level.color, "#32D3EE", true),
         ...(finiteOptional(level.backgroundOpacity) != null ? { backgroundOpacity: clamp(level.backgroundOpacity!, 0, 1) } : {}),
         ...(level.label ? { label: cleanText(level.label, 80, "Level") } : {}),
         ...(level.lineStyle ? { lineStyle: level.lineStyle } : {}),
@@ -409,8 +409,8 @@ function sanitizeDrawing(drawing: ChartDrawing): ChartDrawing[] {
     ...(drawing.lineStyle ? { lineStyle: drawing.lineStyle } : {}),
     ...(finiteOptional(drawing.lineWidth) != null ? { lineWidth: clamp(drawing.lineWidth!, 1, 8) } : {}),
     locked: drawing.locked === true,
-    ...(drawing.rewardColor ? { rewardColor: safeColor(drawing.rewardColor, "#22C55E") } : {}),
-    ...(drawing.riskColor ? { riskColor: safeColor(drawing.riskColor, "#EF4444") } : {}),
+    ...(drawing.rewardColor ? { rewardColor: safeColor(drawing.rewardColor, "#22C55E", true) } : {}),
+    ...(drawing.riskColor ? { riskColor: safeColor(drawing.riskColor, "#EF4444", true) } : {}),
     ...(drawing.label ? { label: cleanText(drawing.label, 160, "Label") } : {}),
     ...(finiteOptional(drawing.labelBackgroundOpacity) != null ? { labelBackgroundOpacity: clamp(drawing.labelBackgroundOpacity!, 0, 1) } : {}),
     visible: drawing.visible !== false,
@@ -519,11 +519,12 @@ function sanitizePaneLayout(value: unknown): ChartPaneLayoutId {
   return PANE_LAYOUTS.has(value as ChartPaneLayoutId) ? value as ChartPaneLayoutId : "single";
 }
 
-function safeColor(value: unknown, fallback: string) {
+function safeColor(value: unknown, fallback: string, allowAlpha = false) {
   if (typeof value !== "string") return fallback;
   const raw = value.trim().replace(/^#/, "");
   if (/^[0-9a-f]{3}$/i.test(raw)) return `#${raw.split("").map((char) => char + char).join("").toUpperCase()}`;
-  return /^[0-9a-f]{6}$/i.test(raw) ? `#${raw.toUpperCase()}` : fallback;
+  return (/^[0-9a-f]{6}$/i.test(raw) || (allowAlpha && /^[0-9a-f]{8}$/i.test(raw)))
+    ? `#${raw.toUpperCase()}` : fallback;
 }
 
 function safeDate(value: unknown) {

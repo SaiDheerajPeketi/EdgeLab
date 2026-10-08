@@ -1,3 +1,4 @@
+import { colorWithOpacity } from "../lib/colorTokens";
 import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import {
@@ -6150,6 +6151,7 @@ function FloatingDrawingToolbar({
           <label className="position-color-control">
             <span>Entry</span>
             <ThemedColorPicker
+              allowAlpha
               ariaLabel="Entry color"
               className="chart-object-floating-picker"
               compact
@@ -6160,6 +6162,7 @@ function FloatingDrawingToolbar({
           <label className="position-color-control">
             <span>Target</span>
             <ThemedColorPicker
+              allowAlpha
               ariaLabel="Target color"
               className="chart-object-floating-picker"
               compact
@@ -6170,6 +6173,7 @@ function FloatingDrawingToolbar({
           <label className="position-color-control">
             <span>Stop</span>
             <ThemedColorPicker
+              allowAlpha
               ariaLabel="Stop color"
               className="chart-object-floating-picker"
               compact
@@ -6180,6 +6184,7 @@ function FloatingDrawingToolbar({
         </div>
       ) : (
         <ThemedColorPicker
+          allowAlpha
           ariaLabel="Drawing color"
           className="chart-object-floating-picker"
           compact
@@ -6484,6 +6489,7 @@ function FibLevelEditor({
                 type="checkbox"
               />
               <ThemedColorPicker
+                allowAlpha
                 ariaLabel={`${level.label ?? level.value} color`}
                 className="fib-level-color"
                 compact
@@ -9737,30 +9743,6 @@ function drawingStrokeWidth(drawing: ChartDrawing, selected: boolean) {
   return selected ? Math.min(width + 0.75, 6) : width;
 }
 
-function colorWithOpacity(color: string, opacity: number) {
-  const normalizedOpacity = clamp(opacity, 0, 1);
-  if (!color.startsWith("#")) {
-    return color;
-  }
-  const hex = color.slice(1);
-  const expanded =
-    hex.length === 3
-      ? hex
-          .split("")
-          .map((char) => char + char)
-          .join("")
-      : hex;
-  if (expanded.length !== 6) {
-    return color;
-  }
-  const red = Number.parseInt(expanded.slice(0, 2), 16);
-  const green = Number.parseInt(expanded.slice(2, 4), 16);
-  const blue = Number.parseInt(expanded.slice(4, 6), 16);
-  if ([red, green, blue].some((value) => Number.isNaN(value))) {
-    return color;
-  }
-  return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
-}
 
 function candleChangeTone(candle: Candle | null) {
   if (candle == null || candle.open === 0) {
