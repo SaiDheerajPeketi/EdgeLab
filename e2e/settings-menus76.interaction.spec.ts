@@ -176,6 +176,29 @@ test("startup ignores crowded saved panel state while restoring the saved chart"
   await page.locator(".chart-studio-toolbar").getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Chart settings" });
   await expect(dialog).toBeVisible();
+  // Change semantic colours on the real chart settings surface, checking that
+  // its shared inputs and panels do not retain fixed dark palette colours.
+  await page.evaluate(() => {
+    for (const [key, value] of Object.entries({ "--ui-inset": "rgb(240, 241, 242)", "--ui-floating": "rgb(250, 251, 252)", "--text-primary": "rgb(20, 21, 22)", "--ui-selection": "rgb(220, 222, 224)" })) document.documentElement.style.setProperty(key, value);
+  });
+  await expect(dialog.locator(".chart-settings-popover")).toHaveCSS("background-color", "rgb(250, 251, 252)");
+  await expect(dialog.locator(".chart-settings-popover")).toHaveCSS("color", "rgb(20, 21, 22)");
+  await expect(dialog.locator(".input-control").first()).toHaveCSS("background-color", "rgb(240, 241, 242)");
+  await expect(dialog.locator(".input-control").first()).toHaveCSS("color", "rgb(20, 21, 22)");
+  const activeTab = dialog.locator(".chart-settings-nav-button-active");
+  await activeTab.hover();
+  await expect(activeTab).toHaveCSS("background-color", "rgb(220, 222, 224)");
+  await expect(dialog.getByRole("navigation", { name: "Chart settings sections" })).toHaveCSS("display", page.viewportSize()!.width <= 720 ? "flex" : "grid");
+  await page.evaluate(() => { for (const key of ["--ui-inset", "--ui-floating", "--text-primary", "--ui-selection"]) document.documentElement.style.removeProperty(key); });
+  if (page.viewportSize()!.width <= 640) {
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y).toBeLessThanOrEqual(8);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  }
+  await page.screenshot({ path: info.outputPath("chart-settings-theme.png"), fullPage: false });
+  await dialog.getByRole("button", { name: "Save Template", exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "Save Template", exact: true })).toBeInViewport();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await page.locator('[data-motion="workspace-panel-trigger"]').click();

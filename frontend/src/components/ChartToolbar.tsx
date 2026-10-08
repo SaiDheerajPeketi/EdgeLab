@@ -872,7 +872,7 @@ export function ChartToolbar({
   }
 
   const settingsPanel = settingsOpen ? (
-    <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={(reason) => { setSettingsOpen(false); if (reason === "escape") settingsTriggerRef.current?.focus({ preventScroll: true }); }} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
+    <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={(reason) => { setSettingsOpen(false); if (reason === "escape") settingsTriggerRef.current?.focus({ preventScroll: true }); }} align="right" mobileSheet preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
@@ -1945,8 +1945,8 @@ function ChartSettingsPanel({
     <div className="chart-settings-popover">
       <div className="chart-settings-header">
         <div>
-          <div className="text-sm font-semibold text-white">Settings</div>
-          <div className="text-xs text-slate-500">
+          <div className="text-sm font-semibold text-[var(--text-primary)]">Settings</div>
+          <div className="text-xs text-[var(--text-secondary)]">
             Chart display, scales, labels, and canvas styling
           </div>
         </div>
@@ -1973,7 +1973,7 @@ function ChartSettingsPanel({
           <section className="chart-settings-template-switcher">
             <div className="min-w-0">
               <div className="chart-settings-section-title">Templates</div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 text-xs text-[var(--text-secondary)]">
                 {presets.length > 0
                   ? "Switch chart settings without changing drawings or indicators."
                   : "Save the current settings to create your first template."}
@@ -2254,7 +2254,7 @@ function ChartSettingsPanel({
                     updateSettings({ closedSessionShading })
                   }
                 />
-                <p className="col-span-full text-xs leading-5 text-slate-500">
+                <p className="col-span-full text-xs leading-5 text-[var(--text-secondary)]">
                   Automatic templates follow recognized exchange and instrument symbols.
                   Unknown symbols keep every bar so incomplete metadata never hides data.
                 </p>
@@ -2639,13 +2639,13 @@ function CandleColorSetting({
 }) {
   return (
     <div className="chart-settings-candle-row">
-      <div className="flex min-h-9 items-center gap-2 rounded-md border border-white/[0.07] bg-white/[0.025] px-3 text-xs font-semibold text-slate-300">
+      <div className="flex min-h-9 items-center gap-2 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] px-3 text-xs font-semibold text-[var(--text-primary)]">
         <button
           aria-label={`${visible ? "Hide" : "Show"} ${label}`}
           className={`grid h-6 w-6 place-items-center rounded border transition ${
             visible
-              ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
-              : "border-white/10 bg-black/20 text-slate-500 hover:text-slate-200"
+              ? "border-[var(--ui-focus)] bg-[var(--ui-selection)] text-[var(--text-primary)]"
+              : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           }`}
           onClick={() => onVisibleChange(!visible)}
           title={`${visible ? "Hide" : "Show"} ${label}`}
@@ -2845,7 +2845,7 @@ function TimeZoneSetting({
       </span>
       <span
         aria-live="polite"
-        className="normal-case font-normal leading-4 tracking-normal text-slate-500"
+        className="normal-case font-normal leading-4 tracking-normal text-[var(--text-secondary)]"
         id={helpId}
       >
         {message || `${selectedTimeZone.id} · Applied to axis, values, drawings, and captures.`}
