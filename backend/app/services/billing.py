@@ -12,6 +12,7 @@ from typing import Protocol
 from threading import Lock
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -218,6 +219,22 @@ def _lock_user(db: Session, user_id: int):
     return user
 
 
+def _checkout_user(db: Session, user_id: int):
+    # Enrollment must lock before the owner row, as in the account access path.
+    # Production buyers do not need an existing subscription to start checkout.
+    from app.services import access_policy
+
+    try:
+        if access_policy.deployment_mode(settings) == "beta":
+            access_policy.lock_enrollment(db)
+            access = access_policy.access_snapshot(db, user_id, settings, refresh=False)
+            if not access["workspace_access"]:
+                raise BillingError(403, "Beta workspace approval is required before purchasing Pro. Check your access in Account.")
+    except HTTPException as exc:
+        raise BillingError(exc.status_code, str(exc.detail)) from None
+    return _lock_user(db, user_id)
+
+
 def _customer(db: Session, user_id: int, config: BillingConfig):
     return db.scalar(select(BillingCustomer).where(BillingCustomer.user_id == user_id, BillingCustomer.livemode == config.livemode))
 
@@ -406,9 +423,9 @@ def create_checkout(db: Session, user_id: int, plan: str, cadence: str, config: 
     if plan != "pro":
         raise BillingError(400, "Unknown billing plan.")
     config.price_id(cadence)
+    user = _checkout_user(db, user_id)
     provider = provider or StripeProvider(config)
     validate_price(provider, config, cadence)
-    user = _lock_user(db, user_id)
     customer = _customer(db, user_id, config)
     if customer is None:
         raw = provider.create_customer({"email": user.email, "name": user.name, "metadata": {"edgelab_user_id": str(user_id)}}, f"edgelab:customer:{config.mode}:{user_id}")
@@ -438,7 +455,7 @@ def create_checkout(db: Session, user_id: int, plan: str, cadence: str, config: 
     # complete. On transport failure, retry uses precisely the same purchase.
     attempt = (customer.stripe_customer_id, customer.pending_nonce, customer.pending_cadence, customer.pending_price_id)
     db.commit()
-    _lock_user(db, user_id)
+    _checkout_user(db, user_id)
     customer = db.scalar(select(BillingCustomer).where(BillingCustomer.user_id == user_id, BillingCustomer.livemode == config.livemode).execution_options(populate_existing=True))
     if customer is None or attempt != (customer.stripe_customer_id, customer.pending_nonce, customer.pending_cadence, customer.pending_price_id):
         raise BillingError(409, "Checkout attempt changed. Retry your billing choice.")
