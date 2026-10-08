@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -106,23 +106,35 @@ export function SettingsCenter({
   const [refreshing, setRefreshing] = useState(false);
   const [assetId, setAssetId] = useState(datasets?.instruments[0]?.id ?? "");
   const selectedAsset = datasets?.instruments.find((asset) => asset.id === assetId) ?? null;
-  const [assetDraft, setAssetDraft] = useState(() => assetValues(selectedAsset));
+  const [assetDrafts, setAssetDrafts] = useState<Record<string, { values: AssetDraft; baseline: AssetDraft }>>({});
+  const assetDraft = assetDrafts[assetId]?.values ?? assetValues(selectedAsset);
+  const datasetRootValue = useRef(datasetRoot);
+  const assetDraftValues = useRef(assetDrafts);
+  datasetRootValue.current = datasetRoot;
+  assetDraftValues.current = assetDrafts;
+  const pendingSaves = useRef(new Set<string>());
+  const refreshVersion = useRef(0);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const authSession = getStoredAuthSession();
 
   const chartDirty = chartSettings.dirty || chartSettings.pending;
   const datasetRootDirty = datasetRoot !== datasetRootBaseline;
-  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || journalSettings.journalPending || journalSettings.notePending || backtestSettings.dirty || backtestSettings.pending || preferenceSettings.dirty || preferenceSettings.pending;
+  const assetDirty = Object.values(assetDrafts).some(({ values, baseline }) => !sameAssetValues(values, baseline));
+  const datasetPending = saveStates["dataset-root"] === "saving" || Object.entries(saveStates).some(([key, state]) => key.startsWith("asset:") && state === "saving");
+  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || assetDirty || datasetPending || journalSettings.journalPending || journalSettings.notePending || backtestSettings.dirty || backtestSettings.pending || preferenceSettings.dirty || preferenceSettings.pending;
 
   const save = useCallback(async (key: string, action: () => Promise<unknown> | unknown) => {
+    if (pendingSaves.current.has(key)) return false;
+    pendingSaves.current.add(key);
     setSaveStates((current) => ({ ...current, [key]: "saving" }));
     try {
       await action();
       setSaveStates((current) => ({ ...current, [key]: "saved" }));
+      return true;
     } catch {
       setSaveStates((current) => ({ ...current, [key]: "error" }));
-      throw new Error("save-failed");
-    }
+      return false;
+    } finally { pendingSaves.current.delete(key); }
   }, []);
 
   useEffect(() => {
@@ -164,22 +176,41 @@ export function SettingsCenter({
   }, [category, focusControl]);
 
   useEffect(() => {
-    if (!datasets || datasetRootDirty) return;
+    if (!datasets) return;
+    setDatasetRoot((current) => !pendingSaves.current.has("dataset-root") && current === datasetRootBaseline ? datasets.root : current);
     setDatasetRootBaseline(datasets.root);
-    setDatasetRoot(datasets.root);
-  }, [datasets, datasetRootDirty]);
+  }, [datasets?.root]);
 
   useEffect(() => {
     if (!datasets?.instruments.length) return;
     if (!datasets.instruments.some((asset) => asset.id === assetId)) setAssetId(datasets.instruments[0].id);
   }, [assetId, datasets]);
 
-  useEffect(() => { setAssetDraft(assetValues(selectedAsset)); }, [selectedAsset]);
+  useEffect(() => {
+    if (!datasets) return;
+    setAssetDrafts((current) => Object.fromEntries(datasets.instruments.map((asset) => {
+      const baseline = assetValues(asset), previous = current[asset.id];
+      const values = previous ? Object.fromEntries(Object.keys(baseline).map((key) => {
+        const field = key as keyof AssetDraft;
+        return [field, pendingSaves.current.has("asset:" + asset.id) || previous.values[field] !== previous.baseline[field] ? previous.values[field] : baseline[field]];
+      })) as AssetDraft : baseline;
+      return [asset.id, { values, baseline }];
+    })));
+  }, [datasets?.instruments]);
+
+  function setAssetDraft(values: AssetDraft) {
+    if (!selectedAsset) return;
+    setAssetDrafts((current) => ({ ...current, [assetId]: { values, baseline: current[assetId]?.baseline ?? assetValues(selectedAsset) } }));
+    setSaveStates((current) => ({ ...current, ["asset:" + assetId]: current["asset:" + assetId] === "saving" ? "saving" : "idle" }));
+  }
 
   useEffect(() => {
     if (category !== "data-providers") return;
     let cancelled = false;
-    void onGetDatasetRefreshStatus().then((status) => { if (!cancelled) setRefreshStatus(status); }).catch(() => undefined);
+    const version = ++refreshVersion.current;
+    void onGetDatasetRefreshStatus().then((status) => { if (!cancelled && version === refreshVersion.current) setRefreshStatus(status); }).catch(() => {
+      if (!cancelled && version === refreshVersion.current) setSaveStates((current) => ({ ...current, refresh: "error" }));
+    });
     return () => { cancelled = true; };
   }, [category, onGetDatasetRefreshStatus]);
 
@@ -192,32 +223,48 @@ export function SettingsCenter({
 
   function selectResult(result: SettingsControl) { navigate(result.category, result.id); }
 
-  async function saveDatasetRoot() {
-    if (!datasetRoot.trim()) return;
-    await save("dataset-root", () => onUpdateDatasetSettings({ root_path: datasetRoot.trim() }));
-    setDatasetRootBaseline(datasetRoot.trim());
-    setDatasetRoot(datasetRoot.trim());
+  function changeDatasetRoot(value: string) {
+    setDatasetRoot(value);
+    setSaveStates((current) => ({ ...current, ["dataset-root"]: current["dataset-root"] === "saving" ? "saving" : "idle" }));
   }
 
-  async function refreshDatasetsNow() {
+  async function saveDatasetRoot() {
+    if (!datasetRoot.trim()) return;
+    const submitted = datasetRoot, root = submitted.trim();
+    if (!await save("dataset-root", () => onUpdateDatasetSettings({ root_path: root }))) return;
+    setDatasetRootBaseline(root);
+    if (datasetRootValue.current !== submitted) setSaveStates((current) => ({ ...current, ["dataset-root"]: "idle" }));
+    setDatasetRoot((current) => current === submitted ? root : current);
+  }
+
+  async function refreshDatasetsNow(checkOnly = false) {
+    if (pendingSaves.current.has("refresh")) return;
     setRefreshing(true);
-    setSaveStates((current) => ({ ...current, refresh: "saving" }));
-    try {
-      const response = await onRefreshDatasets();
-      setRefreshStatus(response.status);
-      setSaveStates((current) => ({ ...current, refresh: "saved" }));
-    } catch {
-      setSaveStates((current) => ({ ...current, refresh: "error" }));
-    } finally {
-      setRefreshing(false);
-    }
+    const version = ++refreshVersion.current;
+    await save("refresh", async () => {
+      const status = checkOnly || refreshStatus?.running ? await onGetDatasetRefreshStatus() : (await onRefreshDatasets()).status;
+      if (version === refreshVersion.current) setRefreshStatus(status);
+    });
+    setRefreshing(false);
   }
 
   async function saveAsset() {
     if (!selectedAsset || assetValidation(assetDraft)) return;
-    await save("asset", () => onUpdateDatasetAsset(selectedAsset.id, {
-      currency: assetDraft.currency.trim().toUpperCase(), timezone: assetDraft.timezone.trim(), pnl_multiplier: Number(assetDraft.multiplier),
-    }));
+    const id = selectedAsset.id, submitted = { ...assetDraft };
+    const confirmed = { currency: submitted.currency.trim().toUpperCase(), timezone: submitted.timezone.trim(), multiplier: String(Number(submitted.multiplier)) };
+    if (!await save("asset:" + id, () => onUpdateDatasetAsset(id, {
+      currency: confirmed.currency, timezone: confirmed.timezone, pnl_multiplier: Number(confirmed.multiplier),
+    }))) return;
+    if (assetDraftValues.current[id] && !sameAssetValues(assetDraftValues.current[id].values, submitted)) setSaveStates((current) => ({ ...current, ["asset:" + id]: "idle" }));
+    setAssetDrafts((current) => {
+      const latest = current[id];
+      if (!latest) return current;
+      const values = Object.fromEntries(Object.keys(confirmed).map((key) => {
+        const field = key as keyof AssetDraft;
+        return [field, latest.values[field] === submitted[field] ? confirmed[field] : latest.values[field]];
+      })) as AssetDraft;
+      return { ...current, [id]: { values, baseline: confirmed } };
+    });
   }
 
   const activeCategory = SETTINGS_CATEGORIES.find((item) => item.id === category) ?? SETTINGS_CATEGORIES[0];
@@ -246,7 +293,7 @@ export function SettingsCenter({
             {SETTINGS_CATEGORIES.map((item) => {
               const Icon = CATEGORY_ICONS[item.id];
               const selected = item.id === category;
-              const status = categoryStatus(item.id, { datasets, journalDirty, noteDirty, chartDirty, datasetRootDirty, backtestDirty: backtestSettings.dirty || backtestSettings.pending, signedIn: Boolean(authSession) });
+              const status = categoryStatus(item.id, { datasets, journalDirty, noteDirty, chartDirty, datasetRootDirty: datasetRootDirty || assetDirty || datasetPending, backtestDirty: backtestSettings.dirty || backtestSettings.pending, signedIn: Boolean(authSession) });
               return <button key={item.id} type="button" aria-current={selected ? "page" : undefined} onClick={() => navigate(item.id)} className={`flex min-h-10 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${selected ? "bg-white/10 text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)]"}`}><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span className="ui-resilient-text min-w-0 flex-1" dir="auto">{item.label}</span>{status ? <span className={`shrink-0 text-[11px] ${status === "Unsaved" ? "text-[var(--warning-text)]" : "text-[var(--text-secondary)]"}`}>{status}</span> : null}</button>;
             })}
           </nav>
@@ -277,7 +324,7 @@ export function SettingsCenter({
           {category === "chart" ? <ChartSettingsPanel settings={chartSettings} preferences={preferenceSettings} /> : null}
           {category === "appearance" ? <ChartSettingsPanel appearance settings={chartSettings} preferences={preferenceSettings} /> : null}
           {category === "data-providers" ? <>
-            <DatasetSettings assetDraft={assetDraft} assetId={assetId} datasets={datasets} datasetRoot={datasetRoot} datasetRootDirty={datasetRootDirty} refreshStatus={refreshStatus} refreshing={refreshing} saveStates={saveStates} selectedAsset={selectedAsset} onAssetDraftChange={setAssetDraft} onAssetIdChange={setAssetId} onRefresh={() => void refreshDatasetsNow()} onRootChange={setDatasetRoot} onSaveAsset={() => void saveAsset()} onSaveRoot={() => void saveDatasetRoot()} />
+            <DatasetSettings assetDraft={assetDraft} assetId={assetId} datasets={datasets} datasetRoot={datasetRoot} datasetRootDirty={datasetRootDirty} assetDirty={!sameAssetValues(assetDraft, assetDrafts[assetId]?.baseline ?? assetValues(selectedAsset))} datasetDirty={datasetRootDirty || assetDirty || datasetPending} assetPending={Object.entries(saveStates).some(([key, state]) => key.startsWith("asset:") && state === "saving")} refreshStatus={refreshStatus} refreshing={refreshing} saveStates={{ ...saveStates, asset: saveStates["asset:" + assetId] }} selectedAsset={selectedAsset} onAssetDraftChange={setAssetDraft} onAssetIdChange={setAssetId} onRefresh={() => void refreshDatasetsNow()} onRetryRefresh={() => void refreshDatasetsNow(true)} onRootChange={changeDatasetRoot} onSaveAsset={() => void saveAsset()} onSaveRoot={() => void saveDatasetRoot()} />
             <SettingsIntegrations />
           </> : null}
           {category === "account" ? <AccountSettingsPanel /> : null}
@@ -291,11 +338,11 @@ export function SettingsCenter({
 }
 
 type AssetDraft = { currency: string; timezone: string; multiplier: string };
-function DatasetSettings(props: { assetDraft: AssetDraft; assetId: string; datasets: DatasetCatalog | null; datasetRoot: string; datasetRootDirty: boolean; refreshStatus: DatasetRefreshStatus | null; refreshing: boolean; saveStates: Record<string, SaveState>; selectedAsset: DatasetCatalog["instruments"][number] | null; onAssetDraftChange: (draft: AssetDraft) => void; onAssetIdChange: (id: string) => void; onRefresh: () => void; onRootChange: (root: string) => void; onSaveAsset: () => void; onSaveRoot: () => void }) {
-  return <SettingsSection title="Local market data" description="Dataset controls use the configured server scan API. Folder paths are interpreted by the EdgeLab backend, not by this browser." dirty={props.datasetRootDirty} onReset={() => props.onRootChange("")}>
-    <SettingRow controlId="dataset-root" label="Dataset root" description="Absolute server-side folder containing instrument and timeframe CSV files." scope="Workspace" effective={props.datasets?.root || "Not configured"} validation={!props.datasetRoot.trim() ? "Enter a dataset folder path." : null} saveState={props.saveStates["dataset-root"]} onRetry={props.onSaveRoot}><div><input value={props.datasetRoot} onChange={(event) => props.onRootChange(event.target.value)} placeholder="/data/market" className={fieldClassName} /><button type="button" onClick={props.onSaveRoot} disabled={!props.datasetRootDirty || !props.datasetRoot.trim()} className="mt-2 min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Apply dataset root</button></div></SettingRow>
-    <SettingRow controlId="dataset-refresh" label="Dataset refresh" description="Rescan configured files. A running scan can be checked again without starting another." effective={refreshText(props.refreshStatus, props.datasets)} saveState={props.saveStates.refresh} onRetry={props.onRefresh}><button type="button" onClick={props.onRefresh} disabled={props.refreshing || props.refreshStatus?.running} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--ui-border-strong)] px-4 text-sm font-medium hover:bg-[var(--ui-hover)] disabled:opacity-45"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${props.refreshing || props.refreshStatus?.running ? "animate-spin motion-reduce:animate-none" : ""}`} />{props.refreshStatus?.running ? `Scanning ${props.refreshStatus.current ?? "files"}…` : "Rescan datasets"}</button></SettingRow>
-    <SettingRow controlId="asset-calibration" label="Instrument calibration" description="Update the selected instrument’s currency, IANA time zone, and positive P&L multiplier." scope="Workspace" validation={assetValidation(props.assetDraft)} saveState={props.saveStates.asset} onRetry={props.onSaveAsset}><div className="space-y-2"><select aria-label="Instrument" value={props.assetId} onChange={(event) => props.onAssetIdChange(event.target.value)} disabled={!props.datasets?.instruments.length} className={fieldClassName}><option value="">No instruments</option>{props.datasets?.instruments.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.symbol}</option>)}</select>{props.selectedAsset ? <><div className="grid gap-2 sm:grid-cols-3"><label className="text-xs text-[var(--text-secondary)]">Currency<input value={props.assetDraft.currency} maxLength={3} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, currency: event.target.value.toUpperCase() })} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-[var(--text-secondary)] sm:col-span-2">Time zone<input value={props.assetDraft.timezone} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, timezone: event.target.value })} placeholder="UTC" className={`${fieldClassName} mt-1`} /></label></div><label className="block text-xs text-[var(--text-secondary)]">P&amp;L multiplier<input inputMode="decimal" value={props.assetDraft.multiplier} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, multiplier: event.target.value })} className={`${fieldClassName} mt-1`} /></label><button type="button" onClick={props.onSaveAsset} disabled={Boolean(assetValidation(props.assetDraft))} className="min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Save instrument</button></> : null}</div></SettingRow>
+function DatasetSettings(props: { assetDraft: AssetDraft; assetId: string; datasets: DatasetCatalog | null; datasetRoot: string; datasetRootDirty: boolean; assetDirty: boolean; datasetDirty: boolean; assetPending: boolean; refreshStatus: DatasetRefreshStatus | null; refreshing: boolean; saveStates: Record<string, SaveState>; selectedAsset: DatasetCatalog["instruments"][number] | null; onAssetDraftChange: (draft: AssetDraft) => void; onAssetIdChange: (id: string) => void; onRefresh: () => void; onRetryRefresh: () => void; onRootChange: (root: string) => void; onSaveAsset: () => void; onSaveRoot: () => void }) {
+  return <SettingsSection title="Local market data" description="Dataset controls use the configured server scan API. Folder paths are interpreted by the EdgeLab backend, not by this browser." dirty={props.datasetDirty} onReset={() => props.onRootChange("")}>
+    <SettingRow controlId="dataset-root" label="Dataset root" description="Absolute server-side folder containing instrument and timeframe CSV files." scope="Workspace" effective={props.datasets?.root || "Not configured"} validation={!props.datasetRoot.trim() ? "Enter a dataset folder path." : null} saveState={props.saveStates["dataset-root"]} saveMessage={props.saveStates["dataset-root"] === "error" ? "Dataset root could not be saved. Your draft is kept." : undefined} onRetry={props.onSaveRoot}><div><input value={props.datasetRoot} onChange={(event) => props.onRootChange(event.target.value)} placeholder="/data/market" className={fieldClassName} /><button type="button" onClick={props.onSaveRoot} disabled={!props.datasetRootDirty || !props.datasetRoot.trim() || props.saveStates["dataset-root"] === "saving"} className="mt-2 min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Apply dataset root</button></div></SettingRow>
+    <SettingRow controlId="dataset-refresh" label="Dataset refresh" description="Rescan configured files. A running scan can be checked again without starting another." effective={refreshText(props.refreshStatus, props.datasets)} saveState={props.saveStates.refresh} saveMessage={props.saveStates.refresh === "error" ? "Dataset refresh could not be confirmed. Retry the status check." : undefined} onRetry={props.onRetryRefresh}><button type="button" onClick={props.onRefresh} disabled={props.refreshing} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--ui-border-strong)] px-4 text-sm font-medium hover:bg-[var(--ui-hover)] disabled:opacity-45"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${props.refreshing || props.refreshStatus?.running ? "animate-spin motion-reduce:animate-none" : ""}`} />{props.refreshing ? "Checking datasets…" : props.refreshStatus?.running ? "Check scan status" : "Rescan datasets"}</button></SettingRow>
+    <SettingRow controlId="asset-calibration" label="Instrument calibration" description="Update the selected instrument’s currency, IANA time zone, and positive P&L multiplier." scope="Workspace" validation={assetValidation(props.assetDraft)} saveState={props.saveStates.asset} saveMessage={props.saveStates.asset === "error" ? "Instrument settings could not be saved. Your draft is kept." : undefined} onRetry={props.onSaveAsset}><div className="space-y-2"><select aria-label="Instrument" value={props.assetId} onChange={(event) => props.onAssetIdChange(event.target.value)} disabled={!props.datasets?.instruments.length} className={fieldClassName}><option value="">No instruments</option>{props.datasets?.instruments.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.symbol}</option>)}</select>{props.selectedAsset ? <><div className="grid gap-2 sm:grid-cols-3"><label className="text-xs text-[var(--text-secondary)]">Currency<input value={props.assetDraft.currency} maxLength={3} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, currency: event.target.value.toUpperCase() })} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-[var(--text-secondary)] sm:col-span-2">Time zone<input value={props.assetDraft.timezone} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, timezone: event.target.value })} placeholder="UTC" className={`${fieldClassName} mt-1`} /></label></div><label className="block text-xs text-[var(--text-secondary)]">P&amp;L multiplier<input inputMode="decimal" value={props.assetDraft.multiplier} onChange={(event) => props.onAssetDraftChange({ ...props.assetDraft, multiplier: event.target.value })} className={`${fieldClassName} mt-1`} /></label><button type="button" onClick={props.onSaveAsset} disabled={!props.assetDirty || props.assetPending || Boolean(assetValidation(props.assetDraft))} className="min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Save instrument</button></> : null}</div></SettingRow>
   </SettingsSection>;
 }
 
@@ -311,6 +358,8 @@ function categoryStatus(category: SettingsCategoryId, state: { datasets: Dataset
 function assetValues(asset: DatasetCatalog["instruments"][number] | null): AssetDraft {
   return { currency: asset?.currency ?? "USD", timezone: asset?.timezone ?? "UTC", multiplier: String(asset?.pnl_multiplier ?? 1) };
 }
+
+function sameAssetValues(a: AssetDraft, b: AssetDraft) { return a.currency === b.currency && a.timezone === b.timezone && a.multiplier === b.multiplier; }
 
 function assetValidation(draft: AssetDraft) {
   if (!/^[A-Za-z]{3}$/.test(draft.currency)) return "Use a three-letter currency code.";

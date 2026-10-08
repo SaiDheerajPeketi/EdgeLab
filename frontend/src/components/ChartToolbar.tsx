@@ -76,6 +76,7 @@ import {
   normalizeChartSettingsPresetName,
   persistActiveChartSettingsPresetName,
   saveChartSettingsPreset,
+  sanitizeChartVisualSettings,
   subscribeChartSettingsPresets,
   type ChartLineStyle,
   type ChartSettingsPreset,
@@ -454,6 +455,8 @@ export function ChartToolbar({
     const presets = loadChartSettingsPresets();
     return loadActiveChartSettingsPresetName(presets) ?? "Default";
   });
+  const [settingsActivePresetName, setSettingsActivePresetName] = useState<string | null>(() => loadActiveChartSettingsPresetName());
+  const settingsNameEdited = useRef(false);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const suppressCommandFocusOpenRef = useRef(false);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
@@ -621,7 +624,7 @@ export function ChartToolbar({
         ? preferredName
         : loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
     setSettingsPresets(nextPresets);
-    setSettingsPresetName(nextName);
+    if (preferredName || !settingsNameEdited.current) setSettingsPresetName(nextName);
     return nextPresets;
   }
 
@@ -633,12 +636,14 @@ export function ChartToolbar({
       }
       const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
       setSettingsPresets(nextPresets);
-      setSettingsPresetName(nextName);
+      setSettingsActivePresetName(nextName);
+      if (!settingsNameEdited.current) setSettingsPresetName(nextName);
     });
     const unsubscribe = subscribeChartSettingsPresets((nextPresets) => {
       const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
       setSettingsPresets(nextPresets);
-      setSettingsPresetName((current) =>
+      setSettingsActivePresetName((current) => nextPresets.some((preset) => preset.name === current) ? current : null);
+      if (!settingsNameEdited.current) setSettingsPresetName((current) =>
         nextPresets.some((preset) => preset.name === current) ? current : nextName,
       );
     });
@@ -874,6 +879,7 @@ export function ChartToolbar({
   const settingsPanel = settingsOpen ? (
     <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={(reason) => { setSettingsOpen(false); if (reason === "escape") settingsTriggerRef.current?.focus({ preventScroll: true }); }} align="right" mobileSheet preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
+      activePresetName={settingsActivePresetName}
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
       onDeletePreset={(name) => {
@@ -883,7 +889,8 @@ export function ChartToolbar({
             ? loadActiveChartSettingsPresetName(nextPresets) ?? "Default"
             : settingsPresetName;
         setSettingsPresets(nextPresets);
-        setSettingsPresetName(nextName);
+        if (normalizeChartSettingsPresetName(name) === settingsActivePresetName) setSettingsActivePresetName(null);
+        if (!settingsNameEdited.current) setSettingsPresetName(nextName);
       }}
       onLoadPreset={(name) => {
         const nextPresets = refreshSettingsPresets(name);
@@ -891,18 +898,22 @@ export function ChartToolbar({
         if (!preset) {
           return;
         }
+        settingsNameEdited.current = false;
         setSettingsPresetName(preset.name);
+        setSettingsActivePresetName(preset.name);
         persistActiveChartSettingsPresetName(preset.name);
         onChartSettingsChange(preset.settings);
       }}
-      onPresetNameChange={setSettingsPresetName}
+      onPresetNameChange={(name) => { settingsNameEdited.current = true; setSettingsPresetName(name); }}
       onRemoveIndicator={onRemoveIndicator}
       onReset={onChartSettingsReset}
       onSavePreset={() => {
         const presetName = normalizeChartSettingsPresetName(settingsPresetName);
         const nextPresets = saveChartSettingsPreset(presetName, chartSettings);
+        settingsNameEdited.current = false;
         setSettingsPresets(nextPresets);
         setSettingsPresetName(presetName);
+        setSettingsActivePresetName(presetName);
         setSettingsOpen(false);
       }}
       onSettingsChange={onChartSettingsChange}
@@ -1932,6 +1943,7 @@ const CHART_SETTINGS_TABS: Array<{ id: ChartSettingsTab; label: string }> = [
 ];
 
 function ChartSettingsPanel({
+  activePresetName,
   indicatorInstances,
   onClose,
   onDeletePreset,
@@ -1946,6 +1958,7 @@ function ChartSettingsPanel({
   presets,
   settings,
 }: {
+  activePresetName: string | null;
   indicatorInstances: ChartIndicatorInstance[];
   onClose: () => void;
   onDeletePreset: (name: string) => void;
@@ -1964,6 +1977,8 @@ function ChartSettingsPanel({
   settings: ChartVisualSettings;
 }) {
   const [activeTab, setActiveTab] = useState<ChartSettingsTab>("symbol");
+  const activePreset = presets.find((preset) => preset.name === activePresetName);
+  const modified = Boolean(activePreset && JSON.stringify(sanitizeChartVisualSettings(activePreset.settings)) !== JSON.stringify(sanitizeChartVisualSettings(settings)));
 
   function updateSettings(patch: Partial<ChartVisualSettings>) {
     onSettingsChange({ ...settings, ...patch });
@@ -2010,7 +2025,7 @@ function ChartSettingsPanel({
             {presets.length > 0 ? (
               <div className="chart-settings-template-list">
                 {presets.map((preset) => {
-                  const active = preset.name === presetName;
+                  const active = preset.name === activePresetName;
                   return (
                     <button
                       className={`chart-settings-template-chip ${active ? "chart-settings-template-chip-active" : ""}`}
@@ -2019,7 +2034,7 @@ function ChartSettingsPanel({
                       type="button"
                     >
                       <span className="truncate">{preset.name}</span>
-                      <span>{active ? "Active" : "Use"}</span>
+                      <span>{active ? modified ? "Modified" : "Active" : "Use"}</span>
                     </button>
                   );
                 })}
@@ -2573,9 +2588,10 @@ function ChartSettingsPanel({
       <div className="chart-settings-footer">
         <div className="chart-settings-template-status">
           <span className="study-manager-label">Template</span>
-          <strong>{presets.some((preset) => preset.name === presetName) ? presetName : "Unsaved"}</strong>
+          <strong>{activePreset ? `${activePreset.name}${modified ? " · Modified" : ""}` : "Unsaved"}</strong>
         </div>
         <input
+          aria-label="Template name"
           className="input-control h-8 min-w-40 flex-1 text-xs"
           onChange={(event) => onPresetNameChange(event.target.value)}
           placeholder="Save as template"
@@ -2583,13 +2599,7 @@ function ChartSettingsPanel({
         />
         <button
           className="studio-tool-button studio-tool-button-active"
-          onClick={() => {
-            try {
-              onSavePreset();
-            } finally {
-              onClose();
-            }
-          }}
+          onClick={onSavePreset}
           type="button"
         >
           <Save size={13} />
@@ -2597,8 +2607,9 @@ function ChartSettingsPanel({
         </button>
         <button
           className="studio-tool-button"
-          disabled={!presets.some((preset) => preset.name === presetName)}
-          onClick={() => onDeletePreset(presetName)}
+          disabled={!activePreset}
+          onClick={() => { if (activePreset) onDeletePreset(activePreset.name); }}
+          title={activePreset ? `Delete ${activePreset.name}` : "No active template"}
           type="button"
         >
           <Trash2 size={13} />
