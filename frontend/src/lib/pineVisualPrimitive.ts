@@ -250,7 +250,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
-    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.kind === "candles" || plot.visual.plotOffset || plot.visual.pointStyle) {
+    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.kind === "candles" || plot.visual.plotOffset || plot.visual.pointStyle || plot.visual.diamond) {
       const range = scale.getVisibleLogicalRange();
       if (!range) return [0, -1];
       const offset = plot.visual.plotOffset ?? plot.visual.backgroundOffset ?? 0;
@@ -272,9 +272,9 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
         if (center !== null && next !== null && next !== center) margin = Math.ceil(plot.visual.histogramWidth / Math.abs(next - center) / 2) + 1;
       }
-      if (plot.visual.pointStyle) {
+      if (plot.visual.pointStyle || plot.visual.diamond) {
         const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
-        if (center !== null && next !== null && next !== center) margin = Math.ceil((plot.visual.pointStyle.size + 1) / Math.abs(next - center)) + 1;
+        if (center !== null && next !== null && next !== center) margin = Math.ceil((plot.visual.pointStyle ? plot.visual.pointStyle.size + 1 : plot.visual.diamond!.size) / Math.abs(next - center)) + 1;
       }
       const from = locate(Number(range.from) - offset - margin), to = locate(Number(range.to) - offset + margin, true) - 1;
       return valid ? [Math.max(plot.visual.showFrom, from - (neighbors && plot.kind !== "background" ? 1 : 0)), Math.min(bars.length - 1, to + (neighbors && plot.kind !== "background" ? 1 : 0))] : [0, -1];
@@ -567,6 +567,17 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         above = Math.max(above, found.margin); below = Math.max(below, found.margin);
         return;
       }
+      if (plot.visual?.diamond) {
+        const points = this.diamondGeometry(plot, from, to);
+        for (const point of points) {
+          if (point.x >= 0 && point.x <= paneWidth) bounds = extend(bounds, point.value);
+          if (point.changed && painted(point.shade) && point.x + point.size > 0 && point.x - point.size < paneWidth) {
+            bounds = extend(bounds, point.value); above = Math.max(above, point.size); below = Math.max(below, point.size);
+          }
+        }
+        if (logical) { bounds = extend(bounds, this.shiftedEdgeValue(plot, Number(logical.from))); bounds = extend(bounds, this.shiftedEdgeValue(plot, Number(logical.to))); }
+        return;
+      }
       if (plot.kind === "candles") {
         // Neighbor samples are retained only when their actual candle body reaches the pane.
         if (to >= from) for (let index = from; index <= to; index++) {
@@ -760,7 +771,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         if (plot.kind === "candles") { this.drawCandles(ctx, plot, from, to, mediaSize.width, mediaSize.height); continue; }
         if (plot.kind === "area" || plot.kind === "histogram") {
-          this.drawNumericPlot(ctx, plot, from, to, x, layer, mediaSize.width, mediaSize.height);
+          if (plot.kind === "area" && layer === "line" && plot.visual!.linestyle !== undefined && plot.visual!.linestyle !== "solid") this.drawStyledLine(ctx, plot, from, to, x, mediaSize.width, mediaSize.height);
+          else this.drawNumericPlot(ctx, plot, from, to, x, layer, mediaSize.width, mediaSize.height);
+          continue;
+        }
+        if (plot.kind === "line" && (plot.visual!.linestyle !== undefined && plot.visual!.linestyle !== "solid" || plot.visual!.diamond)) {
+          this.drawStyledLine(ctx, plot, from, to, x, mediaSize.width, mediaSize.height);
           continue;
         }
         let previous: { x: number; y: number; index: number } | null = null;
@@ -802,6 +818,69 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       }
       ctx.restore();
     });
+  }
+  private diamondGeometry(plot: PineChartPlot, from: number, to: number) {
+    const indices = this.indices(plot), lo = this.indexPosition(indices, from), hi = this.indexPosition(indices, to + 1);
+    const scale = this.chart!.timeScale();
+    return Array.from(indices.subarray(lo, hi), (index, position) => {
+      const sample = this.sample(plot, index), value = numeric(plot, index)!;
+      const previous = indices[lo + position - 1], prior = previous === undefined ? undefined : numeric(plot, previous);
+      const logical = this.logicalPosition(plot, index), x = logical === undefined ? null : scale.logicalToCoordinate(logical as Logical);
+      const shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
+      return x === null || !Number.isFinite(x) ? undefined : { x, value, shade, changed: prior !== undefined && prior !== value, size: plot.visual!.diamond!.size };
+    }).filter((point) => point !== undefined);
+  }
+  /** One connected path keeps short bar intervals from restarting every dash. */
+  private drawStyledLine(ctx: CanvasRenderingContext2D, plot: PineChartPlot, from: number, to: number, x: (index: number) => number | null, width: number, height: number) {
+    const indices = this.indices(plot), lo = this.indexPosition(indices, from), hi = this.indexPosition(indices, to + 1);
+    const breaks = plot.visual!.style === "linebr";
+    const positions = indices.subarray(Math.max(0, lo - 1), Math.min(indices.length, hi + 1));
+    const style = plot.visual!.linestyle ?? "solid";
+    let previous: { point: Vertex; index: number } | undefined, phase = 0;
+    let run: { shade: string; width: number; phase: number; points: Vertex[] } | undefined;
+    ctx.save();
+    const flush = () => {
+      if (!run) return;
+      ctx.strokeStyle = run.shade; ctx.lineWidth = run.width;
+      ctx.lineCap = style === "dotted" ? "round" : "butt";
+      ctx.setLineDash(style === "dashed" ? [6 * run.width, 4 * run.width] : style === "dotted" ? [0, 2 * run.width] : []);
+      const period = (style === "dashed" ? 10 : 2) * run.width;
+      ctx.lineDashOffset = style === "solid" ? 0 : -(run.phase % period);
+      ctx.beginPath(); ctx.moveTo(run.points[0].x, run.points[0].y);
+      for (let index = 1; index < run.points.length; index++) ctx.lineTo(run.points[index].x, run.points[index].y);
+      ctx.stroke(); run = undefined;
+    };
+    const edge = (left: Vertex, right: Vertex, shade: string, strokeWidth: number) => {
+      const clipped = painted(shade) ? clipStroke(left, right, width, height) : null;
+      const length = Math.hypot(right.x - left.x, right.y - left.y);
+      if (clipped) {
+        const prefix = Math.hypot(clipped[0].x - left.x, clipped[0].y - left.y);
+        const startPhase = Number.isFinite(phase + prefix) ? phase + prefix : 0;
+        const last = run?.points.at(-1);
+        if (!run || run.shade !== shade || run.width !== strokeWidth || last!.x !== clipped[0].x || last!.y !== clipped[0].y) { flush(); run = { shade, width: strokeWidth, phase: startPhase, points: [clipped[0]] }; }
+        run.points.push(clipped[1]);
+      } else flush();
+      phase = Number.isFinite(phase + length) ? phase + length : 0;
+    };
+    for (const index of positions) {
+      const sample = this.sample(plot, index), value = anchor(plot, index, sample);
+      const px = x(index), py = value === undefined ? null : this.series!.priceToCoordinate(value);
+      if (px === null || py === null || !Number.isFinite(px) || !Number.isFinite(py)) { flush(); previous = undefined; phase = 0; continue; }
+      const point = { x: px, y: py }, shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
+      const strokeWidth = Math.max(1, Math.min(4, Number(option(plot.visual!.source, sample, "linewidth") ?? plot.width)));
+      if (previous && (!breaks || index === previous.index + 1)) {
+        if (plot.step) { const corner = { x: px, y: previous.point.y }; edge(previous.point, corner, shade, strokeWidth); edge(corner, point, shade, strokeWidth); }
+        else edge(previous.point, point, shade, strokeWidth);
+      } else { flush(); phase = 0; }
+      previous = { point, index };
+    }
+    flush();
+    if (plot.visual!.diamond) for (const point of this.diamondGeometry(plot, from, to)) {
+      const py = this.series!.priceToCoordinate(point.value);
+      if (!point.changed || !painted(point.shade) || py === null || !Number.isFinite(py) || point.x + point.size <= 0 || point.x - point.size >= width || py + point.size <= 0 || py - point.size >= height) continue;
+      ctx.fillStyle = point.shade; ctx.beginPath(); ctx.moveTo(point.x, py - point.size); ctx.lineTo(point.x + point.size, py); ctx.lineTo(point.x, py + point.size); ctx.lineTo(point.x - point.size, py); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
   /** Pinned LWC candlestick cadence, using actual adjacent shared chart slots and physical pixels. */
   private candleBody(plot: PineChartPlot, index: number, ratio: number) {
@@ -936,7 +1015,10 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
             if (!last || last.x !== segment[0].x || last.y !== segment[0].y) ctx.moveTo(segment[0].x, segment[0].y);
             ctx.lineTo(segment[1].x, segment[1].y); last = segment[1];
           }
-          ctx.stroke();
+          const style = plot.visual!.linestyle ?? "solid";
+          ctx.save(); ctx.lineCap = style === "dotted" ? "round" : "butt";
+          ctx.setLineDash(style === "dashed" ? [6 * plot.width, 4 * plot.width] : style === "dotted" ? [0, 2 * plot.width] : []);
+          ctx.lineDashOffset = 0; ctx.stroke(); ctx.restore();
         }
       }
       run = undefined;

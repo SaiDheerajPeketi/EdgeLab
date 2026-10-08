@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -63,7 +63,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       return [];
     }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
-    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers", arrow: "markers", plotarrow: "markers" };
+    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", stepline_diamond: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers", arrow: "markers", plotarrow: "markers" };
     const characterPlot = style === "char" || style === "plotchar";
     const arrowPlot = style === "arrow" || style === "plotarrow";
     const packed = getPackedPinePlot(plot);
@@ -132,6 +132,11 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     }
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }
+    const declaredLineStyle = plot.options.linestyle === undefined ? "linestyle_solid" : plot.options.linestyle;
+    if (typeof declaredLineStyle !== "string" || !["linestyle_solid", "linestyle_dashed", "linestyle_dotted"].includes(declaredLineStyle) || optionSets.some((options) => options.linestyle !== undefined && options.linestyle !== declaredLineStyle)) { warn("Plot line styles require a constant solid, dashed or dotted setting; invalid or changing styles are not rendered."); return []; }
+    const linestyle = ["line", "linebr", "stepline", "stepline_diamond", "area"].includes(style) ? String(declaredLineStyle).replace("linestyle_", "") as "solid" | "dashed" | "dotted" : "solid";
+    if (linestyle !== "solid") warn("Plot dash and dot spacing uses local canvas metrics; exact TradingView pixels have not been verified.");
+    if (style === "stepline_diamond") warn("Step-line diamond sizes and gap transitions use local canvas metrics; exact TradingView pixels have not been verified.");
     const numericStyle = ["line", "area", "histogram"].includes(kind);
     const supportsOffset = numericStyle || kind === "markers";
     const plotOffset = supportsOffset && plot.options.offset !== undefined ? plot.options.offset : 0;
@@ -209,7 +214,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (plot.options.colorup === undefined || plot.options.colordown === undefined) warn("Omitted arrow colors use local green and rose defaults.");
     }
     const baseColor = color(plot.options.color);
-    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(arrow ? { arrow } : {}), ...(pointStyle ? { pointStyle: { size: relativeSize as number, join: constantJoin && joinFlag === true } } : {}), ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
+    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(kind === "line" || kind === "area" ? { linestyle } : {}), ...(style === "stepline_diamond" ? { diamond: { size: common.width + 2 } } : {}), ...(arrow ? { arrow } : {}), ...(pointStyle ? { pointStyle: { size: relativeSize as number, join: constantJoin && joinFlag === true } } : {}), ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
     if (style === "bar") {
       warnings.push("Native OHLC bar widths use local chart pixel cadence; TradingView pixel calibration has not been verified.");
       if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");

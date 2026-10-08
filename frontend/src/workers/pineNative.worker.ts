@@ -199,7 +199,7 @@ function bindPlotOptions(context: Context) {
   const descriptor = Object.getOwnPropertyDescriptor(namespace, "any");
   if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve plot options.");
   const original = descriptor.value;
-  const signature = ["series", "title", "color", "linewidth", "style", "trackprice", "histbase", "offset", "join", "editable", "show_last", "display", "format", "precision", "force_overlay"];
+  const signature = ["series", "title", "color", "linewidth", "style", "trackprice", "histbase", "offset", "join", "editable", "show_last", "display", "format", "precision", "force_overlay", "linestyle"];
   const constantOptions = new WeakMap<object, Record<string, unknown>>();
   Object.defineProperty(namespace, "any", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
     if (context.isSecondaryContext) return Reflect.apply(original, this, args);
@@ -235,15 +235,16 @@ function bindPlotOptions(context: Context) {
       if (["linewidth", "offset", "show_last", "precision"].includes(name) && (!Number.isSafeInteger(value) || (name === "linewidth" && (value as number) < 1) || (["show_last", "precision"].includes(name) && (value as number) < 0))) error("UNSUPPORTED_PLOT_OPTION", `Plot ${name} must resolve to a valid integer.`);
       if (name === "histbase" && (typeof value !== "number" || !Number.isFinite(value))) error("UNSUPPORTED_PLOT_OPTION", "Plot histbase must resolve to a finite number.");
       if (["title", "style", "display", "format"].includes(name) && (typeof value !== "string" || value.length > 4_096)) error("UNSUPPORTED_PLOT_OPTION", `Plot ${name} must resolve to a bounded string.`);
+      if (name === "linestyle" && (typeof value !== "string" || !["linestyle_solid", "linestyle_dashed", "linestyle_dotted"].includes(value))) error("UNSUPPORTED_PLOT_OPTION", "Plot linestyle must be solid, dashed or dotted.");
       if (name === "color" && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string" && typeof value !== "function") error("UNSUPPORTED_PLOT_OPTION", "Plot color must resolve to a color or na.");
     }
-    const flags = Object.prototype.hasOwnProperty.call(options, "offset") ? { offset: options.offset } : {};
+    const flags = { ...(Object.prototype.hasOwnProperty.call(options, "offset") ? { offset: options.offset } : {}), linestyle: options.linestyle ?? "linestyle_solid" };
     const forwarded: unknown[] = [series, options];
     if (sentinel) forwarded.push(sentinel);
     const result = Reflect.apply(original, this, forwarded) as { options?: Record<string, unknown> };
     if (!result?.options) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the plot channel.");
     const previous = constantOptions.get(result);
-    if (previous && (Object.keys(previous).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, previous[name])))) error("UNSUPPORTED_PLOT_OPTION", "Plot offset must remain constant throughout the snapshot.");
+    if (previous && (Object.keys(previous).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, previous[name])))) error("UNSUPPORTED_PLOT_OPTION", "Plot offset and linestyle must remain constant throughout the snapshot.");
     if (!previous) constantOptions.set(result, flags);
     const overlay = (context.indicator as { overlay?: boolean } | undefined)?.overlay === true || context.strategy?.config?.overlay === true;
     result.options.overlay = overlay || options.force_overlay === true;

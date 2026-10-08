@@ -90,7 +90,7 @@ test("invalid scalar types and changing offsets fail rather than coerce or disap
     await assert.rejects(native(program('plot(close,' + option + ')')), (error) => { assert.equal(error.code, "UNSUPPORTED_PLOT_OPTION", option); return true; });
   }
   await assert.rejects(native(program('plot(close,"P",#ff0000,2,plot.style_line,false,0,2,1,false,2,display.none)')), (error) => error.code === "UNSUPPORTED_PLOT_OPTION");
-  for (const call of ['plot(close,linestyle="linestyle_dashed")', 'plot(close,"P",#ff0000,2,plot.style_line,false,0,2,false,false,2,display.all,format.price,4,false,"linestyle_dashed")']) {
+  for (const call of ['plot(close,linestyle="dashed")', 'plot(close,"P",#ff0000,2,plot.style_line,false,0,2,false,false,2,display.all,format.price,4,false,plot.linestyle_dashed,true)']) {
     await assert.rejects(native(program(call)), (error) => error.code === "UNSUPPORTED_PLOT_OPTION");
   }
 });
