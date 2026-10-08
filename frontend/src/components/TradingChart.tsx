@@ -1,3 +1,4 @@
+import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import {
   useEffect,
@@ -3816,6 +3817,7 @@ export function TradingChart({
 
       {!captureMode && selectedIndicator && indicatorToolbarPosition && (
         <FloatingIndicatorToolbar
+          key={selectedIndicator.id}
           indicator={selectedIndicator}
           onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
           onClose={closeIndicatorToolbar}
@@ -5606,6 +5608,52 @@ function FloatingIndicatorToolbar({
   onToggleVisibility: () => void;
   position: { x: number; y: number };
 }) {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const placementRef = useRef({ position, onPositionChange });
+  placementRef.current = { position, onPositionChange };
+  const [availableHeight, setAvailableHeight] = useState<number>();
+  const placeToolbarRef = useRef<() => void>();
+  // Controls can grow after preparation or validation. Measure the actual menu,
+  // and keep every field reachable within the chart rather than assuming 96px.
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    const boundary = toolbar?.offsetParent;
+    if (!toolbar || !(boundary instanceof HTMLElement)) return;
+    const place = () => {
+      const rect = boundary.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      let viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+      const navigation = document.querySelector('nav[aria-label="Primary workspace"]')?.getBoundingClientRect();
+      if (navigation && navigation.height > 0) viewportBottom = Math.min(viewportBottom, navigation.top);
+      const top = Math.max(12, viewportTop - rect.top + 12);
+      const bottom = Math.min(boundary.clientHeight - 12, viewportBottom - rect.top - 12);
+      const heightLimit = Math.max(1, bottom - top);
+      setAvailableHeight(current => current === heightLimit ? current : heightLimit);
+      const { position: current, onPositionChange: publish } = placementRef.current;
+      const next = {
+        x: clamp(current.x, 12, Math.max(12, boundary.clientWidth - toolbar.offsetWidth - 12)),
+        y: clamp(current.y, top, Math.max(top, bottom - Math.min(toolbar.offsetHeight, heightLimit))),
+      };
+      if (next.x !== current.x || next.y !== current.y) publish(next);
+    };
+    const observer = new ResizeObserver(place);
+    observer.observe(boundary); observer.observe(toolbar);
+    placeToolbarRef.current = place;
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    place();
+    return () => {
+      observer.disconnect(); placeToolbarRef.current = undefined;
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+    };
+  }, []);
+  useLayoutEffect(() => { placeToolbarRef.current?.(); }, [position.x, position.y]);
   const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
   const lineStyle = defaultIndicatorLineStyle(indicator.kind, settings);
   const lineWidth = defaultIndicatorLineWidth(indicator.kind, settings);
@@ -5656,11 +5704,12 @@ function FloatingIndicatorToolbar({
   return (
     <div
       aria-label="Indicator settings"
-      className={`chart-object-floating-toolbar indicator-floating-toolbar ${isGapStudy ? "indicator-floating-toolbar-gap" : ""}`}
+      className={`chart-object-floating-toolbar indicator-floating-toolbar overflow-y-auto overscroll-contain ${isGapStudy ? "indicator-floating-toolbar-gap" : ""}`}
+      ref={toolbarRef}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}
       role="group"
-      style={{ left: position.x, top: position.y }}
+      style={{ left: position.x, top: position.y, maxHeight: availableHeight }}
     >
       <div
         className="indicator-floating-title indicator-floating-title-draggable"
@@ -5748,7 +5797,7 @@ function FloatingIndicatorToolbar({
       ) : null}
 
       {nativePine ? <div className="flex max-w-lg flex-wrap gap-3">
-        {pineInputs.map((definition) => <PineInputControl key={definition.id} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
+        {pineInputs.map((definition) => <PineInputControl scopeKey={`${indicator.id}:${indicator.customScriptSource}`} key={definition.id} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
       {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}
@@ -5785,7 +5834,9 @@ function FloatingIndicatorToolbar({
               <IndicatorNumberInput
                 key={input.name}
                 label={input.name}
-                min={input.min}
+                min={input.min ?? null}
+                max={input.max}
+                step="any"
                 onChange={(next) => onChange({ customInputs: { ...settings.customInputs, [input.name]: next } })}
                 value={Number(value)}
               />
@@ -5926,27 +5977,23 @@ function FloatingIndicatorToolbar({
 
 function IndicatorNumberInput({
   label,
+  max,
   min = 1,
   onChange,
   step = 1,
   value,
 }: {
   label: string;
-  min?: number;
+  max?: number;
+  min?: number | null;
   onChange: (value: number) => void;
-  step?: number;
+  step?: number | "any";
   value: number;
 }) {
   return (
     <label className="indicator-floating-number">
       <span>{label}</span>
-      <input
-        min={min}
-        onChange={(event) => onChange(Number(event.target.value) || min)}
-        step={step}
-        type="number"
-        value={value}
-      />
+      <NumericDraftInput compact label={label} min={min ?? undefined} max={max} integer={step === 1} step={step} value={value} onChange={onChange} />
     </label>
   );
 }

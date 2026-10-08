@@ -616,3 +616,169 @@ test("source errors recover and keyboard controls remain reachable without mobil
   await page.keyboard.press("Escape");
   await expect(editor).toBeHidden();
 });
+
+
+test.describe("Pine runtime and settings94", () => {
+  // Playwright's blocked-service-worker shim cannot access opaque sandbox navigators.
+  // The real browser uses its default policy; retain strict page-error assertions.
+  test.use({ serviceWorkers: "allow" });
+for (const version of [5, 6]) test(`Pine overload94 v${version} runs distinct bodies through editor inputs, save and chart`, async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const state = await fixture(page);
+  let editor = await openEditor(page);
+  const source = `//@version=${version}
+indicator("Native overload94",overlay=false)
+enum Side
+    up="Signal"
+    down="Signal"
+enum Other
+    up="Signal"
+    down="Signal"
+score(Side direction,float multiplier=1)=>direction==Side.up?11*multiplier:12*multiplier
+score(Other direction,float multiplier=2)=>direction==Other.up?21*multiplier:22*multiplier
+adjust(float value)=>value*2
+adjust(bool value)=>value?100:200
+direction=input.enum(Side.up,"Direction")
+weight=input.float(6,"Weight",minval=1,maxval=20)
+plot(score(direction=direction)+score(multiplier=1,direction=Other.down)+adjust(weight)+adjust(true),"Signal",color=#ff00ff)`;
+  await fillSource(editor, source);
+  await check(editor);
+  const choice = editor.getByLabel("Direction", { exact: true });
+  await expect(choice.locator("option")).toHaveText(["Signal", "Signal"]);
+  await expect(choice).toHaveValue("Side.up");
+  await run(editor);
+  const first = await nativeRun(page, source);
+  expect(first.plots[0].points.length).toBeGreaterThan(50);
+  expect(first.plots[0].points.every(point => point.value === 145)).toBe(true);
+  await choice.selectOption("Side.down");
+  await editor.getByLabel("Weight", { exact: true }).fill("7");
+  await run(editor);
+  const changed = await nativeRun(page, source);
+  expect(changed.inputs).toMatchObject({ in_0: "Side.down", in_1: 7 });
+  expect(changed.plots[0].points.every(point => point.value === 148)).toBe(true);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+  expect(saved).toMatchObject({ source, inputs: { in_0: "Side.down", in_1: 7 } });
+  await page.reload();
+  await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  editor = await openEditor(page);
+  await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+  await expect(editor.getByLabel("Direction", { exact: true })).toHaveValue("Side.down");
+  await expect(editor.getByLabel("Weight", { exact: true })).toHaveValue("7");
+  await run(editor);
+  const reloaded = await nativeRun(page, source);
+  expect(reloaded.plots[0].points.length).toBeGreaterThan(50);
+  expect(reloaded.plots[0].points.every(point => point.value === 148)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  fs.mkdirSync(".artifacts/pine-overloads94", { recursive: true });
+  await editor.screenshot({ path: `.artifacts/pine-overloads94/editor-v${version}-${info.project.name}.png` });
+  const priorRuns = await page.evaluate((source) => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source);
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  await expect(page.locator(".chart-study-row").getByRole("button", { name: /^Native overload94 · Signal/ })).toBeVisible();
+  const pane = page.getByLabel("Native overload94 native Pine pane", { exact: true });
+  await expect(pane.locator("canvas").first()).toBeVisible();
+  // Wait for a fresh chart-owned execution, rather than reusing the editor's envelope.
+  await expect.poll(() => page.evaluate((source) => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source)).toBeGreaterThan(priorRuns);
+  const chartResult = await nativeRun(page, source);
+  expect(chartResult.inputs).toMatchObject({ in_0: "Side.down", in_1: 7 });
+  expect(chartResult.plots[0].points.every(point => point.value === 148)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+
+test("numeric settings94 retain unfinished DSL edits, bounds and decimals through save and floating controls", async ({ page }, info) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const state = await fixture(page);
+  const editor = await openEditor(page);
+  const source = 'indicator "Draft settings94" overlay\ninput length: number = 20 min 1 max 100\ninput amount: number = -1.5 min -10 max 10\nplot "Draft" = amount color "#ff00ff"';
+  await fillSource(editor, source);
+  const length = editor.getByLabel("length", { exact: true });
+  const amount = editor.getByLabel("amount", { exact: true });
+  await expect(length).toHaveValue("20");
+  await length.fill(""); await expect(length).toHaveValue("");
+  await expect(length).toHaveAttribute("aria-invalid", "true");
+  await length.press("Escape"); await expect(length).toHaveValue("20");
+  await length.fill("101"); await expect(length).toHaveValue("101");
+  await expect(length).toHaveAttribute("aria-invalid", "true");
+  await length.press("Escape"); await expect(length).toHaveValue("20");
+  await length.fill("25.5");
+  await amount.fill("-2.75");
+  await expect(length).toHaveAttribute("aria-invalid", "false");
+  await expect(amount).toHaveAttribute("aria-invalid", "false");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+  expect(saved).toMatchObject({ source, inputs: { length: 25.5, amount: -2.75 } });
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  await page.locator(".chart-study-row").getByRole("button", { name: /^Draft settings94/ }).click();
+  const toolbar = page.getByRole("group", { name: "Indicator settings", exact: true });
+  await expect(toolbar).toBeVisible();
+  const floating = toolbar.getByLabel("amount", { exact: true });
+  await expect(floating).toHaveValue("-2.75");
+  await floating.fill(""); await expect(floating).toHaveValue("");
+  await expect(toolbar.getByRole("alert")).toBeVisible();
+  await floating.press("Escape"); await expect(floating).toHaveValue("-2.75");
+  await floating.fill("-10.5"); await expect(floating).toHaveAttribute("aria-invalid", "true");
+  await expect(toolbar.getByRole("alert")).toBeVisible();
+  await floating.press("Escape"); await floating.fill("-3.25");
+  await expect(floating).toHaveAttribute("aria-invalid", "false");
+  await toolbar.getByRole("button", { name: "Close indicator settings", exact: true }).click();
+  await page.locator(".chart-study-row").getByRole("button", { name: /^Draft settings94/ }).click();
+  await expect(toolbar.getByLabel("amount", { exact: true })).toHaveValue("-3.25");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  fs.mkdirSync(".artifacts/pine-overloads94", { recursive: true });
+  await toolbar.screenshot({ path: `.artifacts/pine-overloads94/floating-draft-${info.project.name}.png` });
+  expect(errors).toEqual([]);
+});
+
+
+test("long settings94 keep every Pine input reachable above navigation after resize", async ({ page }, info) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await fixture(page);
+  const editor = await openEditor(page);
+  const source = '//@version=6\nindicator("Long settings94",overlay=true)\n'
+    + Array.from({ length: 20 }, (_, index) => `value${index}=input.int(${index + 1},"Parameter ${index + 1}",minval=1,maxval=100)`).join("\n")
+    + '\nplot(close,"Price",color=#ff00ff)';
+  await fillSource(editor, source); await check(editor);
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  await page.locator(".chart-study-row").getByRole("button", { name: /^Long settings94 · Price/ }).click();
+  const toolbar = page.getByRole("group", { name: "Indicator settings", exact: true });
+  await expect(toolbar.getByRole("spinbutton")).toHaveCount(20);
+  const final = toolbar.getByLabel("Parameter 20", { exact: true });
+  await final.scrollIntoViewIfNeeded();
+  await expect(final).toBeVisible();
+  async function bounds() {
+    return toolbar.evaluate(element => {
+      const panel = element.getBoundingClientRect();
+      const navigation = document.querySelector('nav[aria-label="Primary workspace"]')?.getBoundingClientRect();
+      return { top: panel.top, bottom: panel.bottom, viewportBottom: navigation?.height ? navigation.top : innerHeight,
+        overflow: getComputedStyle(element).overflowY, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight };
+    });
+  }
+  await expect.poll(async () => { const rect = await bounds(); return rect.bottom <= rect.viewportBottom - 10 && rect.top >= 10; }).toBe(true);
+  expect((await bounds()).overflow).toBe("auto");
+  await final.fill("40");
+  await expect(final).toHaveValue("40");
+  const before = page.viewportSize()!;
+  await page.setViewportSize({ width: before.width, height: Math.min(before.height, info.project.name === "mobile" ? 620 : 700) });
+  await final.scrollIntoViewIfNeeded();
+  await expect.poll(async () => { const rect = await bounds(); return rect.bottom <= rect.viewportBottom - 10 && rect.top >= 10; }).toBe(true);
+  await final.fill("");
+  await expect(final).toHaveValue("");
+  await toolbar.getByLabel("Parameter 1", { exact: true }).fill("30");
+  // An unrelated applied input rebuilds sanitized descriptors without replacing this draft.
+  await expect(final).toHaveValue("");
+  await final.scrollIntoViewIfNeeded();
+  await final.press("Escape"); await expect(final).toHaveValue("40");
+  fs.mkdirSync(".artifacts/pine-overloads94", { recursive: true });
+  await toolbar.screenshot({ path: `.artifacts/pine-overloads94/long-settings-${info.project.name}.png` });
+  await toolbar.getByRole("button", { name: "Close indicator settings", exact: true }).click();
+  await expect(toolbar).toBeHidden();
+  expect(errors).toEqual([]);
+});
+});

@@ -118,9 +118,9 @@ function expectedArgType(fn: string, param: string): string | undefined {
 }
 
 /** Enum types are checked on the original Pine AST, including unreachable branches. */
-function checkEnumTypes(ast: any): WeakSet<object> {
+function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
     type Binding = { type?: string; namespace?: string; init?: any; declaration?: any };
-    type Fn = { node: any; scope: Env };
+    type Fn = { node: any; scope: Env; origin?: any };
     class Env {
         vars = new Map<string, Binding>();
         functions = new Map<string, Fn[]>();
@@ -129,10 +129,16 @@ function checkEnumTypes(ast: any): WeakSet<object> {
         functionsFor(name: string): Fn[] { return this.functions.get(name) ?? this.parent?.functionsFor(name) ?? []; }
     }
     const enumNames = new Set<string>();
+    const objectNames = new Set<string>();
+    const objectFields = new Map<string, Map<string, string>>();
     const mutated = new WeakSet<object>();
     const globalEnums = new Set((ast.body ?? []).flatMap((node: any) =>
         node.type === 'VariableDeclaration' ? (node.declarations ?? []).map((declaration: any) => declaration.init).filter((init: any) => init?._pineEnumName) : []));
     forEachNode(ast, node => {
+        if (node.type === 'TypeDefinition') {
+            objectNames.add(node.name);
+            objectFields.set(node.name, new Map((node.fields ?? []).map((field: any) => [field.name, field.type])));
+        }
         if (!node._pineEnumName) return;
         if (!globalEnums.has(node)) throw new Error('Enum declarations must be in global scope.');
         if (enumNames.has(node._pineEnumName)) throw new Error('Duplicate enum declaration ' + node._pineEnumName + '.');
@@ -160,10 +166,69 @@ function checkEnumTypes(ast: any): WeakSet<object> {
     let depth = 0;
     let expressionVisits = 0;
     const activeFunctions = new Set<object>();
+    const functionStack: Fn[] = [];
+    const unresolvedOverloads = new Set<any>();
+    const ordinaryCalls = new Map<any, Fn>();
+    const specializations = new WeakMap<object, Map<string, Fn>>();
+    let specializationIndex = 0;
+    let hasOrdinaryOverloads = false;
+    const clone = (node: any): any => {
+        if (Array.isArray(node)) return node.map(clone);
+        if (!node || typeof node !== 'object') return node;
+        if (++expressionVisits > 100_000) throw new Error('Pine overload specialization exceeded its analysis budget.');
+        // One written input declaration keeps one ID/default/activation tree,
+        // even when its containing generic function has specialized bodies.
+        if (inputFnName(node) !== null) return node;
+        const copy: any = {};
+        for (const [key, value] of Object.entries(node)) {
+            if (['parent', '_pineOverloadTarget', '_pineOverloadParams', '_pineSpecializations'].includes(key)) continue;
+            copy[key] = clone(value);
+        }
+        return copy;
+    };
+    function constantInt(node: any, scope: Env): boolean {
+        const resolving = new Set<Binding>();
+        const env: ConstEnv = {
+            enums: new Map(), truncatingIntDivision: true,
+            lookup(name) {
+                const binding = scope.binding(name);
+                if (!binding?.init || mutated.has(binding.init) || resolving.has(binding)) return undefined;
+                if (++expressionVisits > 100_000) throw new Error('Pine overload analysis exceeded its expression budget.');
+                resolving.add(binding);
+                try { return evalConst(binding.init, env); }
+                finally { resolving.delete(binding); }
+            },
+        };
+        return evalConst(node, env)?.type === 'int';
+    }
+    function specialize(fn: Fn, args: Array<string | undefined>): Fn {
+        const params = fn.node.params ?? [];
+        if (!hasOrdinaryOverloads || fn.node.id?.isMethod || !params.some((pattern: any) => !normalize((pattern.left ?? pattern).varType))) return fn;
+        const types = params.map((pattern: any, index: number) => normalize((pattern.left ?? pattern).varType)
+            ?? args[index] ?? (pattern.type === 'AssignmentPattern' ? expression(pattern.right, fn.scope) : undefined));
+        if (types.some(type => !type || type === '@na')) return fn;
+        const key = types.join('|');
+        let instances = specializations.get(fn.node);
+        if (!instances) specializations.set(fn.node, instances = new Map());
+        if (instances.has(key)) return instances.get(key)!;
+        const node = clone(fn.node);
+        delete node._pineOverloadName;
+        node._pineOverloadName = '$F_' + fn.node.id.name + '$S' + (++specializationIndex);
+        node.params.forEach((pattern: any, index: number) => {
+            const target = pattern.left ?? pattern;
+            if (!normalize(target.varType)) target.varType = types[index];
+        });
+        const instance = { node, scope: fn.scope, origin: fn.origin ?? fn.node };
+        instances.set(key, instance);
+        (fn.node._pineSpecializations ??= []).push(node);
+        return instance;
+    }
     function functionResult(fn: Fn, args: Array<string | undefined> = []): string | undefined {
-        if (activeFunctions.has(fn.node)) throw new Error('Recursive Pine function calls are not supported.');
+        const origin = fn.origin ?? fn.node;
+        if (activeFunctions.has(origin)) throw new Error('Recursive Pine function calls are not supported.');
         if (++depth > 64) { depth--; throw new Error('Pine enum type analysis exceeded its function depth limit.'); }
-        activeFunctions.add(fn.node);
+        activeFunctions.add(origin);
+        functionStack.push(fn);
         try {
             const scope = new Env(fn.scope);
             const params = fn.node.params ?? [];
@@ -178,7 +243,7 @@ function checkEnumTypes(ast: any): WeakSet<object> {
             const result = statements(fn.node.body?.body ?? [], scope, declared);
             compatible(declared, result, 'return');
             return declared ?? result;
-        } finally { activeFunctions.delete(fn.node); depth--; }
+        } finally { functionStack.pop(); activeFunctions.delete(origin); depth--; }
     }
     function expression(node: any, scope: Env): string | undefined {
         if (!node) return undefined;
@@ -205,8 +270,11 @@ function checkEnumTypes(ast: any): WeakSet<object> {
                         return namespace;
                     }
                 }
-                expression(node.object, scope);
+                const receiver = expression(node.object, scope);
+                const field = receiver && objectFields.get(receiver)?.get(node.property?.name);
+                if (field) return normalize(field);
                 const name = dottedName(node);
+                if (name?.startsWith('color.') || ['chart.bg_color', 'chart.fg_color'].includes(name)) return 'color';
                 if (name?.startsWith('barstate.')) return 'bool';
                 if (['syminfo.ticker', 'syminfo.tickerid', 'syminfo.currency', 'syminfo.basecurrency', 'syminfo.timezone', 'syminfo.session', 'syminfo.type', 'timeframe.period'].includes(name)) return 'string';
                 if (['syminfo.mintick', 'syminfo.pointvalue', 'syminfo.minmove', 'syminfo.pricescale', 'syminfo.mincontract', 'timeframe.multiplier'].includes(name)) return 'float';
@@ -223,7 +291,9 @@ function checkEnumTypes(ast: any): WeakSet<object> {
                     return 'bool';
                 }
                 if (enumType(left) || enumType(right)) throw new Error('Enum values support equality comparisons only.');
-                return ['&&', '||', '<', '>', '<=', '>='].includes(node.operator) ? 'bool' : left ?? right;
+                return ['&&', '||', '<', '>', '<=', '>='].includes(node.operator) ? 'bool'
+                    : node.operator === '/' && (version == null || version >= 6 || !constantInt(node.left, scope) || !constantInt(node.right, scope)) ? 'float'
+                    : left === 'float' || right === 'float' ? 'float' : left ?? right;
             }
             case 'UnaryExpression': {
                 const type = expression(node.argument, scope);
@@ -262,8 +332,11 @@ function checkEnumTypes(ast: any): WeakSet<object> {
             case 'CallExpression': {
                 const callee = dottedName(node.callee);
                 const raw = node.arguments ?? [];
+                const userCall = node.callee?.type === 'Identifier' && scope.functionsFor(node.callee.name).some(fn => !fn.node.id?.isMethod);
                 const named = raw.at(-1)?.type === 'ObjectExpression' ? raw.at(-1).properties ?? [] : [];
                 const positional = named.length ? raw.slice(0, -1) : raw;
+                if (userCall && new Set(named.map((property: any) => property.key?.name)).size !== named.length)
+                    throw new Error('Duplicate named Pine function argument.');
                 const actual = positional.map((argument: any) => expression(argument, scope));
                 const namedTypes = new Map<string, string | undefined>(named.map((property: any) => [property.key?.name, expression(property.value, scope)]));
                 if (callee === 'input.enum') return actual[0] ?? namedTypes.get('defval');
@@ -276,15 +349,38 @@ function checkEnumTypes(ast: any): WeakSet<object> {
                 }
                 const primitiveInput = callee?.startsWith('input.') ? DEFVAL_TYPE[callee.slice(6)] : undefined;
                 if (primitiveInput) return primitiveInput;
-                if (['int', 'float', 'bool', 'string', 'color'].includes(callee ?? '')) return callee;
-                if (callee === 'na') return 'bool';
-                if (['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
+                if (!userCall && ['int', 'float', 'bool', 'string', 'color'].includes(callee ?? '')) return callee;
+                if (callee?.startsWith('color.')) return ['color.r', 'color.g', 'color.b', 'color.t'].includes(callee) ? 'float' : 'color';
+                if (!userCall && callee === 'na') return 'bool';
+                if (!userCall && ['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
+                if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
+                    const object = node.callee.object;
+                    if (object?.type === 'Identifier' && objectNames.has(object.name) && node.callee.property?.name === 'new') return object.name;
+                    if (node.callee.property?.name === 'copy') {
+                        if (object?.type === 'Identifier' && objectNames.has(object.name)) return object.name;
+                        const receiver = expression(object, scope);
+                        if (receiver && objectNames.has(receiver)) return receiver;
+                    }
+                }
                 if (callee?.startsWith('math.') || callee?.startsWith('ta.')) {
                     if (actual.some(enumType)) throw new Error('Enum values cannot be used as numeric function arguments.');
-                    return ['ta.cross', 'ta.crossover', 'ta.crossunder', 'ta.rising', 'ta.falling'].includes(callee) ? 'bool' : 'float';
+                    if (['ta.cross', 'ta.crossover', 'ta.crossunder', 'ta.rising', 'ta.falling'].includes(callee)) return 'bool';
+                    if (callee === 'ta.change') return actual[0] ?? namedTypes.get('source');
+                    if (callee === 'math.round' && (actual.length > 1 || namedTypes.has('precision'))) return 'float';
+                    if (['ta.barssince', 'ta.highestbars', 'ta.lowestbars', 'math.floor', 'math.ceil', 'math.round', 'math.round_to_mintick'].includes(callee))
+                        return callee === 'math.round_to_mintick' ? 'float' : 'int';
+                    if (['math.abs', 'math.min', 'math.max'].includes(callee)) {
+                        const operands = [...actual, ...namedTypes.values()];
+                        return operands.length && operands.every(type => type === 'int' || type === 'float')
+                            ? operands.includes('float') ? 'float' : 'int' : undefined;
+                    }
+                    if (['math.avg', 'math.sqrt', 'math.pow', 'math.exp', 'math.log', 'math.log10', 'math.sin', 'math.cos', 'math.tan', 'math.asin', 'math.acos', 'math.atan', 'math.random',
+                        'math.sum', 'ta.sma', 'ta.ema', 'ta.rma', 'ta.wma', 'ta.vwma', 'ta.hma', 'ta.rsi', 'ta.atr', 'ta.tr', 'ta.highest', 'ta.lowest', 'ta.mom', 'ta.roc', 'ta.stdev', 'ta.variance', 'ta.sum', 'ta.cum'].includes(callee)) return 'float';
+                    return undefined;
                 }
                 if (['str.contains', 'str.startswith', 'str.endswith'].includes(callee ?? '')) return 'bool';
-                if (['str.length', 'str.pos', 'str.tonumber'].includes(callee ?? '')) return 'float';
+                if (['str.length', 'str.pos'].includes(callee ?? '')) return 'int';
+                if (callee === 'str.tonumber') return 'float';
                 if (['str.upper', 'str.lower', 'str.substring', 'str.replace', 'str.replace_all', 'str.format', 'str.trim', 'str.repeat'].includes(callee ?? '')) return 'string';
                 if (callee === 'array.from') { let type: string | undefined; actual.forEach((value: string | undefined) => { type = join(type, value); }); return type ? 'array<' + type + '>' : undefined; }
                 const generic = /^((?:array|map|matrix)\.new)<(.+)>$/.exec(callee ?? '');
@@ -312,7 +408,7 @@ function checkEnumTypes(ast: any): WeakSet<object> {
                         if (['copy', 'slice'].includes(method)) return receiver;
                     }
                 }
-                let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name) : [];
+                let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name).filter(fn => !fn.node.id?.isMethod) : [];
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
                     const receiver = expression(node.callee.object, scope);
                     const method = node.callee.property?.name;
@@ -337,21 +433,50 @@ function checkEnumTypes(ast: any): WeakSet<object> {
                     }
                 }
                 if (functions.length) {
+                    const ordinaryOverloads = functions.some(fn => fn.node._pineOverloadName);
+                    const caller = functionStack.at(-1);
+                    if (ordinaryOverloads && caller?.node.id.name === node.callee?.name) {
+                        functions = functions.filter(fn => fn.node._pineOverloadOrdinal <= caller.node._pineOverloadOrdinal);
+                    }
                     const ordered = (fn: Fn) => (fn.node.params ?? []).map((pattern: any, index: number) => actual[index] ?? namedTypes.get((pattern.left ?? pattern).name));
+                    const present = (fn: Fn, index: number) => index < actual.length || namedTypes.has((fn.node.params[index].left ?? fn.node.params[index]).name);
                     const candidates = functions.filter(fn => {
                         const params = fn.node.params ?? [], args = ordered(fn);
                         if (actual.length > params.length || [...namedTypes.keys()].some(name => !params.some((pattern: any) => (pattern.left ?? pattern).name === name))) return false;
                         return params.every((pattern: any, index: number) => {
                             const declared = normalize((pattern.left ?? pattern).varType), supplied = args[index];
-                            if (supplied === undefined) return pattern.type === 'AssignmentPattern';
+                            if (index < actual.length && namedTypes.has((pattern.left ?? pattern).name)) return false;
+                            if (!present(fn, index)) return pattern.type === 'AssignmentPattern';
+                            if (supplied === undefined && ordinaryOverloads) return true;
+                            if (ordinaryOverloads && declared && supplied !== '@na') return declared === supplied || (declared === 'float' && supplied === 'int');
                             return supplied === '@na' || !declared || !(hasEnum(declared) || hasEnum(supplied)) || declared === supplied;
                         });
                     });
                     // Prefer an exact declared signature over an untyped overload.
                     const score = (fn: Fn) => ordered(fn).reduce((total: number, type: string | undefined, index: number) =>
                         total + (normalize((fn.node.params[index].left ?? fn.node.params[index]).varType) === type ? 1 : 0), 0);
-                    const fn = candidates.sort((left, right) => score(right) - score(left))[0] ?? functions[0];
+                    candidates.sort((left, right) => score(right) - score(left));
+                    if (ordinaryOverloads && candidates.some(fn => ordered(fn).some((type, index) => type === undefined && present(fn, index)))) {
+                        unresolvedOverloads.add(node);
+                        return undefined;
+                    }
+                    if (ordinaryOverloads && !candidates.length && (actual.some(hasEnum) || [...namedTypes.values()].some(hasEnum)
+                        || functions.some(fn => fn.node.params.some((pattern: any) => hasEnum(normalize((pattern.left ?? pattern).varType))))))
+                        throw new Error('Incompatible enum types in Pine function overload ' + node.callee.name + '.');
+                    if (ordinaryOverloads && (!candidates.length || (candidates.length > 1 && score(candidates[0]) === score(candidates[1]))))
+                        throw new Error('Cannot resolve Pine function overload ' + node.callee.name + ': incompatible or ambiguous arguments.');
+                    let fn = candidates[0] ?? functions[0];
                     const args = ordered(fn);
+                    if (!fn.node.id?.isMethod) ordinaryCalls.set(node, fn);
+                    const originalFn = fn;
+                    fn = specialize(fn, args);
+                    if (ordinaryOverloads || fn !== originalFn) {
+                        if (node._pineOverloadTarget && node._pineOverloadTarget !== fn.node._pineOverloadName)
+                            throw new Error('Pine overload calls through untyped functions require a consistent argument signature.');
+                        node._pineOverloadTarget = fn.node._pineOverloadName;
+                        node._pineOverloadParams = fn.node.params.map((pattern: any) => (pattern.left ?? pattern).name);
+                        unresolvedOverloads.delete(node);
+                    }
                     if (fn.node.id?.isMethod && (fn.node.params ?? []).some((pattern: any) => enumType(normalize((pattern.left ?? pattern).varType)))) {
                         node._pineEnumMethodParams = fn.node.params.slice(1).map((pattern: any) => (pattern.left ?? pattern).name);
                     }
@@ -377,6 +502,21 @@ function checkEnumTypes(ast: any): WeakSet<object> {
             if (node.type === 'FunctionDeclaration') {
                 const name = node.id.name;
                 scope.functions.set(name, [...(scope.functions.get(name) ?? []), { node, scope }]);
+            }
+        }
+        for (const [name, functions] of scope.functions) {
+            const ordinary = functions.filter(fn => !fn.node.id?.isMethod);
+            if (ordinary.length < 2) continue;
+            hasOrdinaryOverloads = true;
+            const signatures = new Set<string>();
+            for (let index = 0; index < ordinary.length; index++) {
+                const fn = ordinary[index];
+                const required = (fn.node.params ?? []).filter((pattern: any) => pattern.type !== 'AssignmentPattern');
+                const signature = required.map((pattern: any) => typeof pattern.varType === 'string' ? pattern.varType.trim().replace(/\s+/g, ' ') : '?').join('|');
+                if (signatures.has(signature)) throw new Error('Duplicate required Pine function overload signature for ' + name + '.');
+                signatures.add(signature);
+                fn.node._pineOverloadName = '$F_' + name + '$' + (index + 1);
+                fn.node._pineOverloadOrdinal = index;
             }
         }
         let result: string | undefined;
@@ -411,6 +551,21 @@ function checkEnumTypes(ast: any): WeakSet<object> {
         return result;
     }
     statements(ast.body ?? [], new Env(null));
+    const checkEmitted = (node: any) => {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'FunctionDeclaration' && node._pineSpecializations?.length) {
+            node._pineSpecializations.forEach(checkEmitted);
+            return;
+        }
+        if (unresolvedOverloads.has(node) || (ordinaryCalls.get(node)?.node._pineSpecializations?.length && !node._pineOverloadTarget))
+            throw new Error('Cannot resolve Pine function overload with unknown argument types.');
+        for (const [key, value] of Object.entries(node)) {
+            if (key === 'parent' || key.startsWith('_')) continue;
+            if (Array.isArray(value)) value.forEach(checkEmitted);
+            else if (value && typeof value === 'object') checkEmitted(value);
+        }
+    };
+    checkEmitted(ast);
     return mutated;
 }
 
@@ -475,16 +630,18 @@ class InputAnalyzer {
     private readonly inputIds = new WeakMap<object, string>();
     private readonly functionNames = new Set<string>();
     private readonly truncatingIntDivision: boolean;
+    private readonly version: number | null | undefined;
 
     constructor(
         private readonly ast: any,
         options: AnalyzeInputsOptions,
     ) {
         this.truncatingIntDivision = options.version != null && options.version < 6;
+        this.version = options.version;
     }
 
     run(): InputSite[] {
-        this.reassignedInitializers = checkEnumTypes(this.ast);
+        this.reassignedInitializers = checkEnumTypes(this.ast, this.version);
         this.collectEnumsAndReassignments(this.ast);
         const global = new Scope(null);
         this.visitStatements(this.ast.body ?? [], { scope: global, target: null, fnName: null });

@@ -1,3 +1,4 @@
+import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import {
   Activity,
@@ -1918,7 +1919,7 @@ function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
         <button aria-label={`Close inputs for ${name}`} className="study-action-button" onClick={close} type="button"><X aria-hidden="true" size={14} /></button>
       </div>
       <div className="native-study-input-list">
-        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl scopeKey={`${indicator.id}:${source}`} key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!prepared ? <div className="grid min-w-0 gap-2">
           <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p>
           {onEdit ? <button className="study-action-button justify-start px-2 text-cyan-100" onClick={onEdit} type="button">Open saved script in editor</button> : null}
@@ -3157,67 +3158,28 @@ function IndicatorEditor({
           <>
             <label className="form-field">
               <span>Fast</span>
-              <input
-                className="input-control h-9"
-                min={1}
-                onChange={(event) =>
-                  onUpdate({ fastPeriod: clampInteger(event.target.value, 1, 100) })
-                }
-                type="number"
-                value={settings.fastPeriod ?? 12}
-              />
+              <NumericDraftInput label="Fast" className="input-control h-9" integer min={1} max={100} step={1} value={settings.fastPeriod ?? 12} onChange={(fastPeriod) => onUpdate({ fastPeriod })} />
             </label>
             <label className="form-field">
               <span>Slow</span>
-              <input
-                className="input-control h-9"
-                min={2}
-                onChange={(event) =>
-                  onUpdate({ slowPeriod: clampInteger(event.target.value, 2, 200) })
-                }
-                type="number"
-                value={settings.slowPeriod ?? 26}
-              />
+              <NumericDraftInput label="Slow" className="input-control h-9" integer min={2} max={200} step={1} value={settings.slowPeriod ?? 26} onChange={(slowPeriod) => onUpdate({ slowPeriod })} />
             </label>
             <label className="form-field">
               <span>Signal</span>
-              <input
-                className="input-control h-9"
-                min={1}
-                onChange={(event) =>
-                  onUpdate({ signalPeriod: clampInteger(event.target.value, 1, 100) })
-                }
-                type="number"
-                value={settings.signalPeriod ?? 9}
-              />
+              <NumericDraftInput label="Signal" className="input-control h-9" integer min={1} max={100} step={1} value={settings.signalPeriod ?? 9} onChange={(signalPeriod) => onUpdate({ signalPeriod })} />
             </label>
           </>
         )}
         {supportsPeriod && !isGapStudy && (
           <label className="form-field">
             <span>Period</span>
-            <input
-              className="input-control h-9"
-              min={2}
-              onChange={(event) =>
-                onUpdate({ period: clampInteger(event.target.value, 2, 500) })
-              }
-              type="number"
-              value={settings.period}
-            />
+            <NumericDraftInput label="Period" className="input-control h-9" integer min={2} max={500} step={1} value={settings.period} onChange={(period) => onUpdate({ period })} />
           </label>
         )}
         {supportsDeviation && (
           <label className="form-field">
             <span>{indicator.kind === "bb" ? "Std Dev" : "Multiplier"}</span>
-            <input
-              className="input-control h-9"
-              min={0.5}
-              onChange={(event) => onUpdate({ stdDev: Number(event.target.value) })}
-              step={0.1}
-              type="number"
-              value={settings.stdDev ?? 2}
-            />
+            <NumericDraftInput label={indicator.kind === "bb" ? "Std Dev" : "Multiplier"} className="input-control h-9" min={0.5} step={0.1} value={settings.stdDev ?? 2} onChange={(stdDev) => onUpdate({ stdDev })} />
           </label>
         )}
         <label className="form-field">

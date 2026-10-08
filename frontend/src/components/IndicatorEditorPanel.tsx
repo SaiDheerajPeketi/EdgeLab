@@ -1,3 +1,4 @@
+import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import { hasLegacyPineEnums, migratePineEnumInputs } from "../lib/pineInputMigration";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
@@ -525,7 +526,7 @@ export function IndicatorEditorPanel({
             </div>
             <h3 className="mt-5 text-sm font-semibold text-white">Generated settings</h3>
             <div className="mt-2 grid gap-3">
-              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definitions={currentPrepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={effectivePineInputs.inputs[input.id]} recoveryLabel={effectivePineInputs.recovery[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
+              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl scopeKey={`${selectedId}:${source}`} definitions={currentPrepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={effectivePineInputs.inputs[input.id]} recoveryLabel={effectivePineInputs.recovery[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={`${selectedId}:${source}:${input.name}`} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
             {currentPrepared?.declaration === "strategy" ? <PineStrategySettingsControl value={strategySettings} onChange={changeStrategySettings} error={strategySettingsError} /> : null}
             {execution?.strategy && executionOwnerRef.current && currentContext(executionOwnerRef.current) ? <PineStrategyResults result={execution} /> : null}
@@ -537,7 +538,7 @@ export function IndicatorEditorPanel({
 }
 
 function GeneratedInput({ definition, onChange, value }: { definition: NonNullable<ReturnType<typeof parseEdgeIndicator>["program"]>["inputs"][number]; onChange: (value: EdgeIndicatorInputValue) => void; value: EdgeIndicatorInputValue }) {
-  return <label className="grid gap-1 text-xs text-slate-400"><span>{definition.name}</span>{definition.type === "boolean" ? <input checked={Boolean(value)} className="h-4 w-4 accent-cyan-300" onChange={(event) => onChange(event.target.checked)} type="checkbox" /> : definition.type === "source" ? <select className="input-control h-9 text-xs" onChange={(event) => onChange(event.target.value)} value={String(value)}>{["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((source) => <option key={source} value={source}>{source}</option>)}</select> : <input className="input-control h-9 text-xs" max={definition.max} min={definition.min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={Number(value)} />}</label>;
+  return <label className="grid gap-1 text-xs text-slate-400"><span>{definition.name}</span>{definition.type === "boolean" ? <input checked={Boolean(value)} className="h-4 w-4 accent-cyan-300" onChange={(event) => onChange(event.target.checked)} type="checkbox" /> : definition.type === "source" ? <select className="input-control h-9 text-xs" onChange={(event) => onChange(event.target.value)} value={String(value)}>{["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((source) => <option key={source} value={source}>{source}</option>)}</select> : <NumericDraftInput label={definition.name} className="input-control h-9 text-xs" max={definition.max} min={definition.min} onChange={onChange} value={value} resetKey={JSON.stringify(definition)} />}</label>;
 }
 
 function highlightSource(source: string) {

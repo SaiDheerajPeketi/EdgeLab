@@ -1,3 +1,4 @@
+import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import { useId, useRef, useState } from "react";
 import {
@@ -591,7 +592,7 @@ function IndicatorSettingsControls({
       role="group"
     >
       {native ? <div className="grid min-w-0 gap-3">
-        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl scopeKey={`${indicator.id}:${indicator.customScriptSource}`} key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!prepared ? <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-slate-300">No configurable Pine inputs.</p> : null}
       </div> : (
         <>
@@ -665,13 +666,7 @@ function NumberSetting({
   return (
     <label className="object-setting-field">
       <span>{label}</span>
-      <input
-        className="input-control h-9"
-        min={1}
-        onChange={(event) => onChange(Math.max(1, Number(event.target.value) || 1))}
-        type="number"
-        value={value}
-      />
+      <NumericDraftInput label={label} className="input-control h-9" integer min={1} step={1} value={value} onChange={onChange} />
     </label>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { sanitizePinePrepared } from "../frontend/src/lib/customIndicators";
 import { PineInputControl } from "../frontend/src/components/PineInputControl";
 import { createPineRuntimeJob } from "../frontend/src/lib/pineRuntime";
 import type { PineInputValue, PinePrepareResult } from "../frontend/src/lib/pineProtocol";
@@ -35,6 +36,7 @@ function App() {
     setResult(null); setError(""); return metadata;
   };
   fixture.run = () => run(inputs);
+  fixture.rebuildMetadata = () => setPrepared(current => current ? sanitizePinePrepared(structuredClone(current), current.source) : current);
   fixture.externalValue = (id: string, value: PineInputValue) => setInputs(current => ({ ...current, [id]: value }));
   return <main className="mx-auto grid max-w-xl gap-5 p-4 text-[var(--text-primary)]">
     <h1 className="text-xl font-semibold">Pine numeric inputs</h1>

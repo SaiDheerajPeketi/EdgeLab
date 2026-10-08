@@ -152,3 +152,29 @@ test("time inputs retain exact safe millisecond integers and never dispatch a fr
   expect((await current(page)).emissions).toEqual([{ id: "in_0", value: 1770000000100 }]);
   expect(harness.workerRequests).toHaveLength(2); await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+
+test("numeric draft94 survives regenerated metadata while genuine schema changes reset it", async ({ page, harness }) => {
+  modern(); await prepare(page);
+  for (const draft of ["", "0", "1.5"]) {
+    await length(page).fill(draft);
+    await page.evaluate(() => window.pineInputEditFixture.rebuildMetadata());
+    await expect(length(page)).toHaveValue(draft);
+    await expect(length(page)).toHaveAttribute("aria-invalid", "true");
+    expect((await current(page)).inputs.in_1).toBe(20);
+    expect((await current(page)).runs).toHaveLength(0);
+  }
+  await length(page).press("Escape");
+  await expect(length(page)).toHaveValue("20");
+  await length(page).fill("25"); await assertOutput(page, 25);
+  await length(page).fill("0");
+  await page.evaluate(() => window.pineInputEditFixture.rebuildMetadata());
+  await expect(length(page)).toHaveValue("0");
+  await length(page).press("Escape"); await expect(length(page)).toHaveValue("25");
+  expect((await current(page)).runs).toHaveLength(1);
+  await length(page).fill("0");
+  await prepare(page, integerSource.replace("maxval=100", "maxval=200"));
+  await expect(length(page)).toHaveValue("20");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(harness.workerRequests).toHaveLength(3);
+});

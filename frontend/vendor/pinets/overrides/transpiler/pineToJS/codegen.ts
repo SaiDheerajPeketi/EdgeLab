@@ -738,6 +738,10 @@ export class CodeGenerator {
 
     // Generate FunctionDeclaration
     generateFunctionDeclaration(node) {
+        if (node._pineSpecializations?.length) {
+            for (const specialization of node._pineSpecializations) this.generateFunctionDeclaration(specialization);
+            return;
+        }
         this.write(this.indentStr.repeat(this.indent));
 
         // Methods are emitted as regular JS functions; the receiver is passed
@@ -824,7 +828,7 @@ export class CodeGenerator {
         // (`method set(line ln, ...)` and `method set(box bx, ...)`). They would
         // all hoist to the same JS function, so the second and later overloads get
         // a `$<n>` suffix; AnalysisPass registers them all under the Pine name.
-        let jsFnName = node.id.name;
+        let jsFnName = node._pineOverloadName ?? node.id.name;
         if (isMethod) {
             const seen = (this.methodNameCounts.get(node.id.name) ?? 0) + 1;
             this.methodNameCounts.set(node.id.name, seen);
@@ -1450,6 +1454,17 @@ export class CodeGenerator {
 
     // Generate ReturnStatement
     generateReturnStatement(node) {
+        if (node.argument?.type === 'CallExpression' && node.argument._pineOverloadTarget) {
+            // The upstream inline-return lowering dereferences arguments before
+            // $.call, losing their Series history. A local result preserves the
+            // ordinary call path and its independently owned call context.
+            const result = `$R_${this.paramRenameCounter++}`;
+            this.write(this.indentStr.repeat(this.indent) + `const ${result} = `);
+            this.generateExpression(node.argument);
+            this.write(';\n');
+            this.writeLine(`return ${result};`);
+            return;
+        }
         this.write(this.indentStr.repeat(this.indent));
         this.write('return');
         if (node.argument) {
@@ -1648,7 +1663,9 @@ export class CodeGenerator {
     // Generate CallExpression
     generateCallExpression(node) {
         const calleePrecedence = this.getPrecedence(node.callee);
-        if (calleePrecedence < 19) {
+        if (node._pineOverloadTarget) {
+            this.write(node._pineOverloadTarget);
+        } else if (calleePrecedence < 19) {
             this.write('(');
             this.generateExpression(node.callee);
             this.write(')');
@@ -1662,7 +1679,7 @@ export class CodeGenerator {
         // Named args are collected into an ObjectExpression as the last argument by the parser.
         // For user-defined functions, we need to expand them into the correct positional slots.
         const calleeName = node.callee?.type === 'Identifier' ? node.callee.name : null;
-        const paramList = node._pineEnumMethodParams ?? (calleeName ? this.functionParams.get(calleeName) : null);
+        const paramList = node._pineOverloadParams ?? node._pineEnumMethodParams ?? (calleeName ? this.functionParams.get(calleeName) : null);
         const lastArg = node.arguments.length > 0 ? node.arguments[node.arguments.length - 1] : null;
         const hasNamedArgs = lastArg?.type === 'ObjectExpression' && paramList;
 
