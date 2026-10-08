@@ -176,8 +176,8 @@ test.describe("critical states and rollout fallback", () => {
     await gotoStable(page, "/app/settings/global");
     await expect(page.locator('[data-route-group="settings"]')).toHaveAttribute("data-ui-version", "fallback");
     await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "settings compatibility navigation" })).toBeVisible();
-    await expect(page.getByRole("status").filter({ hasText: "Compatibility interface active" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Workspace navigation" })).toBeVisible();
+    await expect(page.getByText(/Compatibility interface active|policy operator/)).toHaveCount(0);
     await expect(page.locator("#compatibility-content")).toBeVisible();
     await expect(page.locator("#workspace-content")).toHaveCount(0);
     await expectStableScreenshot(page, "settings-rollout-fallback", { fullPage: false });

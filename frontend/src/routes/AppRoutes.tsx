@@ -14,10 +14,8 @@ import {
   toStoredAuthSession,
 } from "../lib/authSession";
 import {
-  authDestinationFromLocation,
   buildAuthSignInHref,
   buildPricingHref,
-  isBillingAuthDestination,
 } from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 import {
@@ -47,8 +45,8 @@ const PrivacyPage = lazy(() =>
 const TermsPage = lazy(() =>
   import("../pages/LegalPages").then((module) => ({ default: module.TermsPage })),
 );
-const AuthSignInPage = lazy(() =>
-  import("../pages/AuthSignInPage").then((module) => ({ default: module.AuthSignInPage })),
+const AuthSignInRoute = lazy(() =>
+  import("./AuthSignInRoute").then((module) => ({ default: module.AuthSignInRoute })),
 );
 const SharedWorkspacePage = lazy(() =>
   import("../pages/SharedWorkspacePage").then((module) => ({ default: module.SharedWorkspacePage })),
@@ -290,23 +288,6 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   );
 }
 
-function authRedirectTarget(location: { search: string; state: unknown }) {
-  return authDestinationFromLocation(location);
-}
-
-function AuthSignInRoute() {
-  const session = useAuthSession();
-  const location = useLocation();
-
-  const destination = authRedirectTarget(location);
-  const billingDestination = isBillingAuthDestination(destination);
-  if (session && (billingDestination ? session.user.provider === "google" : hasWorkspaceAccess(session))) {
-    return <Navigate replace state={location.state} to={destination} />;
-  }
-
-  return <AuthSignInPage />;
-}
-
 export function AppRoutes() {
   return (
     <BrowserRouter>
@@ -437,7 +418,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       data-ui-version={modernUiEnabled ? "v2" : "fallback"}
       ref={boundaryRef}
     >
-      {modernUiEnabled ? children : <Suspense fallback={<AppRouteFallback />}><CompatibilityRouteRenderer group={group} revision={rollout.revision} /></Suspense>}
+      {modernUiEnabled ? children : <Suspense fallback={<AppRouteFallback />}><CompatibilityRouteRenderer group={group} /></Suspense>}
     </div></DataTransferProvider>
   );
 }

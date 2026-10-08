@@ -13,6 +13,40 @@ const groups = Object.entries(UI_COMPATIBILITY_PATHS) as Array<[UiRouteGroup, re
 test.describe("exhaustive compatibility route parity", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page, { rollout: "fallback" });
+    // Model the real reservation/recovery boundary alongside domain fixtures.
+    // A successful fixture response alone must not bypass receipt validation.
+    const receipts = new Map<string, { operation_id: string; method: string; path: string; status: string; http_status: number | null; result: null; created_at: string; completed_at: string | null }>();
+    const completions = new Map<string, { promise: Promise<void>; resolve: () => void }>();
+    page.on("response", (response) => {
+      const request = response.request();
+      const id = request.headers()["x-edgelab-operation-id"];
+      if (!id) return;
+      const receipt = receipts.get(id);
+      expect(receipt).toBeTruthy();
+      expect(receipt!.method).toBe(request.method());
+      expect(receipt!.path).toBe(new URL(request.url()).pathname.replace(/^\/api/, ""));
+      Object.assign(receipt!, { status: "completed", http_status: response.status(), completed_at: "2026-09-15T10:00:01Z" });
+      completions.get(id)!.resolve();
+    });
+    await page.route("**/api/app-data/operations/**", async (route) => {
+      const match = new URL(route.request().url()).pathname.match(/\/operations\/([0-9a-f-]+)\/(reserve|recover)$/);
+      expect(match).not.toBeNull();
+      expect(route.request().method()).toBe("POST");
+      const [, id, action] = match!;
+      if (action === "reserve") {
+        expect(receipts.has(id)).toBe(false);
+        const body = route.request().postDataJSON() as { method: string; path: string };
+        expect(Object.keys(body).sort()).toEqual(["method", "path"]);
+        receipts.set(id, { operation_id: id, ...body, status: "reserved", http_status: null, result: null, created_at: "2026-09-15T10:00:00Z", completed_at: null });
+        let resolve!: () => void;
+        const promise = new Promise<void>((complete) => { resolve = complete; });
+        completions.set(id, { promise, resolve });
+      }
+      expect(receipts.has(id)).toBe(true);
+      // Recovery waits for the matching mutation response, never an invented success.
+      if (action === "recover") await completions.get(id)!.promise;
+      await route.fulfill({ json: receipts.get(id) });
+    });
     let chart = { presets: { namespace: "edgelab", key: "chart-settings-presets.v1", value: [{ name: "Settings default", settings: { textSize: 12 }, updatedAt: "2026-09-15T12:00:00Z" }], updated_at: "2026-09-15T12:00:00Z" }, active: { namespace: "edgelab", key: "active-chart-settings-preset.v1", value: "Settings default", updated_at: "2026-09-15T12:00:00Z" } };
     await page.route("**/api/settings/chart", async (route) => {
       if (route.request().method() === "PATCH") chart = { ...chart, presets: { ...chart.presets, value: [{ ...chart.presets.value[0], settings: { ...chart.presets.value[0].settings, ...route.request().postDataJSON() } }] } };
@@ -49,7 +83,9 @@ test.describe("exhaustive compatibility route parity", () => {
         revision: fallback ? "compatibility-route" : "modern-route", kill_switch: fallback,
         flags: { shell: true, journal: true, settings: true, chart: true, public: true },
       } }));
-      for (const path of paths) {
+      // Exercise failed sign-out after verifying the other settings saves.
+      const orderedPaths = [...paths.filter((path) => path !== "/app/settings/account"), ...paths.filter((path) => path === "/app/settings/account")];
+      for (const path of orderedPaths) {
         const contract = UI_COMPATIBILITY_ROUTE_PARITY[path];
         expect(contract).toBeTruthy();
         expect(contract.routePath).toBe(path);
@@ -120,7 +156,11 @@ test.describe("exhaustive compatibility route parity", () => {
 });
 
 async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, path: string) {
-  if (["/app/settings", "/app/settings/global"].includes(path)) {
+  if (path === "/app/settings/storage") {
+    await expect(page.getByRole("heading", { level: 1, name: "Storage settings", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Portable data", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Workspace density")).toHaveCount(0);
+  } else if (["/app/settings", "/app/settings/global"].includes(path)) {
     await expect(page.locator("#setting-regional-format")).toContainText("Interface formatting locale");
     await expect(page.getByLabel("Workspace density")).toHaveCount(0);
   } else if (path === "/app/settings/ai") {
@@ -142,7 +182,11 @@ async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, p
     await expect(page.getByLabel("Currency", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Review note template", exact: true })).toBeVisible();
     await expect(page.getByLabel("Workspace density", { exact: true })).toHaveCount(0);
-  } else if (group === "public") await expect(page.getByRole("heading", { name: "Trade replay without losing your work" })).toBeVisible();
+  } else if (group === "public") {
+    const heading = path === "/pricing" ? /Current access, without fine print|One workspace. Every decision/ : path === "/privacy" ? "Privacy Policy" : path === "/terms" ? "Terms of Use" : path === "/auth/signin" ? "Continue to EdgeLab." : /Make every trade.*worth reviewing/;
+    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+    await expect(page.getByText(/Pre-redesign|Compatibility interface active|policy compatibility-route/)).toHaveCount(0);
+  }
   else if (group === "shell") await expect(page.getByText(/Session restored for/)).toBeVisible();
   else if (group === "journal") {
     if (path === "/app/journal/dashboard") {
@@ -251,6 +295,18 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
   } else if (contract.primaryAction === "restore-replay-layout") {
     await expect(page.locator("[data-compatibility-replay]")).not.toHaveText("Loading active replay…");
+  } else if (contract.primaryAction === "replace-account-data") {
+    // Full staged import and failure recovery run in the dedicated transfer gate.
+    expect(contract.kind).toBe("writable");
+    expect(contract.canarySpec).toBe("e2e/compatibility-settings.interaction.spec.ts");
+    await expect(page.getByRole("button", { name: "Import JSON bundle", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "Manage subscription", exact: true })).toHaveAttribute("href", "/account");
+  } else if (contract.primaryAction === "begin-checkout" || contract.primaryAction === "begin-signin") {
+    // Mutating auth/checkout canaries run against exact provider fixtures in their
+    // dedicated suite; this route round-trip checks their canonical UI survives.
+    expect(contract.kind).toBe("shared-domain");
+    expect(contract.canarySpec).toBe("e2e/public-fallback67.interaction.spec.ts");
+    await expect(page.getByRole("main")).toBeVisible();
   } else {
     expect(contract.kind).toBe("read-only");
     expect(contract.draftKey).toBeNull();

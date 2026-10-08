@@ -23,11 +23,11 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout" | "auth-session" | "regional-format" | "quant-models" | "app-data";
-  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout" | "end-session" | "save-diagnostic-preference" | "replace-account-data";
+  savedDataRead: "public-route" | "billing-catalog" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout" | "auth-session" | "regional-format" | "quant-models" | "app-data";
+  primaryAction: "begin-checkout" | "begin-signin" | "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout" | "end-session" | "save-diagnostic-preference" | "replace-account-data";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout" | "account-session-end" | "diagnostic-preference-save" | "settings-read-continuity" | "storage-transfer";
+  testCaseId: "public-billing-checkout" | "public-auth-signin" | "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout" | "account-session-end" | "diagnostic-preference-save" | "settings-read-continuity" | "storage-transfer";
   canarySpec?: string;
   reasonSource: string;
 };
@@ -51,7 +51,7 @@ export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly stri
 });
 
 const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = Object.freeze({
-  public: { kind: "read-only", sessionSource: "route-session", draftKey: null, savedDataRead: "public-route", primaryAction: "navigate", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "public-read-continuity", reasonSource: "frontend/src/routes/AppRoutes.tsx" },
+  public: { kind: "read-only", sessionSource: "route-session", draftKey: null, savedDataRead: "public-route", primaryAction: "navigate", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "public-read-continuity", reasonSource: "frontend/src/components/compatibility/CompatibilityPublicRoutes.tsx" },
   shell: { kind: "read-only", sessionSource: "auth-session", draftKey: null, savedDataRead: "workspace-storage", primaryAction: "navigate", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "shell-session-continuity", reasonSource: "frontend/src/components/compatibility/CompatibilityRouteRenderer.tsx#ShellCompatibility" },
   journal: { kind: "shared-domain", sessionSource: "auth-session", draftKey: null, savedDataRead: "canonical-trades", primaryAction: "refresh-journal", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "journal-canonical-refresh", reasonSource: "frontend/src/lib/journalApi.ts#listCanonicalTrades" },
   settings: { kind: "writable", sessionSource: "auth-session", draftKey: "edgelab.compatibility.settings-draft.v1", savedDataRead: "settings-preferences", primaryAction: "save-settings", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "settings-draft-save", reasonSource: "frontend/src/lib/settingsPreferences.ts#saveSettingsPreferences" },
@@ -59,6 +59,14 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
 });
 
 const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  "/pricing": {
+    kind: "shared-domain", draftKey: null, savedDataRead: "billing-catalog", primaryAction: "begin-checkout", testCaseId: "public-billing-checkout",
+    reasonSource: "frontend/src/components/marketing/PricingSection.tsx", canarySpec: "e2e/public-fallback67.interaction.spec.ts",
+  },
+  "/auth/signin": {
+    kind: "shared-domain", draftKey: null, savedDataRead: "auth-session", primaryAction: "begin-signin", testCaseId: "public-auth-signin",
+    reasonSource: "frontend/src/routes/AuthSignInRoute.tsx", canarySpec: "e2e/public-fallback67.interaction.spec.ts",
+  },
   "/app/settings/storage": {
     kind: "writable", draftKey: "edgelab.data-transfer-draft.v1.{owner}.data-{generation}", savedDataRead: "app-data", primaryAction: "replace-account-data", testCaseId: "storage-transfer",
     reasonSource: "frontend/src/components/settings/useDataTransfer.tsx", canarySpec: "e2e/compatibility-settings.interaction.spec.ts",
