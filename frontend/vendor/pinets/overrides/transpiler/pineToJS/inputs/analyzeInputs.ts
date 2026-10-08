@@ -56,6 +56,16 @@ export interface AnalyzeInputsOptions {
 
 const UNTITLED = 'untitled';
 
+// Pine namespaces with dot members, not the code generator's broader set
+// of callable/JavaScript collisions (e.g. the bare fill() function).
+const UDT_NAMESPACE_NAMES = new Set([
+    'adjustment', 'alert', 'array', 'backadjustment', 'barmerge', 'barstate', 'box', 'chart', 'color', 'currency',
+    'dayofweek', 'display', 'dividends', 'earnings', 'extend', 'font', 'footprint', 'format', 'hline', 'input',
+    'label', 'line', 'linefill', 'location', 'log', 'map', 'math', 'matrix', 'order', 'plot',
+    'polyline', 'position', 'request', 'runtime', 'scale', 'session', 'settlement_as_close', 'shape', 'size',
+    'splits', 'str', 'strategy', 'syminfo', 'table', 'ta', 'text', 'ticker', 'timeframe', 'volume_row',
+]);
+
 const TYPED_INPUT_FNS = new Set([
     'bool',
     'color',
@@ -146,6 +156,17 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
     });
     const normalize = (type: unknown): string | undefined => typeof type === 'string'
         ? type.replace(/\b(const|input|simple|series)\s+/g, '').replace(/\s+/g, '') : undefined;
+    const udtBinding = (name: string, type?: string) => {
+        if (!type || !objectNames.has(type) || !UDT_NAMESPACE_NAMES.has(name)) return false;
+        if (version == null || version >= 6)
+            throw new Error('Pine v6 UDT variable ' + name + ' cannot obscure a built-in namespace.');
+        return true;
+    };
+    const markUdtReceiver = (node: any, scope: Env): string | undefined => {
+        const type = node.object?.type === 'Identifier' ? scope.binding(node.object.name)?.type : undefined;
+        if (type && objectNames.has(type)) node._pineUdtReceiver = true;
+        return type;
+    };
     const enumType = (type?: string) => Boolean(type && enumNames.has(type));
     const hasEnum = (type?: string) => Boolean(type && (enumType(type) || [...enumNames].some(name => type.includes('<' + name + '>') || type.includes('<' + name + ',') || type.includes(',' + name + '>'))));
     const compatible = (expected?: string, actual?: string, location = 'expression') => {
@@ -237,6 +258,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 const declared = normalize(pattern.varType);
                 const actual = args[index] ?? (params[index].type === 'AssignmentPattern' ? expression(params[index].right, scope) : undefined);
                 compatible(declared, actual, 'parameter ' + pattern.name);
+                if (udtBinding(pattern.name, declared ?? actual)) pattern._pineUdtNamespaceBinding = true;
                 scope.vars.set(pattern.name, { type: declared ?? actual });
             }
             const declared = normalize(fn.node.id?.returnType ?? fn.node.returnType);
@@ -261,6 +283,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
             }
             case 'MemberExpression': {
                 if (node.computed) { expression(node.property, scope); return expression(node.object, scope); }
+                markUdtReceiver(node, scope);
                 if (node.object?.type === 'Identifier') {
                     const namespace = scope.binding(node.object.name)?.namespace;
                     if (namespace) {
@@ -273,6 +296,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 const receiver = expression(node.object, scope);
                 const field = receiver && objectFields.get(receiver)?.get(node.property?.name);
                 if (field) return normalize(field);
+                if (node._pineUdtReceiver) return undefined;
                 const name = dottedName(node);
                 if (name?.startsWith('color.') || ['chart.bg_color', 'chart.fg_color'].includes(name)) return 'color';
                 if (name?.startsWith('barstate.')) return 'bool';
@@ -309,6 +333,8 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                     if (binding) {
                         compatible(binding.type, actual, 'assignment');
                         if (!binding.type && actual !== '@na') binding.type = actual;
+                        if (udtBinding(node.left.name, binding.type) && binding.declaration)
+                            binding.declaration._pineUdtNamespaceBinding = true;
                         if (binding.init && typeof binding.init === 'object') mutated.add(binding.init);
                     }
                 } else expression(node.left, scope);
@@ -330,7 +356,8 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 return result;
             }
             case 'CallExpression': {
-                const callee = dottedName(node.callee);
+                if (node.callee?.type === 'MemberExpression' && !node.callee.computed) markUdtReceiver(node.callee, scope);
+                const callee = node.callee?._pineUdtReceiver ? undefined : dottedName(node.callee);
                 const raw = node.arguments ?? [];
                 const userCall = node.callee?.type === 'Identifier' && scope.functionsFor(node.callee.name).some(fn => !fn.node.id?.isMethod);
                 const named = raw.at(-1)?.type === 'ObjectExpression' ? raw.at(-1).properties ?? [] : [];
@@ -355,9 +382,9 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 if (!userCall && ['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
                     const object = node.callee.object;
-                    if (object?.type === 'Identifier' && objectNames.has(object.name) && node.callee.property?.name === 'new') return object.name;
+                    if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name) && node.callee.property?.name === 'new') return object.name;
                     if (node.callee.property?.name === 'copy') {
-                        if (object?.type === 'Identifier' && objectNames.has(object.name)) return object.name;
+                        if (!node.callee._pineUdtReceiver && object?.type === 'Identifier' && objectNames.has(object.name)) return object.name;
                         const receiver = expression(object, scope);
                         if (receiver && objectNames.has(receiver)) return receiver;
                     }
@@ -487,6 +514,35 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
             case 'ReturnStatement': return expression(node.argument, scope);
             case 'ExpressionStatement': return expression(node.expression, scope);
             case 'BlockStatement': return statements(node.body ?? [], new Env(scope));
+            case 'ForStatement': {
+                if (!node.isForIn) {
+                    const loop = new Env(scope);
+                    if (node.init?.type === 'VariableDeclaration') statements([node.init], loop);
+                    else expression(node.init, loop);
+                    expression(node.test, loop); expression(node.update, loop);
+                    if (node.body?.type === 'BlockStatement') statements(node.body.body ?? [], loop);
+                    else expression(node.body, loop);
+                    return undefined;
+                }
+                const loop = new Env(scope);
+                for (const declaration of node.init?.declarations ?? []) {
+                    const collection = expression(declaration.init, scope);
+                    const element = collection?.startsWith('array<') ? genericParts(collection)[0] : undefined;
+                    const targets = declaration.id?.type === 'ArrayPattern' ? declaration.id.elements ?? [] : [declaration.id];
+                    targets.forEach((target: any, index: number) => {
+                        if (target?.type !== 'Identifier') return;
+                        const type = declaration.id.type === 'ArrayPattern' && index === 0 ? 'int' : element;
+                        if (udtBinding(target.name, type)) {
+                            target._pineUdtNamespaceBinding = true;
+                            if (declaration.id.type === 'Identifier') declaration._pineUdtNamespaceBinding = true;
+                        }
+                        loop.vars.set(target.name, { type, declaration });
+                    });
+                }
+                if (node.body?.type === 'BlockStatement') statements(node.body.body ?? [], loop);
+                else expression(node.body, loop);
+                return undefined;
+            }
             default:
                 for (const [key, value] of Object.entries(node)) {
                     if (key === 'parent' || key.startsWith('_')) continue;
@@ -532,6 +588,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                     const actual = expression(declaration.init, scope);
                     const declared = normalize(declaration.id.varType ?? declaration.varType);
                     compatible(declared, actual, 'declaration ' + name);
+                    if (udtBinding(name, declared ?? actual)) declaration._pineUdtNamespaceBinding = true;
                     scope.vars.set(name, { type: declared ?? actual, init: declaration.init, declaration });
                 }
             } else if (node.type === 'FunctionDeclaration') {
@@ -614,6 +671,7 @@ export function analyzeInputs(ast: any, options: AnalyzeInputsOptions = {}): Inp
 /** `"input"` → `''`, `"input.int"` → `'int'`, anything else → null. */
 export function inputFnName(call: any): string | null {
     if (call?.type !== 'CallExpression') return null;
+    if (call.callee?._pineUdtReceiver) return null;
     const name = dottedName(call.callee);
     if (name === 'input') return '';
     if (name?.startsWith('input.') && TYPED_INPUT_FNS.has(name.slice(6))) return name.slice(6);

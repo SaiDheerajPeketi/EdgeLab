@@ -782,3 +782,66 @@ test("long settings94 keep every Pine input reachable above navigation after res
   expect(errors).toEqual([]);
 });
 });
+
+
+test.describe("Pine namespace resolution96", () => {
+  test.use({ serviceWorkers: "allow" });
+  for (const version of [5, 6]) test(`object namespace96 v${version} keeps real prices through editor inputs, save and chart`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const state = await fixture(page);
+    let editor = await openEditor(page);
+    const variable = version === 5 ? "box" : "current";
+    const parameter = version === 5 ? "box" : "item";
+    const source = `//@version=${version}
+indicator("Native object96",overlay=false)
+type Cell
+    float price
+method shifted(Cell self,float amount)=>self.price+amount
+read(Cell ${parameter})=>${parameter}.shifted(1)
+offset=input.float(2,"Adjustment",minval=-5,maxval=5)
+Cell ${variable}=Cell.new(close)
+plot(read(${variable})+offset,"Price",color=#ff00ff)`;
+    if (version === 6) {
+      const invalid = source.replace("Cell current=Cell.new(close)", "Cell box=Cell.new(close)").replace("read(current)+offset", "read(box)+offset");
+      await fillSource(editor, invalid);
+      await editor.getByRole("button", { name: "Check script", exact: true }).click();
+      await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/namespace/i);
+      await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    }
+    await fillSource(editor, source);
+    await check(editor);
+    function expectPrices(result: PineExecutionResult, adjustment: number) {
+      expect(result.plots[0].points.length).toBeGreaterThan(50);
+      for (const point of result.plots[0].points) {
+        const candle = bars.find(bar => bar.time === point.time);
+        expect(candle).toBeDefined();
+        expect(typeof point.value).toBe("number");
+        expect(point.value).toBeCloseTo(candle!.close + 1 + adjustment, 8);
+      }
+    }
+    await run(editor);
+    expectPrices(await nativeRun(page, source), 2);
+    await editor.getByLabel("Adjustment", { exact: true }).fill("4");
+    await run(editor);
+    expectPrices(await nativeRun(page, source), 4);
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+    const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+    expect(saved).toMatchObject({ source, inputs: { in_0: 4 } });
+    await page.reload();
+    await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+    editor = await openEditor(page);
+    await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+    await expect(editor.getByLabel("Adjustment", { exact: true })).toHaveValue("4");
+    await run(editor);
+    expectPrices(await nativeRun(page, source), 4);
+    const priorRuns = await page.evaluate(source => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source);
+    await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+    await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+    await expect(page.getByLabel("Native object96 native Pine pane", { exact: true }).locator("canvas").first()).toBeVisible();
+    await expect.poll(() => page.evaluate(source => window.__nativeEditorResults.filter(item => item.status === "completed" && item.result.kind === "run" && item.result.source === source).length, source)).toBeGreaterThan(priorRuns);
+    expectPrices(await nativeRun(page, source), 4);
+    expect(errors).toEqual([]);
+  });
+});

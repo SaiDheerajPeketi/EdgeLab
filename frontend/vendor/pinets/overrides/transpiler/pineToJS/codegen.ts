@@ -262,12 +262,12 @@ export class CodeGenerator {
 
         if (node.type === 'VariableDeclaration') {
             for (const decl of node.declarations) {
-                if (decl.id?.type === 'Identifier' && this.isReservedName(decl.id.name) && !renameMap.has(decl.id.name)) {
+                if (decl.id?.type === 'Identifier' && (this.isReservedName(decl.id.name) || decl._pineUdtNamespaceBinding) && !renameMap.has(decl.id.name)) {
                     renameMap.set(decl.id.name, `${decl.id.name}_$${this.paramRenameCounter++}`);
                 }
                 if (decl.id?.type === 'ArrayPattern') {
                     for (const el of decl.id.elements) {
-                        if (el?.type === 'Identifier' && this.isReservedName(el.name) && !renameMap.has(el.name)) {
+                        if (el?.type === 'Identifier' && (this.isReservedName(el.name) || el._pineUdtNamespaceBinding) && !renameMap.has(el.name)) {
                             renameMap.set(el.name, `${el.name}_$${this.paramRenameCounter++}`);
                         }
                     }
@@ -428,6 +428,7 @@ export class CodeGenerator {
         if (node.type === 'MemberExpression') {
             if (
                 !node.computed &&
+                !node._pineUdtReceiver &&
                 node.object?.type === 'Identifier' &&
                 renameMap.has(node.object.name) &&
                 NAMESPACE_COLLISION_NAMES.has(node.object.name)
@@ -698,7 +699,7 @@ export class CodeGenerator {
         // and the access is non-computed (namespace member access:
         // `color.new(...)`, `size.tiny`).
         if (node.type === 'MemberExpression') {
-            if (!node.computed && node.object?.type === 'Identifier' && renameMap.has(node.object.name)) {
+            if (!node.computed && !node._pineUdtReceiver && node.object?.type === 'Identifier' && renameMap.has(node.object.name)) {
                 // Skip the object; nothing else to rename here (property is
                 // a static name on a namespace).
                 return;
@@ -757,8 +758,9 @@ export class CodeGenerator {
         // are rewritten.
         const paramRenameMap = new Map<string, string>();
         for (const param of node.params) {
-            const paramName = param.type === 'AssignmentPattern' ? param.left.name : param.name;
-            if (paramName && CONFLICTING_NAMES.has(paramName)) {
+            const target = param.type === 'AssignmentPattern' ? param.left : param;
+            const paramName = target.name;
+            if (paramName && (CONFLICTING_NAMES.has(paramName) || target._pineUdtNamespaceBinding)) {
                 const newName = `${paramName}_$${this.paramRenameCounter++}`;
                 paramRenameMap.set(paramName, newName);
             }
