@@ -1075,6 +1075,9 @@ export function patchChartSettings(changes: Record<string, unknown>) {
 export function updateChartSettingsTemplate(payload: { action: "save" | "delete" | "activate"; name: string; settings?: Record<string, unknown> }) {
   return request<ChartSettingsResponse>("/settings/chart/templates", { method: "POST", body: JSON.stringify(payload) });
 }
+export function updateChartPreset(payload: { kind: "drawing" | "fib"; action: "save" | "delete"; preset?: unknown; id?: string }) {
+  return request<AppStorageItem>("/settings/chart/presets", { method: "POST", body: JSON.stringify(payload) });
+}
 export function patchSettingsPreferences(changes: Record<string, unknown>) {
   return request<AppStorageItem>("/settings/preferences", { method: "PATCH", body: JSON.stringify(changes) });
 }

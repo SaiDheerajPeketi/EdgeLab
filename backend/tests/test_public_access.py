@@ -288,8 +288,9 @@ def test_every_actual_workspace_http_route_denies_unpaid_before_payload_or_servi
             path = re.sub(r"\{[^}]+\}", "1", route_path)
             result = public.client.request(method, path, headers=public.headers[0], json_body={})
             exercised.append((method, route_path, result.status_code))
-    assert len(exercised) == 139, exercised
+    assert len(exercised) == 140, exercised
     assert ("POST", "/api/settings/chart/templates", 403) in exercised
+    assert ("POST", "/api/settings/chart/presets", 403) in exercised
     assert all(code == 403 for _, _, code in exercised), [r for r in exercised if r[2] != 403]
 
 

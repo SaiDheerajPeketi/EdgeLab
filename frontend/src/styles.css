@@ -2777,7 +2777,7 @@ button:disabled {
   }
 
   .drawing-preset-controls {
-    @apply flex h-8 min-w-0 items-center gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-0.5;
+    @apply flex min-h-8 min-w-0 items-center gap-1 rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-0.5;
   }
 
   .drawing-preset-controls .themed-select-trigger {
@@ -2789,7 +2789,7 @@ button:disabled {
   }
 
   .preset-apply-trigger {
-    @apply flex h-full min-h-0 w-full min-w-0 items-center justify-between gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--ui-pressed)] disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:hover:bg-transparent;
+    @apply flex min-h-8 w-full min-w-0 items-center justify-between gap-2 rounded px-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--ui-pressed)] disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:hover:bg-transparent;
   }
 
   .preset-apply-trigger span {

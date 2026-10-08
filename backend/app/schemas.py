@@ -252,6 +252,103 @@ class ChartTemplateOperation(BaseModel):
         return self
 
 
+class ChartPresetStrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_explicit_null(cls, value):
+        if isinstance(value, dict) and any(item is None for item in value.values()):
+            raise ValueError("Preset fields cannot be null; omit optional fields instead.")
+        return value
+
+    @field_validator("id", "name", check_fields=False)
+    @classmethod
+    def require_nonblank(cls, value: str):
+        if not value.strip(" \t\n\r\v\f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"):
+            raise ValueError("A nonblank preset identifier or name is required.")
+        return value
+
+    @field_validator("updatedAt", check_fields=False)
+    @classmethod
+    def require_timestamp(cls, value: str):
+        try:
+            timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("Preset updatedAt must be an ISO timestamp.") from error
+        if timestamp.tzinfo is None:
+            raise ValueError("Preset updatedAt must include a timezone.")
+        return value
+
+
+class DrawingPresetWrite(ChartPresetStrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=48)
+    tool: Literal["horizontal", "vertical", "rectangle", "ellipse", "triangle", "trendline", "ray",
+                  "extendedLine", "segment", "angle", "horizontalRay", "parallelChannel", "arrow",
+                  "callout", "flag", "icon", "longPosition", "shortPosition"]
+    color: str = Field(pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+    label: str = Field(max_length=64)
+    updatedAt: str = Field(min_length=1, max_length=64)
+    fillOpacity: float | None = Field(default=None, ge=0, le=0.6)
+    labelBackgroundOpacity: float | None = Field(default=None, ge=0, le=1)
+    lineStyle: Literal["solid", "dashed", "dotted"] | None = None
+    lineWidth: float | None = Field(default=None, ge=1, le=6)
+    rewardColor: str | None = Field(default=None, pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+    riskColor: str | None = Field(default=None, pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+
+
+class FibPresetLevelWrite(ChartPresetStrictModel):
+    id: str = Field(min_length=1, max_length=48)
+    value: float = Field(ge=-2, le=4.236)
+    color: str = Field(pattern=r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+    backgroundOpacity: float | None = Field(default=None, ge=0, le=0.24)
+    label: str | None = Field(default=None, max_length=24)
+    lineStyle: Literal["solid", "dashed", "dotted"] | None = None
+    visible: bool | None = None
+
+
+class FibPresetWrite(ChartPresetStrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=48)
+    updatedAt: str = Field(min_length=1, max_length=64)
+    extendLeft: bool
+    extendRight: bool
+    levels: list[FibPresetLevelWrite] = Field(min_length=1, max_length=64)
+
+    @field_validator("levels")
+    @classmethod
+    def unique_levels(cls, value):
+        if len({level.id for level in value}) != len(value):
+            raise ValueError("Fib level identifiers must be unique.")
+        return value
+
+
+class ChartPresetOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["drawing", "fib"]
+    action: Literal["save", "delete"]
+    preset: dict[str, Any] | None = None
+    id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("id")
+    @classmethod
+    def nonblank_id(cls, value):
+        return ChartPresetStrictModel.require_nonblank(value) if value is not None else value
+
+    @model_validator(mode="after")
+    def validate_command(self):
+        if self.action == "save":
+            if self.preset is None or "id" in self.model_fields_set:
+                raise ValueError("Saving requires a preset and does not accept an identifier field.")
+            model = DrawingPresetWrite if self.kind == "drawing" else FibPresetWrite
+            model.model_validate(self.preset)
+        elif self.id is None or not self.id.strip() or "preset" in self.model_fields_set:
+            raise ValueError("Deleting requires an identifier and does not accept a preset.")
+        return self
+
+
 class SettingsPreferencesUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

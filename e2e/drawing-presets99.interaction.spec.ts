@@ -32,6 +32,15 @@ async function fixture(page: Page) {
     }
     const bound = request.headers()["x-edgelab-operation-id"];
     if (bound && receipts.has(bound)) Object.assign(receipts.get(bound),{status:"completed",http_status:200,completed_at:FROZEN_TIME});
+    if (endpoint === "/settings/chart/presets" && request.method() === "POST") {
+      const command = request.postDataJSON();
+      const key = command.kind === "drawing" ? "drawing-presets.v1" : "fib-presets.v1";
+      const previous = storage.get(key) ?? [];
+      const normalized = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+      const value = command.action === "delete" ? previous.filter((item: any) => item.id !== command.id) : [command.preset, ...previous.filter((item: any) => item.id !== command.preset.id && !(normalized(item.name) === normalized(command.preset.name) && (command.kind !== "drawing" || item.tool === command.preset.tool)))];
+      storage.set(key, value); writes.push({key, value: structuredClone(value)});
+      await route.fulfill({json: {namespace: "edgelab", key, value, updated_at: FROZEN_TIME}}); return;
+    }
     const storageKey = endpoint.match(/^\/app-storage\/edgelab\/(.+)$/)?.[1];
     if (storageKey) {
       const decoded = decodeURIComponent(storageKey);

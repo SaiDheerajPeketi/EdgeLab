@@ -89,6 +89,7 @@ from app.schemas import (
     ChartSettingsRead,
     ChartSettingsUpdate,
     ChartTemplateOperation,
+    ChartPresetOperation,
     SettingsPreferencesUpdate,
     JournalSettingsUpdate,
     AngelOneInstrument,
@@ -237,6 +238,7 @@ from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
 from app.services.settings import read_chart_settings, patch_chart_settings, patch_settings_preferences, operate_chart_template
+from app.services.chart_presets import operate_chart_preset
 
 
 router = APIRouter(route_class=app_data_operations.AppDataOperationRoute)
@@ -1759,6 +1761,8 @@ def put_app_storage_item(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppStorageRead:
+    if namespace == "edgelab" and key in {"drawing-presets.v1", "fib-presets.v1"}:
+        raise HTTPException(status_code=409, detail="Reload chart presets and use preset actions to save or delete them.")
     item = db.scalar(
         select(AppStorageItem).where(
             AppStorageItem.user_id == current_user.id,
@@ -1846,6 +1850,11 @@ def update_chart_settings(payload: ChartSettingsUpdate, db: Session = Depends(ge
 @router.post("/settings/chart/templates", response_model=ChartSettingsRead)
 def update_chart_template(payload: ChartTemplateOperation, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
     return operate_chart_template(db, current_user.id, payload.action, payload.name, payload.settings)
+
+
+@router.post("/settings/chart/presets", response_model=AppStorageRead)
+def update_chart_preset(payload: ChartPresetOperation, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
+    return operate_chart_preset(db, current_user.id, payload.kind, payload.action, payload.preset, payload.id)
 
 
 @router.patch("/settings/preferences", response_model=AppStorageRead)

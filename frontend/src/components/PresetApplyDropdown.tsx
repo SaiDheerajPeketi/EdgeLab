@@ -7,14 +7,15 @@ type Props = {
   ariaLabel: string;
   className?: string;
   disabled?: boolean;
+  deleteDisabled?: boolean;
   items: PresetItem[];
   onApply: (presetId: string) => void;
-  onDelete: (presetId: string) => void;
+  onDelete: (presetId: string) => void | Promise<boolean>;
   placeholder: string;
   selectedId: string;
 };
 
-export function PresetApplyDropdown({ ariaLabel, className = "", disabled = false, items, onApply, onDelete, placeholder, selectedId }: Props) {
+export function PresetApplyDropdown({ ariaLabel, className = "", disabled = false, deleteDisabled = false, items, onApply, onDelete, placeholder, selectedId }: Props) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -25,7 +26,7 @@ export function PresetApplyDropdown({ ariaLabel, className = "", disabled = fals
   const canOpen = !disabled && items.length > 0;
 
   function actions() {
-    return Array.from(surfaceRef.current?.querySelectorAll<HTMLButtonElement>("[data-preset-action]") ?? []);
+    return Array.from(surfaceRef.current?.querySelectorAll<HTMLButtonElement>("[data-preset-action]:not(:disabled)") ?? []);
   }
 
   function focusAction(action?: HTMLButtonElement) {
@@ -70,17 +71,24 @@ export function PresetApplyDropdown({ ariaLabel, className = "", disabled = fals
     setOpen(true);
   }
 
-  function remove(item: PresetItem) {
+  async function remove(item: PresetItem) {
+    if (deleteDisabled) return;
     const applies = actions().filter((button) => button.dataset.presetAction === "apply");
     const index = applies.findIndex((button) => button.dataset.presetId === item.id);
-    const neighbor = applies[index + 1] ?? applies[index - 1];
-    if (neighbor) focusAction(neighbor);
-    else {
-      // The final deletion disables this trigger. Keep focus in the toolbar.
-      focusToolbarFallback();
-      setOpen(false);
-    }
-    onDelete(item.id);
+    const neighbor = applies[index + 1] ?? applies[index - 1] ?? applies[index];
+    focusAction(neighbor);
+    try {
+      if (await onDelete(item.id) === false) return;
+    } catch { return; }
+    requestAnimationFrame(() => {
+      const active = triggerRef.current?.ownerDocument.activeElement;
+      if (active && active !== document.body && !surfaceRef.current?.contains(active)) return;
+      if (neighbor?.isConnected) focusAction(neighbor);
+      else {
+        const first = actions().find((button) => button.dataset.presetAction === "apply");
+        if (first) focusAction(first); else focusToolbarFallback();
+      }
+    });
   }
 
   function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -186,9 +194,10 @@ export function PresetApplyDropdown({ ariaLabel, className = "", disabled = fals
               <button
                 aria-label={`Delete ${item.name}`}
                 className="preset-apply-delete"
+                disabled={deleteDisabled}
                 data-preset-action="delete"
                 data-preset-id={item.id}
-                onClick={(event) => { event.stopPropagation(); remove(item); }}
+                onClick={(event) => { event.stopPropagation(); void remove(item); }}
                 role="menuitem"
                 tabIndex={-1}
                 title={`Delete ${item.name}`}
