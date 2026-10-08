@@ -1,6 +1,6 @@
 import type { Candle } from "./api";
 import type { PineExecutionResult, PinePlot, PineScalar } from "./pineProtocol";
-import { getPackedPinePlot, pinePlotOptionSets } from "./pinePacked";
+import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
 import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } from "lightweight-charts";
 
@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -143,10 +143,36 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     if (style === "columns") warnings.push("Column widths use the local chart pixel-gap cadence; TradingView pixel gap calibration has not been verified.");
     const declaredWidth = number(plot.options.linewidth, kind === "area" ? 1 : 2);
     if (kind !== "histogram" && (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth) || optionSets.some((options) => options.linewidth !== undefined && (number(options.linewidth, 2) < 1 || number(options.linewidth, 2) > 4 || !Number.isInteger(number(options.linewidth, 2)))))) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
-    if (plot.options.trackprice === true || optionSets.some((options) => options.trackprice === true)) warn("The trackprice guide is not exposed by this chart adapter.");
+    const trackPriceFlag = plot.options.trackprice === undefined ? false : plot.options.trackprice;
+    const constantTrackPrice = typeof trackPriceFlag === "boolean" && optionSets.every((options) => options.trackprice === undefined || options.trackprice === trackPriceFlag);
+    if (!constantTrackPrice) warn("Price guides require a constant boolean trackprice flag; invalid or changing flags leave the plot body unchanged.");
+    let trackPrice: { price: number; color: string } | undefined;
+    if (numericStyle && constantTrackPrice && trackPriceFlag) {
+      // Source-first selection, independent of visual offsets. Decode one packed sample,
+      // never project the history or rescan it on each chart redraw.
+      let sample;
+      if (packed) {
+        for (let index = Math.min(bars.length, packed.slots) - 1; index >= showFrom; index--) {
+          if (packed.kinds[index] === 4 && Number.isFinite(packed.values[index * packed.arity])) { sample = pointAtBar(plot, index); break; }
+        }
+      } else {
+        const firstTime = bars[showFrom]?.time ?? Infinity;
+        for (let index = plot.points.length - 1; index >= 0; index--) {
+          const point = plot.points[index];
+          if (point.time < firstTime) break;
+          if (barsByTime.has(point.time) && typeof point.value === "number" && Number.isFinite(point.value)) { sample = point; break; }
+        }
+      }
+      // A transparent latest numeric sample hides its guide, without reviving an
+      // earlier painted sample. Header values remain independent of paint.
+      if (sample && typeof sample.value === "number") {
+        const shade = color(sample.options.color !== undefined ? sample.options.color : plot.options.color);
+        trackPrice = { price: sample.value, color: pineGradientColor(shade)?.[3] === 0 ? "rgba(0,0,0,0)" : shade };
+      }
+    }
     if (style === "circles" && (plot.options.join === true || optionSets.some((options) => options.join === true))) warn("Circle plot joins are not rendered; points remain separate.");
     const baseColor = color(plot.options.color);
-    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
+    const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(trackPrice ? { trackPrice } : {}), ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
     if (style === "bar") {
       warnings.push("Native OHLC bar widths use local chart pixel cadence; TradingView pixel calibration has not been verified.");
       if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");

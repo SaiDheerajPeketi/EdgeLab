@@ -117,11 +117,12 @@ test("native shape text colors and size retain raw options with honest calibrati
   assert.ok(adapted.warnings.some((warning) => /calibration/i.test(warning)));
 });
 
-test("native plot width clipping and ignored tracking are disclosed", async () => {
+test("native plot width clipping is disclosed while price tracking is retained", async () => {
   const result = await run('plot(close,"Wide",linewidth=8,trackprice=true)');
   const adapted = pine.adaptPineChartResult(result, bars);
   assert.ok(adapted.warnings.some((warning) => /width/i.test(warning)));
-  assert.ok(adapted.warnings.some((warning) => /track/i.test(warning)));
+  assert.ok(!adapted.adapterWarnings.some((warning) => /track/i.test(warning)));
+  assert.equal(adapted.plots[0].visual.trackPrice.price, bars.at(-1).close);
 });
 
 test("disconnected native plots have a bounded series count and preserve na rather than bridging", async () => {

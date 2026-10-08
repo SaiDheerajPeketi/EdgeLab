@@ -420,6 +420,8 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         if (level.price !== null && painted(level.color)) bounds = extend(bounds, level.price);
         return;
       }
+      const guide = plot.visual?.trackPrice;
+      if (guide && painted(guide.color)) bounds = extend(bounds, guide.price);
       const [from, to] = ranges[p];
       if (plot.kind === "candles") {
         // Neighbor samples are retained only when their actual candle body reaches the pane.
@@ -526,6 +528,15 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           ctx.setLineDash(level.linestyle === "dashed" ? [6 * level.width, 4 * level.width] : level.linestyle === "dotted" ? [0, 2 * level.width] : []);
           ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(mediaSize.width, y); ctx.stroke(); ctx.restore();
           continue;
+        }
+        const guide = plot.visual?.trackPrice;
+        if (layer === "line" && guide && painted(guide.color)) {
+          const y = this.series!.priceToCoordinate(guide.price);
+          if (y !== null && Number.isFinite(y)) {
+            ctx.save(); ctx.strokeStyle = guide.color; ctx.lineWidth = 1;
+            ctx.lineCap = "butt"; ctx.setLineDash([1, 3]);
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(mediaSize.width, y); ctx.stroke(); ctx.restore();
+          }
         }
         let [from, to] = this.visible(plot, true);
         this.from = from; this.to = to;

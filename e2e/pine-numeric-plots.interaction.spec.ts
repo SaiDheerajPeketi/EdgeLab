@@ -30,7 +30,7 @@ export function summary(){
  return {engine:state.result.audit.engineVersion,source:state.result.source,inputs:state.result.inputs,definitions:state.result.inputDefinitions,
  plots:state.result.plots.map(plot=>{const p=getPackedPinePlot(plot),buffers=p?[p.values.buffer,p.kinds.buffer,p.optionIndices.buffer]:[];return {id:plot.id,name:plot.name,style:plot.style,options:plot.options,packed:!!p,slots:p?.slots,bufferCount:new Set(buffers).size,bufferBytes:buffers.reduce((n,b)=>n+b.byteLength,0),
  samples:[0,1,115,120,121,122,125,126,128,130,131,254,255,10023,15023,state.bars.length-1].filter(i=>i<state.bars.length).map(i=>({index:i,point:p?pointAtBar(plot,i):plot.points.find(point=>point.time===state.bars[i].time)}))};}),
- drawn:state.adapted.plots.map(plot=>({id:plot.id,name:plot.name,kind:plot.kind})),warnings:state.adapted.adapterWarnings,
+ drawn:state.adapted.plots.map(plot=>({id:plot.id,name:plot.name,kind:plot.kind,trackPrice:plot.visual?.trackPrice})),warnings:state.adapted.adapterWarnings,
  geometry:{elementWidth:state.element.clientWidth,plotWidth:state.chart.paneSize().width,axisWidth:state.element.clientWidth-state.chart.paneSize().width,logicalAtLeft:state.chart.timeScale().coordinateToLogical(0),logicalAtRight:state.chart.timeScale().coordinateToLogical(state.chart.paneSize().width-1)},
  visible:state.chart.timeScale().getVisibleLogicalRange(),range:state.installed.primitive?.rangeForVisible(),stats:state.installed.primitive?.debugStats,series:state.installed.series.length};
 }
@@ -52,6 +52,17 @@ export function span(time,price,offset=0){
  const center=probe(time,price,offset),scale=state.chart.timeScale(),imageData=image(),row=Math.round(center.y*imageData.ratio),panePixels=Math.floor(state.chart.paneSize().width*imageData.ratio);let painted=0,left=Infinity,right=-Infinity;
  for(let x=0;x<panePixels;x++){const i=(row*imageData.width+x)*4,[r,g,b]=imageData.pixels.slice(i,i+3);if(r>120&&r>g*1.5&&r>b*1.5){painted++;left=Math.min(left,x);right=Math.max(right,x);}}
  return {width:painted/imageData.ratio,left:left/imageData.ratio,right:right/imageData.ratio,dpr:imageData.ratio,slotWidth:Math.abs(scale.logicalToCoordinate(center.shifted+1)-scale.logicalToCoordinate(center.shifted)),center};
+}
+export function guidePixels(price){
+ const host=state.disposed?state.base:state.installed.series[0]??state.base,y=host.priceToCoordinate(price),data=image(),panePixels=Math.floor(state.chart.paneSize().width*data.ratio);
+ if(y===null||!Number.isFinite(y))throw new Error("Guide coordinate unavailable");let best={painted:0,left:null,right:null,runs:[],y};
+ for(let row=Math.max(0,Math.round(y*data.ratio)-2*data.ratio);row<=Math.min(data.height-1,Math.round(y*data.ratio)+2*data.ratio);row++){
+  let painted=0,left=null,right=null,start=null,runs=[];
+  for(let x=0;x<=panePixels;x++){const i=(row*data.width+x)*4,[r,g,b]=data.pixels.slice(i,i+3),red=x<panePixels&&r>120&&r>g*1.5&&r>b*1.5;
+   if(red){painted++;left??=x;right=x;start??=x;}else if(start!==null){runs.push(x-start);start=null;}}
+  if(painted>best.painted)best={painted,left,right,runs,y};
+ }
+ return {...best,panePixels,dpr:data.ratio};
 }
 export async function pan(from,to){state.chart.timeScale().setVisibleLogicalRange({from,to});await paint();return summary();}
 export async function resize(){state.chart.resize(state.element.clientWidth,128);await paint();return summary();}
@@ -243,4 +254,44 @@ test("20k packed numeric primitives stay lazy across pan resize and idempotent d
     rgb((await probe(page,snapshot[15023].time,50,7)).rgb,[17,24,39],style+" disposed");
   }
   expect(harness.workerRequests).toHaveLength(4); expect(harness.otherRequests).toEqual([]);
+});
+
+
+test("trackprice guide-only patterns render square dots across the full actual pane",async({page,harness},info)=>{
+  for(const style of ["line","linebr","stepline","steplinebr","area","areabr","histogram","columns","circles"]) {
+    const source=program(`plot(100,title="Guide",color=#ff0000,style=plot.style_${style},trackprice=true,offset=-99999,show_last=1)`);
+    const result=await run(page,source);expect(result.drawn[0].trackPrice).toEqual({price:100,color:"#ff0000"});
+    expect(result.range.priceRange).toEqual({minValue:["histogram","columns"].includes(style)?0:100,maxValue:100});expect(sample(result.plots[0],255)).toMatchObject({time:bars[255].time,value:100});
+    const pixels=await page.evaluate(()=>(window as any).numericFixture.guidePixels(100));
+    expect(pixels.left).toBeLessThanOrEqual(2*pixels.dpr);expect(pixels.right).toBeGreaterThan(pixels.panePixels-5*pixels.dpr);
+    expect(pixels.painted/pixels.panePixels).toBeGreaterThan(.18);expect(pixels.painted/pixels.panePixels).toBeLessThan(.55);
+    expect(Math.max(...pixels.runs)).toBeLessThanOrEqual(2*pixels.dpr);expect(pixels.runs.length).toBeGreaterThan(pixels.panePixels/(6*pixels.dpr));
+    if(style==="area"||style==="line")await capture(page,"trackprice-"+style,info.project.name,{...result,pixels},harness);
+  }
+  expect(harness.workerRequests).toHaveLength(9);expect(harness.otherRequests).toEqual([]);
+});
+
+test("trackprice inputs hidden colors missing values and packed disposal preserve actual paint",async({page,harness},info)=>{
+  const source=program('enabled=input.bool(true,"Guide")\nplot(bar_index == 255 ? na : 100,title="Guide",color=#ff0000,trackprice=enabled,offset=99999,show_last=2)');
+  for(const enabled of [true,false]) {
+    const result=await run(page,source,{inputs:{in_0:enabled}}),pixels=await page.evaluate(()=>(window as any).numericFixture.guidePixels(100));
+    expect(result.drawn[0].trackPrice?.price??null).toBe(enabled?100:null);expect(pixels.painted>0).toBe(enabled);
+  }
+  for(const body of ['plot(bar_index == 255 ? na : 100,color=#ff0000,trackprice=true,offset=-99999,show_last=1)','plot(100,color=bar_index == 255 ? na : #ff0000,trackprice=true,offset=-99999)','plot(100,color=color.new(color.red,100),trackprice=true,offset=-99999)','plot(100,color=#ff0000,trackprice=true,display=display.none)']) {
+    await run(page,program(body));expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBe(0);
+  }
+  for(const shade of ["rgba(255,0,0,0%)","rgba(255,0,0,0.000%)"]) {
+    const transparent=await run(page,program('shade=input.color(color.red,"Color")\nplot(100,color=shade,trackprice=true,offset=-99999)'),{inputs:{in_0:shade}});
+    expect(sample(transparent.plots[0],255).options.color).toBe(shade);expect(transparent.range).toBeNull();
+    expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBe(0);
+  }
+  const snapshot=Array.from({length:20000},(_,index)=>({...bars[0],time:bars[0].time+index*60}));
+  const result=await run(page,program('plot(100,color=#ff0000,trackprice=true,offset=-99999,show_last=1)'),{bars:snapshot,from:10020,to:10044});
+  expect(result.plots[0]).toMatchObject({packed:true,slots:20000,bufferCount:3});expect(result.stats.decodedSamples).toBeLessThanOrEqual(2);
+  expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBeGreaterThan(0);
+  await page.evaluate(()=>(window as any).numericFixture.pan(15020,15044));const resized=await page.evaluate(()=>(window as any).numericFixture.resize());
+  expect(resized.stats.decodedSamples).toBeLessThanOrEqual(2);expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBeGreaterThan(0);
+  await capture(page,"trackprice-packed20k",info.project.name,resized,harness);
+  const disposed=await page.evaluate(()=>(window as any).numericFixture.dispose());expect(disposed.stats.cacheEntries).toBe(0);expect(disposed.range).toBeNull();
+  expect((await page.evaluate(()=>(window as any).numericFixture.guidePixels(100))).painted).toBe(0);expect(harness.workerRequests).toHaveLength(9);expect(harness.otherRequests).toEqual([]);
 });

@@ -22,7 +22,7 @@ function fixture(snapshot=bars,{from=0,width=160,height=128,spacing=20,dpr=1,glo
     getVisibleLogicalRange:()=>({from,to:from+width/spacing}),getVisibleRange:()=>({from:global[Math.max(0,Math.ceil(from))]?.time,to:global[Math.min(global.length-1,Math.floor(from+width/spacing))]?.time}),subscribeVisibleTimeRangeChange:fn=>listeners.add(fn),unsubscribeVisibleTimeRangeChange:fn=>listeners.delete(fn)};
   const chart={timeScale:()=>scale,paneSize:()=>({width,height}),addLineSeries(options){const item={options:()=>options,setData(data){this.data=data;},priceToCoordinate:value=>height-value,attachPrimitive(primitive){primitive.attached({chart,series:this,requestUpdate(){}});},detachPrimitive(primitive){primitive.detached();}};series.push(item);return item;},removeSeries:item=>removed.push(item)};
   const commands=[];let path=[],states=[];
-  const ctx={fillStyle:"",strokeStyle:"",lineWidth:1,getTransform:()=>({a:dpr}),save(){states.push({fillStyle:this.fillStyle,strokeStyle:this.strokeStyle,lineWidth:this.lineWidth});},restore(){Object.assign(this,states.pop());},beginPath(){path=[];},rect(x,y,w,h){path.push({rect:[x,y,w,h]});},moveTo(x,y){path.push([x,y]);},lineTo(x,y){path.push([x,y]);},closePath(){},clip(){},setLineDash(){},fill(){commands.push({kind:"fill",color:this.fillStyle,path:[...path]});},stroke(){commands.push({kind:"stroke",color:this.strokeStyle,width:this.lineWidth,path:[...path]});},createLinearGradient(){assert.fail("Numeric area fills must be flat, not gradients");}};
+  const ctx={fillStyle:"",strokeStyle:"",lineWidth:1,lineCap:"butt",dash:[],getTransform:()=>({a:dpr}),save(){states.push({fillStyle:this.fillStyle,strokeStyle:this.strokeStyle,lineWidth:this.lineWidth,lineCap:this.lineCap,dash:this.dash});},restore(){Object.assign(this,states.pop());},beginPath(){path=[];},rect(x,y,w,h){path.push({rect:[x,y,w,h]});},moveTo(x,y){path.push([x,y]);},lineTo(x,y){path.push([x,y]);},arc(x,y,r){path.push({circle:[x,y,r]});},closePath(){},clip(){},setLineDash(value){this.dash=[...value];},fill(){commands.push({kind:"fill",color:this.fillStyle,path:[...path]});},stroke(){commands.push({kind:"stroke",color:this.strokeStyle,width:this.lineWidth,cap:this.lineCap,dash:this.dash,path:[...path]});},createLinearGradient(){assert.fail("Numeric area fills must be flat, not gradients");}};
   const target={useMediaCoordinateSpace:fn=>fn({context:ctx,mediaSize:{width,height}})};
   return {chart,series,removed,listeners,commands,draw(installed){commands.length=0;for(const view of installed.primitive.paneViews())view.renderer()?.drawBackground?.(target);for(const view of installed.primitive.paneViews())view.renderer()?.draw(target);return commands;},pan(next){from=next;for(const fn of listeners)fn();},zoom(next){spacing=next;for(const fn of listeners)fn();},resize(w,h){width=w;height=h;},coordinate};
 }
@@ -135,4 +135,64 @@ test("default area outline is one pixel on both small and packed histories",asyn
       assert.equal(adapted.plots[0].width,1);const strokes=f.draw(installed).filter(command=>command.kind==="stroke");assert.ok(strokes.length);assert.ok(strokes.every(command=>command.width===1));
     }
   }
+});
+
+const guides = commands => commands.filter(command=>command.kind==="stroke"&&command.dash?.join(",")==="1,3");
+test("trackprice guide-only patterns use last source value across numeric styles and both offsets",async()=>{
+  for(const style of ["line","linebr","stepline","steplinebr","area","areabr","histogram","columns","circles"])for(const offset of [-99999,99999]) {
+    const result=await native(`plot(close,title="Guide",color=#ff0000,style=plot.style_${style},trackprice=true,offset=${offset},show_last=1)`),{adapted,f,installed}=install(result);
+    assert.deepEqual(adapted.plots[0].visual.trackPrice,{price:97,color:"#ff0000"});
+    assert.deepEqual(pine.latestPineChartPoint(adapted.plots[0]),{time:bars[7].time,value:97});
+    assert.ok(!adapted.adapterWarnings.some(warning=>/trackprice guide is not exposed/.test(warning)));
+    const strokes=guides(f.draw(installed));assert.equal(strokes.length,1,style+" draws exactly once, including area");
+    assert.deepEqual(strokes[0],{kind:"stroke",color:"#ff0000",width:1,cap:"butt",dash:[1,3],path:[[0,31],[160,31]]});
+    assert.equal(range(installed).maxValue,97);f.pan(2);f.resize(220,180);
+    assert.deepEqual(guides(f.draw(installed))[0].path,[[0,83],[220,83]]);
+    installed.dispose();assert.equal(guides(f.draw(installed)).length,0);assert.equal(f.listeners.size,0);
+  }
+});
+
+test("trackprice source show_last controls trailing na; empty and hidden plots produce no guide",async()=>{
+  for(const [expression,count,expected] of [["bar_index == 7 ? na : close",1,null],["bar_index == 7 ? na : close",2,96],["na",8,null],["close",0,null],["0",1,0]]) {
+    const {adapted,f,installed}=install(await native(`plot(${expression},color=#ff0000,trackprice=true,show_last=${count},offset=-99999)`));
+    assert.equal(adapted.plots[0].visual.trackPrice?.price??null,expected);
+    assert.equal(guides(f.draw(installed)).length,expected===null?0:1);
+    assert.deepEqual(range(installed),expected===null?null:{minValue:expected,maxValue:expected});
+  }
+  for(const display of ["none","data_window"]) {
+    const {adapted,f,installed}=install(await native(`plot(close,trackprice=true,display=display.${display})`));assert.equal(adapted.plots.length,0);assert.equal(f.series.length,0);assert.equal(installed.primitive,undefined);
+  }
+});
+
+test("trackprice latest numeric sample transparency hides paint but preserves header and source color",async()=>{
+  for(const shade of ["na","color.new(color.red,100)"]) {
+    const {adapted,f,installed}=install(await native(`plot(close,color=bar_index == 7 ? ${shade} : #ff0000,trackprice=true,offset=-99999)`));
+    assert.equal(adapted.plots[0].visual.trackPrice.price,97);assert.equal(guides(f.draw(installed)).length,0);assert.equal(range(installed),null);
+    assert.equal(pine.latestPineChartPoint(adapted.plots[0]).value,97);
+  }
+  for(const shade of ["rgba(255,0,0,0%)","rgba(255,0,0,0.000%)"]) {
+    const body='shade=input.color(color.red,"Color")\nplot(close,color=shade,trackprice=true,offset=-99999)';
+    const result=await native(body,bars,{in_0:shade}),{adapted,f,installed}=install(result);
+    assert.equal(result.plots[0].points.at(-1).options.color,shade);assert.equal(adapted.plots[0].visual.trackPrice.color,"rgba(0,0,0,0)");
+    assert.equal(guides(f.draw(installed)).length,0);assert.equal(range(installed),null);assert.equal(pine.latestPineChartPoint(adapted.plots[0]).value,97);
+  }
+  const {adapted,f,installed}=install(await native('plot(close,color=bar_index == 7 ? #0000ff : #ff0000,trackprice=true,offset=-99999)'));
+  assert.equal(adapted.plots[0].visual.trackPrice.color,"#0000ff");assert.equal(guides(f.draw(installed))[0].color,"#0000ff");
+});
+
+test("trackprice custom input reruns and constant flag guard leave ordinary geometry intact",async()=>{
+  const body='enabled=input.bool(true,"Price guide")\nplot(close,color=#ff0000,trackprice=enabled)';
+  for(const enabled of [true,false]) {const {adapted,f,installed}=install(await native(body,bars,{in_0:enabled}));assert.equal(guides(f.draw(installed)).length,enabled?1:0);assert.equal(adapted.plots[0].visual.trackPrice?.price??null,enabled?97:null);}
+  for(const value of [null,1,false]) {
+    const result=await native('plot(close,color=#ff0000,trackprice=true)');result.plots[0].points[3].options.trackprice=value;
+    const {adapted,f,installed}=install(result);assert.ok(adapted.adapterWarnings.some(warning=>/constant boolean trackprice/.test(warning)));assert.equal(adapted.plots.length,1);assert.equal(guides(f.draw(installed)).length,0);assert.ok(f.commands.some(command=>command.kind==="stroke"));
+  }
+});
+
+test("packed20k trackprice retains backing and guide redraws retain bounded visible-history decoding",async()=>{
+  const snapshot=Array.from({length:20000},(_,index)=>({...bars[index%8],time:bars[0].time+index*60}));
+  const {adapted,f,installed}=install(await native('plot(close,color=#ff0000,trackprice=true,offset=-99999,show_last=1)',snapshot),snapshot,{from:120});
+  assert.ok(pine.getPackedPinePlot(adapted.plots[0].visual.source));assert.equal(adapted.plots[0].segments.length,0);assert.equal(adapted.plots[0].visual.trackPrice.price,snapshot.at(-1).close);
+  f.draw(installed);range(installed);f.pan(15020);f.resize(220,180);f.draw(installed);range(installed);
+  assert.ok(installed.primitive.debugStats.decodedSamples<=2);assert.equal(guides(f.commands).length,1);const decoded=installed.primitive.debugStats.decodedSamples;f.draw(installed);range(installed);assert.equal(installed.primitive.debugStats.decodedSamples,decoded);installed.dispose();assert.equal(installed.primitive.debugStats.cacheEntries,0);
 });
