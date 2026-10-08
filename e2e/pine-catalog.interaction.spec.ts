@@ -275,7 +275,7 @@ test("native import preserves exact source and provenance through save, edits, h
   expect(frozen).toMatchObject({ customScriptSource: snapshot.customScriptSource, customCatalogOrigin: snapshot.customCatalogOrigin, customPinePrepared: snapshot.customPinePrepared, settings: snapshot.settings });
   browser = await catalogBrowser(editor);
   await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
-  await expect(browser.getByRole("status")).toContainText("latest packaged");
+  await expect(browser.getByRole("status")).toContainText("selected packaged");
   const latestRevision = "1111111111111111111111111111111111111111";
   const latest = { ...catalog, upstreamCommit: latestRevision, lastFetchedAt: "2026-10-07T10:30:00Z", entries: catalog.entries.map((item) => ({ ...item, originUrl: `https://github.com/${catalog.repository}/blob/${latestRevision}/${item.path}` })) };
   let loadedManifest = false;
@@ -390,8 +390,55 @@ for (const failure of ["hash mismatch", "oversized source", "oversized catalog i
     await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(before);
     if (failure === "hash mismatch") { fs.mkdirSync(artifacts, { recursive: true }); await browser.getByRole("alert").scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(artifacts, `verification-error-${info.project.name}.png`) }); }
     await page.unroute(asset);
-    if (failure === "oversized catalog index") { await browser.getByRole("button", { name: "Reload catalog", exact: true }).click(); await expect(browser.getByRole("status")).toContainText("latest packaged"); }
+    if (failure === "oversized catalog index") { await browser.getByRole("button", { name: "Reload catalog", exact: true }).click(); await expect(browser.getByRole("status")).toContainText("selected packaged"); }
     await view(browser, entry); await expect(browser.getByRole("alert")).toHaveCount(0); await expect(browser.getByRole("button", { name: "Import draft", exact: true })).toBeEnabled();
     await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(before);
   });
 }
+
+test("catalog selection102 follows archived pins and preserves saved sources after an invalid reload", async ({ page }, info) => {
+  const state = await fixture(page), entry = catalog.entries.find((item) => item.name === "Parabolic SAR")!;
+  const later = "1111111111111111111111111111111111111111";
+  const updated = original(entry) + "\n// reviewed upstream revision B";
+  const bytes = Buffer.from(updated);
+  const changed = { ...catalog, upstreamCommit: later, lastFetchedAt: "2026-10-08T10:30:00Z",
+    entries: catalog.entries.map((item) => ({ ...item, originUrl: `https://github.com/${catalog.repository}/blob/${later}/${item.path}`,
+      ...(item.id === entry.id ? { sourceBytes: bytes.length, sourceSha256: createHash("sha256").update(bytes).digest("hex"),
+        upstreamBlobSha1: createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") } : {}) })) };
+  let current: string | null = catalog.upstreamCommit;
+  await page.route("**/catalog/pine/everget-v2/index.json", route => route.fulfill({ json: {
+    schemaVersion: 1, repository: catalog.repository, revisions: [catalog.upstreamCommit, later], currentRevision: current } }));
+  await page.route(`**/catalog/pine/everget-v2/${later}/manifest.json`, route => route.fulfill({ json: changed }));
+  await page.route(`**/catalog/pine/everget-v2/${later}/${entry.path}`, route => route.fulfill({ body: updated, contentType: "text/plain" }));
+  const editor = await openEditor(page), browser = await catalogBrowser(editor);
+  await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
+  await expect(browser.getByRole("status")).toContainText("selected packaged");
+  await view(browser, entry);
+  await browser.getByRole("button", { name: "Import draft", exact: true }).click(); await check(editor);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => scripts(state.storage).length).toBe(1);
+  const saved = structuredClone(scripts(state.storage));
+  current = later;
+  await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
+  await expect(browser.getByRole("status")).toContainText("New catalog revision loaded");
+  await browser.getByRole("button", { name: "View source", exact: true }).click();
+  await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(updated);
+  current = catalog.upstreamCommit;
+  await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
+  await expect(browser.getByRole("status")).toContainText("New catalog revision loaded");
+  await view(browser, entry);
+  await expect(browser.getByRole("link", { name: "Original source", exact: true })).toHaveAttribute("href", entry.originUrl);
+  expect(scripts(state.storage)).toEqual(saved);
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(original(entry));
+  const captures = path.resolve(".artifacts/catalog102"); fs.mkdirSync(captures, { recursive: true });
+  await browser.screenshot({ path: path.join(captures, `selected-${info.project.name}.png`) });
+  current = null;
+  await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
+  await expect(browser.getByRole("alert")).toContainText("Invalid Pine catalog current revision");
+  await expect(browser.getByRole("status")).toHaveCount(0);
+  await expect(browser.getByRole("link", { name: "Original source", exact: true })).toHaveAttribute("href", entry.originUrl);
+  expect(scripts(state.storage)).toEqual(saved);
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(original(entry));
+  expect(await browser.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await browser.screenshot({ path: path.join(captures, `invalid-${info.project.name}.png`) });
+});

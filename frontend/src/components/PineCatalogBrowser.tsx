@@ -30,12 +30,12 @@ export function PineCatalogBrowser({ onImport, draftIdentity }: { onImport: (scr
   const invalidate = () => { attemptRef.current++; activeRef.current?.abort(); activeRef.current = null; setLoaded(null); setError(null); setBusy(false); };
 
   async function checkUpdates() {
-    invalidate(); const attempt = attemptRef.current;
+    invalidate(); setNotice(""); const attempt = attemptRef.current;
     const controller = new AbortController(); activeRef.current = controller; setBusy(true);
     try {
       const next = await loadPineCatalog(controller.signal);
       if (attempt !== attemptRef.current) return;
-      setCatalog(next); setNotice(next.upstreamCommit === catalog.upstreamCommit ? "Showing the latest packaged catalog revision." : "New catalog revision loaded. Saved scripts and chart copies are unchanged.");
+      setCatalog(next); setNotice(next.upstreamCommit === catalog.upstreamCommit ? "Showing the selected packaged catalog revision." : "New catalog revision loaded. Saved scripts and chart copies are unchanged.");
     } catch (cause) { if (attempt === attemptRef.current) setError(cause instanceof Error ? cause.message : "Catalog update check failed."); }
     finally { if (attempt === attemptRef.current) { activeRef.current = null; setBusy(false); } }
   }

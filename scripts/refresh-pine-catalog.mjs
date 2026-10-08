@@ -103,7 +103,8 @@ async function refreshLocked({ commit, outputDir, fetchImpl, seed }) {
   let index;
   try { index = JSON.parse(await readFile(path.join(outputDir, "index.json"), "utf8")); }
   catch (cause) { if (cause.code !== "ENOENT") throw cause; index = { schemaVersion: 1, repository: REPOSITORY, revisions: [] }; }
-  if (index.schemaVersion !== 1 || index.repository !== REPOSITORY || !Array.isArray(index.revisions) || index.revisions.length > 256 || index.revisions.some((value) => typeof value !== "string" || !SHA.test(value)) || new Set(index.revisions).size !== index.revisions.length) throw new Error("Invalid existing catalog revision index.");
+  if (index.schemaVersion !== 1 || index.repository !== REPOSITORY || !Array.isArray(index.revisions) || index.revisions.length > 256 || index.revisions.some((value) => typeof value !== "string" || !SHA.test(value)) || new Set(index.revisions).size !== index.revisions.length
+    || (Object.hasOwn(index, "currentRevision") && (typeof index.currentRevision !== "string" || !SHA.test(index.currentRevision) || !index.revisions.includes(index.currentRevision)))) throw new Error("Invalid existing catalog revision index.");
   if (!index.revisions.includes(commit) && index.revisions.length >= 256) throw new Error("Pine catalog revision capacity is full.");
   const destination = path.join(outputDir, commit);
   let existing;
@@ -156,9 +157,9 @@ async function refreshLocked({ commit, outputDir, fetchImpl, seed }) {
       await rename(stage, destination); // Existing nonempty revision directories are never replaced.
     } finally { await rm(stage, { recursive: true, force: true }); }
   }
-  if (!index.revisions.includes(commit)) {
+  if (!index.revisions.includes(commit) || !Object.hasOwn(index, "currentRevision") || index.currentRevision !== commit) {
     const indexFile = path.join(outputDir, `.index-${randomUUID()}.json`);
-    const next = { ...index, revisions: [...index.revisions, commit] };
+    const next = { ...index, revisions: index.revisions.includes(commit) ? index.revisions : [...index.revisions, commit], currentRevision: commit };
     try {
       await writeFile(indexFile, JSON.stringify(next, null, 2) + "\n", { flag: "wx" });
       await rename(indexFile, path.join(outputDir, "index.json"));

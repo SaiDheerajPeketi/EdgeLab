@@ -173,7 +173,7 @@ test("a full 256-revision index permits existing validation and rejects only new
   const existing = await refreshPineCatalog({ commit: catalog.upstreamCommit, outputDir: output, fetchImpl });
   assert.equal(existing.upstreamCommit, catalog.upstreamCommit);
   await assert.rejects(refreshPineCatalog({ commit: "4".repeat(40), outputDir: output, fetchImpl }), /capacity is full/);
-  assert.deepEqual(JSON.parse(await readFile(indexPath, "utf8")), index);
+  assert.deepEqual(JSON.parse(await readFile(indexPath, "utf8")), { ...index, currentRevision: catalog.upstreamCommit });
 });
 
 test("concurrent refreshes serialize append operations and retain both revisions", async () => {

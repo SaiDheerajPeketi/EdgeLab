@@ -148,9 +148,13 @@ async function readText(path: string, signal: AbortSignal | undefined, limit: nu
 }
 
 export async function loadPineCatalog(signal?: AbortSignal): Promise<PineCatalogManifest> {
-  const index = JSON.parse(await readText(`${ROOT}/index.json`, signal, 32_000)) as { schemaVersion: number; repository: string; revisions: string[] };
-  if (index.schemaVersion !== 1 || index.repository !== PINE_CATALOG_REPOSITORY || !Array.isArray(index.revisions) || !index.revisions.length || index.revisions.length > 256 || index.revisions.some((revision) => typeof revision !== "string" || !sha.test(revision)) || new Set(index.revisions).size !== index.revisions.length) throw new Error("Invalid Pine catalog index.");
-  const revision = index.revisions[index.revisions.length - 1];
+  const index = JSON.parse(await readText(`${ROOT}/index.json`, signal, 32_000)) as { schemaVersion: number; repository: string; revisions: string[]; currentRevision?: unknown };
+  if (!index || typeof index !== "object" || Array.isArray(index) || index.schemaVersion !== 1 || index.repository !== PINE_CATALOG_REPOSITORY || !Array.isArray(index.revisions) || !index.revisions.length || index.revisions.length > 256 || index.revisions.some((revision) => typeof revision !== "string" || !sha.test(revision)) || new Set(index.revisions).size !== index.revisions.length) throw new Error("Invalid Pine catalog index.");
+  const hasCurrent = Object.prototype.hasOwnProperty.call(index, "currentRevision");
+  if (hasCurrent && (typeof index.currentRevision !== "string" || !sha.test(index.currentRevision) || !index.revisions.includes(index.currentRevision))) throw new Error("Invalid Pine catalog current revision.");
+  // Older indexes use append order; new indexes can explicitly select any
+  // verified archive without changing its source or saved user copies.
+  const revision = hasCurrent ? index.currentRevision as string : index.revisions[index.revisions.length - 1];
   const catalog = validatePineCatalogManifest(JSON.parse(await readText(`${ROOT}/${revision}/manifest.json`, signal, 80_000)));
   if (catalog.upstreamCommit !== revision || catalogRoot(catalog) !== ROOT) throw new Error("Pine catalog revision does not match its index.");
   return catalog;
