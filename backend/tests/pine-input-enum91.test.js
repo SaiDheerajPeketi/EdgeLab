@@ -19,9 +19,9 @@ const definition=result=>{assert.equal(result.inputDefinitions.length,1);return 
 test("v5 and v6 constant enum aliases retain complete selectable fields source and stable native IDs",async()=>{
  for(const version of [5,6]){
   const code=source(aliasBody,version),prepared=await execute(code),direct=await execute(source(aliasBody.replace("input.enum(alias","input.enum(Side.up"),version));
-  assert.equal(prepared.source,code);assert.equal(definition(prepared).type,"enum");assert.equal(definition(prepared).defval,"Up");
-  assert.deepEqual(definition(prepared).options,["Up","Down","Flat"]);assert.equal(definition(prepared).id,definition(direct).id);
-  for(const [chosen,signal] of [["Up",1],["Down",-1],["Flat",0]]){
+  assert.equal(prepared.source,code);assert.equal(definition(prepared).type,"enum");assert.equal(definition(prepared).defval,"Side.up");
+  assert.deepEqual(definition(prepared).options,["Side.up","Side.down","Side.flat"]);assert.equal(definition(prepared).id,definition(direct).id);
+  for(const [chosen,signal] of [["Side.up",1],["Side.down",-1],["Side.flat",0]]){
    const inputs={[definition(prepared).id]:chosen},result=await execute(code,"run",inputs);
    assert.equal(result.source,code);assert.deepEqual(result.inputDefinitions,prepared.inputDefinitions);assert.deepEqual(result.inputs,inputs);
    assert.deepEqual(result.plots[0].points.map(p=>p.value),Array(4).fill(signal));
@@ -37,16 +37,16 @@ test("inferred typed chained and constant ternary aliases keep their enum origin
   'const bool choose=true\nconst Side alias=choose?(false?Side.flat:Side.down):Side.up'
  ]){
   const code=source(declaration+aliases+'\nchoice=input.enum(alias,"Direction")\nplot(choice==Side.down?-1:1)',version),prepared=await execute(code);
-  assert.deepEqual(definition(prepared).options,["Up","Down","Flat"]);assert.equal(definition(prepared).defval,"Down");
+  assert.deepEqual(definition(prepared).options,["Side.up","Side.down","Side.flat"]);assert.equal(definition(prepared).defval,"Side.down");
   assert.deepEqual((await execute(code,"run")).plots[0].points.map(p=>p.value),Array(4).fill(-1));
  }
 });
 test("aliased explicit option subsets preserve order and exclude undeclared overrides",async()=>{
  for(const version of [5,6]){
   const code=source(declaration+'const Side falling=Side.down\nconst Side neutral=Side.flat\nconst Side defaultChoice=true?neutral:falling\nchoice=input.enum(defaultChoice,"Direction",options=[neutral,falling])\nplot(choice==Side.down?-1:0)',version),prepared=await execute(code),input=definition(prepared);
-  assert.deepEqual(input.options,["Flat","Down"]);assert.equal(input.defval,"Flat");
-  const custom=await execute(code,"run",{[input.id]:"Down"});assert.deepEqual(custom.plots[0].points.map(p=>p.value),Array(4).fill(-1));
-  for(const action of ["prepare","run"])for(const value of ["Up","Side.down","not an enum",4,true,null]){
+  assert.deepEqual(input.options,["Side.flat","Side.down"]);assert.equal(input.defval,"Side.flat");
+  const custom=await execute(code,"run",{[input.id]:"Side.down"});assert.deepEqual(custom.plots[0].points.map(p=>p.value),Array(4).fill(-1));
+  for(const action of ["prepare","run"])for(const value of ["Side.up","Down","not an enum",4,true,null]){
    await assert.rejects(execute(code,action,{[input.id]:value}),/input|option|value/i,String(value));
   }
  }
@@ -70,8 +70,8 @@ test("direct default and aliased options use field identity even when enum title
 test("prepared enum metadata round trips through protocol and old missing-options snapshots stay refreshable",async()=>{
  const code=source(aliasBody),prepared=await execute(code),req=request(code);
  const validated=pine.validatePineResponse({id:req.id,status:"completed",result:JSON.parse(JSON.stringify(prepared))},req);
- assert.deepEqual(definition(validated).options,["Up","Down","Flat"]);
- const legacy=structuredClone(prepared);delete definition(legacy).options;
+ assert.deepEqual(definition(validated).options,["Side.up","Side.down","Side.flat"]);
+ const legacy=structuredClone(prepared);for(const key of ["options","enumVersion","enumType","enumMembers"])delete definition(legacy)[key];definition(legacy).defval="Up";
  assert.equal(definition(pine.validatePineResponse({id:req.id,status:"completed",result:legacy},req)).options,undefined);
  for(const options of [[{}],["Up",()=>{}]]){const bad=structuredClone(prepared);definition(bad).options=options;assert.throws(()=>pine.validatePineResponse({id:req.id,status:"completed",result:bad},req),error=>error instanceof pine.PineProtocolError);}
 });

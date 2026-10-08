@@ -722,7 +722,9 @@ export class Parser {
         const props = members.map((m) =>
             new Property(new Identifier(m.name), new Literal(m.title !== null ? m.title : m.name)),
         );
+        if (new Set(members.map(member => member.name)).size !== members.length) throw new Error(`Duplicate enum member in ${name}.`);
         const objExpr = new ObjectExpression(props);
+        (objExpr as any)._pineEnumName = name;
         return new VariableDeclaration(
             [new VariableDeclarator(new Identifier(name), objExpr)],
             VariableDeclarationKind.CONST
@@ -1999,6 +2001,7 @@ export class Parser {
                 if (isGeneric && this.match(TokenType.LPAREN)) {
                     const isMapNew = expr.type === 'MemberExpression' && expr.property.name === 'new' && expr.object.name === 'map';
                     expr = this.parseCallExpression(expr);
+                    (expr as any)._pineGenericTypes = topLevelTypes;
                     // map.new<K, string>(): a missing key reads as the na string, so the map
                     // needs its value type at runtime.
                     if (isMapNew && topLevelTypes.split(',')[1] === 'string' && expr.arguments.length === 0) {

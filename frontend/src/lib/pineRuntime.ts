@@ -1,4 +1,6 @@
 import workerAsset from "virtual:pine-worker-url";
+import { migratePineEnumInputs } from "./pineInputMigration";
+import type { PinePrepareResult } from "./pineProtocol";
 import type { Candle } from "./api";
 import { createSandboxWorkerJob, createSandboxWorkerSession } from "./pineSandbox";
 import { PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest } from "./pineProtocol";
@@ -33,7 +35,33 @@ export type PineLiveRuntimeSession = {
 };
 
 /** Initial bars are confirmed history; every subsequent accepted event is ordered. */
-export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "action" | "mode">): PineLiveRuntimeSession {
+export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "action" | "mode"> & { inputMetadata?: PinePrepareResult }): PineLiveRuntimeSession {
+  const saved = input.inputMetadata;
+  if (saved?.source === input.source && saved.inputDefinitions.some((item) => item.type === "enum" && item.enumVersion !== 1)) {
+    const preparation = createPineRuntimeJob({ action: "prepare", source: input.source });
+    let halted = false, session: PineLiveRuntimeSession | undefined, pending = 0;
+    const cancel = () => { halted = true; preparation.cancel(); session?.cancel(); };
+    const ready = preparation.promise.then((prepared) => {
+      if (halted) throw new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped.");
+      if (prepared.kind !== "prepare") throw new Error("Native Pine preparation returned execution data.");
+      session = createPineLiveRuntimeSession({ ...input, inputMetadata: undefined, inputs: migratePineEnumInputs(saved, prepared, input.inputs).inputs });
+      return session;
+    });
+    const promise = ready.then((owned) => owned.promise);
+    void promise.catch(cancel);
+    return { id: preparation.id, promise, cancel, update: (bar, confirmed) => {
+      if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped."));
+      if (pending >= PINE_LIVE_QUEUE_LIMIT) {
+        cancel();
+        return Promise.reject(new PineProtocolError("LIVE_QUEUE_LIMIT", "Live Pine updates exceeded the queue limit."));
+      }
+      pending++;
+      return ready.then((owned) => {
+        if (halted) throw new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped.");
+        return owned.update(bar, confirmed);
+      }).catch((error) => { cancel(); throw error; }).finally(() => { pending--; });
+    } };
+  }
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   const id = `pine-live-${Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")}`;
   const request = validatePineRequest({ ...input, id: pineLiveRequestId(id, 0), action: "run", mode: "live" });

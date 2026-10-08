@@ -2,7 +2,7 @@
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
-import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse } from "../lib/pineProtocol";
+import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata } from "../lib/pineProtocol";
 import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
@@ -41,6 +41,10 @@ function definitions(indicator: Indicator): PineInputDefinition[] {
       try { definition.activeCondition = validatePineInputCondition(condition); } catch { error("UNSUPPORTED_INPUT", "Input activation exceeds supported expression limits."); }
     }
     if (item.options) definition.options = item.options.map(plainScalar);
+    if (item.type === "enum") {
+      const raw = item as typeof item & { enumVersion?: unknown; enumType?: unknown; enumMembers?: unknown };
+      Object.assign(definition, validatePineEnumMetadata({ enumVersion: raw.enumVersion, enumType: raw.enumType, enumMembers: raw.enumMembers }));
+    }
     return definition;
   });
 }

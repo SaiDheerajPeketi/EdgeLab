@@ -1,4 +1,4 @@
-import { usePineInputMetadata } from "../lib/usePineInputMetadata";
+import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import { useId, useRef, useState } from "react";
 import {
   Activity,
@@ -577,7 +577,10 @@ function IndicatorSettingsControls({
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const isVwap = indicator.kind === "vwap";
   const native = indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "");
-  const prepared = usePineInputMetadata(native ? indicator.customScriptSource : undefined, native ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined);
+  const savedPrepared = native ? sanitizePinePrepared(settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+  const prepared = usePineInputMetadata(native ? indicator.customScriptSource : undefined, savedPrepared);
+  const effectivePineInputs = usePineInputMigration(savedPrepared, prepared, settings.customInputs, settings.pineInputRecovery, (migration) =>
+    onUpdate({ customInputs: migration.inputs, pineInputPrepared: migration.prepared, pineInputRecovery: migration.recovery }));
 
   return (
     <div
@@ -588,7 +591,7 @@ function IndicatorSettingsControls({
       role="group"
     >
       {native ? <div className="grid min-w-0 gap-3">
-        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={settings.customInputs} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!prepared ? <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-slate-300">No configurable Pine inputs.</p> : null}
       </div> : (
         <>

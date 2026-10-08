@@ -55,46 +55,46 @@ test("v5 and v6 alias enums render genuine choices and preserve selected values 
  modernOnly();
  for(const version of [5,6]){
   const code=source(aliasBody,version),prepared=await prepare(page,code),ids=prepared.inputDefinitions.map(d=>d.id);
-  await expect(direction(page)).toHaveValue("Up");await expect(direction(page).locator("option")).toHaveText(["Up","Down","Flat"]);
+  await expect(direction(page)).toHaveValue("Side.up");await expect(direction(page).locator("option")).toHaveText(["Up","Down","Flat"]);
   await expect(page.getByRole("textbox",{name:"Direction",exact:true})).toHaveCount(0);
-  const requests=harness.workerRequests.length;await direction(page).selectOption("Down");
-  await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Down");expect(harness.workerRequests).toHaveLength(requests);
+  const requests=harness.workerRequests.length;await direction(page).selectOption("Side.down");
+  await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.down");expect(harness.workerRequests).toHaveLength(requests);
   const result=await run(page);expect(result.source).toBe(code);expect(result.inputDefinitions.map(d=>d.id)).toEqual(ids);
-  expect(result.inputs[ids[0]]).toBe("Down");expect(result.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(-1));
-  await direction(page).selectOption("Flat");const flat=await run(page);expect(flat.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(0));
-  await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Flat");
+  expect(result.inputs[ids[0]]).toBe("Side.down");expect(result.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(-1));
+  await direction(page).selectOption("Side.flat");const flat=await run(page);expect(flat.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(0));
+  await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.flat");
  }
 });
 test("aliased subsets retain order constrain genuine runtime overrides and recover with a valid choice",async({page,harness},info)=>{
  modernOnly();const code=source(declaration+'const Side falling=Side.down\nconst Side neutral=Side.flat\nconst Side defaultChoice=true?neutral:falling\nchoice=input.enum(defaultChoice,"Direction",options=[neutral,falling])\nplot(choice==Side.down?-1:0,"Signal")');
  const prepared=await prepare(page,code),id=prepared.inputDefinitions[0].id;
- await expect(direction(page)).toHaveValue("Flat");await expect(direction(page).locator("option")).toHaveText(["Flat","Down"]);
- await direction(page).selectOption("Down");const requests=harness.workerRequests.length;
- await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Down");expect(harness.workerRequests).toHaveLength(requests);
- await page.evaluate(id=>window.pineInputEnumFixture.stageInput(id,"Up"),id);
- await expect(direction(page)).toHaveValue("Up");await expect(direction(page).locator("option:checked")).toHaveText("Choose a valid option");
- expect(await direction(page).locator("option:checked").evaluate((option:HTMLOptionElement)=>option.disabled&&option.matches(":disabled"))).toBe(true);expect((await current(page)).inputs[id]).toBe("Up");
+ await expect(direction(page)).toHaveValue("Side.flat");await expect(direction(page).locator("option")).toHaveText(["Flat","Down"]);
+ await direction(page).selectOption("Side.down");const requests=harness.workerRequests.length;
+ await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.down");expect(harness.workerRequests).toHaveLength(requests);
+ await page.evaluate(id=>window.pineInputEnumFixture.stageInput(id,"Side.up"),id);
+ await expect(direction(page)).toHaveValue("Side.up");await expect(direction(page).locator("option:checked")).toHaveText("Choose a valid option");
+ expect(await direction(page).locator("option:checked").evaluate((option:HTMLOptionElement)=>option.disabled&&option.matches(":disabled"))).toBe(true);expect((await current(page)).inputs[id]).toBe("Side.up");
  const failure=await page.evaluate(async bars=>{try{await window.pineInputEnumFixture.run(bars);return null}catch(error){return String(error)}},bars);
- expect(failure).toMatch(/declared option|input/i);await expect(page.getByRole("alert")).toBeVisible();expect((await current(page)).result).toBeNull();expect((await current(page)).inputs[id]).toBe("Up");
- await expect(direction(page)).toHaveValue("Up");
- await direction(page).selectOption("Down");const result=await run(page);expect(result.inputs[id]).toBe("Down");
+ expect(failure).toMatch(/declared option|input/i);await expect(page.getByRole("alert")).toBeVisible();expect((await current(page)).result).toBeNull();expect((await current(page)).inputs[id]).toBe("Side.up");
+ await expect(direction(page)).toHaveValue("Side.up");
+ await direction(page).selectOption("Side.down");const result=await run(page);expect(result.inputs[id]).toBe("Side.down");
  expect(result.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(-1));await expect(page.getByRole("alert")).toHaveCount(0);
  await expect(direction(page).locator("option")).toHaveText(["Flat","Down"]);
- await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Down");
+ await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.down");
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:path.join(root,".artifacts/pine-input-enum91-"+info.project.name+".png"),fullPage:true,animations:"disabled"});
 });
 test("legacy enum metadata upgrades through the real worker without replacing the user's selected value",async({page,harness})=>{
- modernOnly();const prepared=await prepare(page,source(aliasBody));await expect(direction(page)).toHaveValue("Up");await direction(page).selectOption("Down");
+ modernOnly();const prepared=await prepare(page,source(aliasBody));await expect(direction(page)).toHaveValue("Side.up");await direction(page).selectOption("Side.down");
  const requests=harness.workerRequests.length;await page.evaluate(()=>window.pineInputEnumFixture.loadLegacy());
  await expect.poll(()=>harness.workerRequests.length).toBe(requests+1);
- await expect.poll(async()=>((await current(page)).definitions[0]?.options??[])).toEqual(["Up","Down","Flat"]);
- await expect(direction(page)).toHaveValue("Down");expect((await current(page)).definitions.map(d=>d.id)).toEqual(prepared.inputDefinitions.map(d=>d.id));
- await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Down");expect(harness.workerRequests).toHaveLength(requests+1);
+ await expect.poll(async()=>((await current(page)).definitions[0]?.options??[])).toEqual(["Side.up","Side.down","Side.flat"]);
+ await expect(direction(page)).toHaveValue("Side.down");expect((await current(page)).definitions.map(d=>d.id)).toEqual(prepared.inputDefinitions.map(d=>d.id));
+ await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.down");expect(harness.workerRequests).toHaveLength(requests+1);
  const result=await run(page);expect(result.plots[0].points.map(p=>p.value)).toEqual(Array(4).fill(-1));
 });
 test("cancelled held legacy enum refresh cannot restore metadata or defaults over a newer source",async({page,harness})=>{
- modernOnly();await prepare(page,source(aliasBody));await expect(direction(page)).toHaveValue("Up");let release,held=false;
+ modernOnly();await prepare(page,source(aliasBody));await expect(direction(page)).toHaveValue("Side.up");let release,held=false;
  const gate=new Promise<void>(resolve=>release=resolve);let holdNext=true;
  await page.route("**/assets/pine-native-worker*.js",async route=>{
   if(holdNext){holdNext=false;held=true;await gate;}try{await route.continue();}catch{ /* A cancelled refresh can abandon its fetch. */ }
@@ -104,8 +104,8 @@ test("cancelled held legacy enum refresh cannot restore metadata or defaults ove
  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
  const newer=source(declaration+'const Side alias=Side.flat\nchoice=input.enum(alias,"Direction",options=[Side.down,Side.flat])\nplot(choice==Side.flat?0:-1)');
  await prepare(page,newer);release();await page.evaluate(()=>window.pineInputEnumFixture.metadataMounted(true));
- await expect(direction(page)).toHaveValue("Flat");await expect(direction(page).locator("option")).toHaveText(["Down","Flat"]);
+ await expect(direction(page)).toHaveValue("Side.flat");await expect(direction(page).locator("option")).toHaveText(["Down","Flat"]);
  await expect.poll(()=>page.evaluate(()=>window.pineInputEnumFixture.current.metadata?.source)).toBe(newer);
- await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Flat");
+ await page.evaluate(()=>window.pineInputEnumFixture.savedRemount());await expect(direction(page)).toHaveValue("Side.flat");
  await expect(page.getByRole("alert")).toHaveCount(0);await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
 });

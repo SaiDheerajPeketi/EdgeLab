@@ -77,6 +77,9 @@ function toMeta(site: InputSite): IPineInput | null {
     if (a.inline !== undefined) meta.inline = String(a.inline);
     if (a.confirm !== undefined) meta.confirm = Boolean(a.confirm);
     if (a.active !== undefined) meta.active = Boolean(a.active);
+    if (site.fn === 'enum') {
+        Object.assign(meta, { enumVersion: a.enumVersion, enumType: a.enumType, enumMembers: a.enumMembers });
+    }
     if (a.activeCondition !== undefined) Object.assign(meta, { activeCondition: a.activeCondition });
     // A combination such as `display.all - display.status_line` has no single value; leave it unset.
     const display = 'display' in a ? normalizeDisplay(a.display) : HIDDEN_BY_DEFAULT.has(type) ? 'none' : 'all';

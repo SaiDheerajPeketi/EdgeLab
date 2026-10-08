@@ -15,7 +15,7 @@ The scripts in this directory fall into three groups.
 - `check-ui-release.mjs` checks rollout coverage and release evidence.
 - `check-ui-accessibility-certification.mjs` validates accessibility certification records.
 - `check-ui-route-accessibility-sweep.mjs` validates route-sweep evidence.
-- `check-ui-performance.mjs` enforces UI performance budgets.
+- `check-ui-performance.mjs` enforces UI performance budgets. The isolated, on-demand Pine compiler/runtime has a separate 768,000-byte raw and 204,800-byte gzip ceiling; it is not a page route. The reviewed enum-identity build measured 754,585 raw / 196,610 gzip bytes. Page, route and initial-load ceilings remain unchanged.
 - `check-ui-motion.mjs` checks motion inventory and reduced-motion coverage.
 - `run-ui-accessibility-certification.mjs` runs the bounded Playwright accessibility certification.
 

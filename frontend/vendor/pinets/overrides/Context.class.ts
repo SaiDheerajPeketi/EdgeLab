@@ -47,6 +47,20 @@ const NA_DRAWING: any = new Proxy(
     { get: (_target, prop) => (prop === 'get_text' || prop === 'get_tooltip' ? () => '' : () => NaN) },
 );
 
+// EdgeLab modification (2026-10-08): canonical enum values are immutable opaque
+// leaves. Metadata stays outside Pine mutable state and is scoped to one full context.
+class PineEnumMember {
+    [Symbol.toPrimitive](): never {
+        throw new TypeError('Enum values require explicit str.tostring() conversion.');
+    }
+}
+Object.freeze(PineEnumMember.prototype);
+type EnumInfo = Readonly<{ id: string; type: string; title: string }>;
+const enumRegistries = new WeakMap<Context, {
+    members: Map<string, object>;
+    metadata: WeakMap<object, EnumInfo>;
+}>();
+
 export class Context {
     public data: any = {
         open: new Series([]),
@@ -160,6 +174,38 @@ export class Context {
 
     public inputs: Record<string, any> = {};
 
+    enumMember(enumType: string, memberName: string, title: string): object {
+        if (typeof enumType !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(enumType) ||
+            typeof memberName !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(memberName) ||
+            typeof title !== 'string') throw new TypeError('Invalid enum member declaration.');
+        const owner = this.fullContext;
+        let registry = enumRegistries.get(owner);
+        if (!registry) {
+            registry = { members: new Map(), metadata: new WeakMap() };
+            enumRegistries.set(owner, registry);
+        }
+        const id = enumType + '.' + memberName;
+        const existing = registry.members.get(id);
+        if (existing) {
+            if (registry.metadata.get(existing)!.title !== title)
+                throw new TypeError('Conflicting enum member declaration.');
+            return existing;
+        }
+        const member = Object.freeze(new PineEnumMember());
+        registry.members.set(id, member);
+        registry.metadata.set(member, Object.freeze({ id, type: enumType, title }));
+        return member;
+    }
+
+    enumInfo(value: unknown): EnumInfo | undefined {
+        return value !== null && typeof value === 'object'
+            ? enumRegistries.get(this.fullContext)?.metadata.get(value) : undefined;
+    }
+
+    enumMemberFromId(id: unknown): object | undefined {
+        return typeof id === 'string' ? enumRegistries.get(this.fullContext)?.members.get(id) : undefined;
+    }
+
     constructor({
         marketData,
         source,
@@ -235,6 +281,13 @@ export class Context {
             float: core.float.bind(core),
             string: core.string.bind(core),
         };
+
+        Object.defineProperty(coreFunctions.Type, '_enumMember', {
+            value: (enumType: string, memberName: string, title: string) => this.enumMember(enumType, memberName, title),
+        });
+        Object.defineProperty(coreFunctions.Type, 'param', {
+            value: (source: any, index: number = 0) => Series.from(source).get(index),
+        });
 
         // Initialize everything directly in pine - the default way to access everything
         const _this = this;
@@ -319,6 +372,13 @@ export class Context {
         };
 
         // Merge dayofweek enum constants onto the dual-use TimeComponentHelper.
+        // A literal enum options list is one input argument, not a history series.
+        // Keep the upstream param behavior for every other input/value shape.
+        const inputParam = this.pine.input.param;
+        this.pine.input.param = (source: any, index: number = 0) =>
+            Array.isArray(source) && source.length > 0 && source.every(value => this.enumInfo(value))
+                ? source : inputParam(source, index);
+
         // The ...types spread above overwrites coreFunctions.dayofweek with the enum,
         // so we restore the TimeComponentHelper and attach the enum constants to it.
         const dowComponent = coreFunctions.dayofweek as any;
@@ -1039,9 +1099,29 @@ export class Context {
         const recv = unwrap(receiver);
         if (recv === null || recv === undefined || (typeof recv === 'number' && Number.isNaN(recv))) return undefined;
 
+        const enumReceiver = this.enumInfo(recv);
+        let enumMethod: Function | undefined;
         for (const [fn, factory] of candidates) {
-            if (receiverMatchesMethod(fn, factory, recv)) return this.call(fn, id, receiver, ...args);
+            const declared = fn?.__pineReceiverType__;
+            const enumMatch = enumReceiver && typeof declared === 'string' &&
+                declared.replace(/\b(const|input|simple|series)\s+/g, '').trim() === enumReceiver.type;
+            if (enumMatch) {
+                const types = fn.__pineEnumArguments__;
+                const matches = !Array.isArray(types) || types.every((type: string | null, index: number) => {
+                    if (type === null) return true;
+                    const value = unwrap(args[index]);
+                    return value == null || (typeof value === 'number' && Number.isNaN(value)) ||
+                        this.enumInfo(value)?.type === type;
+                });
+                if (!matches) continue;
+                if (enumMethod) throw new TypeError('Ambiguous enum method overload: na or missing arguments have no enum identity.');
+                enumMethod = fn;
+                continue;
+            }
+            if (receiverMatchesMethod(fn, factory, recv))
+                return this.call(fn, id, receiver, ...args);
         }
+        if (enumMethod) return this.call(enumMethod, id, receiver, ...args);
 
         const member = recv[name];
         return typeof member === 'function' ? member.apply(recv, args.map(unwrap)) : undefined;

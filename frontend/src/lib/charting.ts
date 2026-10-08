@@ -167,6 +167,8 @@ export type IndicatorSettings = {
   color: string;
   period: number;
   customInputs?: Record<string, boolean | number | string>;
+  pineInputPrepared?: import("./pineProtocol").PinePrepareResult;
+  pineInputRecovery?: Record<string, string>;
   pineStrategySettings?: import("./pineProtocol").PineStrategySettings;
   fillOpacity?: number;
   stdDev?: number;

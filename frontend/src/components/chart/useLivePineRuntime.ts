@@ -2,16 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Candle } from "../../lib/api";
 import { getStoredAuthSession } from "../../lib/authSession";
 import type { ChartIndicatorInstance, ChartTimeframe } from "../../lib/charting";
-import { isPersistentPineIndicator, pineContextForChart } from "../../lib/customIndicators";
+import { isPersistentPineIndicator, pineContextForChart, sanitizePinePrepared } from "../../lib/customIndicators";
 import { pineFeedChartSnapshot, type PineFeedSnapshot, type PineLiveFeed } from "../../lib/pineLiveFeed";
 import { createPineLiveRuntimeSession, type PineLiveRuntimeSession } from "../../lib/pineRuntime";
-import type { PineContext, PineExecutionResult } from "../../lib/pineProtocol";
+import { PINE_LIMITS, type PineContext, type PineExecutionResult } from "../../lib/pineProtocol";
 
 type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string };
 export type LivePineStudy = { sourceId: string; owner: Owner; bars: Candle[]; result?: PineExecutionResult; error?: string };
 type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; session?: PineLiveRuntimeSession; failed: boolean };
 function signature(indicator: ChartIndicatorInstance) {
-  return JSON.stringify([indicator.customScriptSource, Object.entries(indicator.settings.customInputs ?? {}).sort(([a], [b]) => a.localeCompare(b))]);
+  const metadata = indicator.settings.pineInputPrepared ?? indicator.customPinePrepared;
+  const schema = Array.isArray(metadata?.inputDefinitions) && metadata.inputDefinitions.length <= PINE_LIMITS.inputs
+    ? metadata.inputDefinitions.map((item) => [typeof item?.id === "string" ? item.id.slice(0, 96) : undefined, typeof item?.type === "string" ? item.type.slice(0, 32) : undefined, item?.enumVersion === 1 ? 1 : undefined]) : undefined;
+  return JSON.stringify([indicator.customScriptSource, Object.entries(indicator.settings.customInputs ?? {}).sort(([a], [b]) => a.localeCompare(b)), metadata?.source === indicator.customScriptSource, schema]);
 }
 
 /** Each visible study owns its session; other studies and React batching cannot reset it. */
@@ -94,6 +97,7 @@ export function useLivePineRuntime(options: {
             if (!chart.history.length) throw new Error("There are no earlier closed candles for this timeframe. Choose a shorter timeframe or load more history.");
             entry.bars = chart.history;
             entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
+              inputMetadata: sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!),
               context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: chart.history });
             const currentEntry = entry, initialBars = entry.bars;
             void entry.session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars))

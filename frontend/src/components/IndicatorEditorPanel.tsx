@@ -1,4 +1,5 @@
-import { usePineInputMetadata } from "../lib/usePineInputMetadata";
+import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
+import { hasLegacyPineEnums, migratePineEnumInputs } from "../lib/pineInputMigration";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import {
@@ -99,6 +100,8 @@ export function IndicatorEditorPanel({
   const [catalogOrigin, setCatalogOrigin] = useState<PineCatalogProvenance | undefined>();
   const [quantSemanticsWarning, setQuantSemanticsWarning] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PinePrepareResult | null>(null);
+  const [inputRecovery, setInputRecovery] = useState<Record<string, string>>({});
+  const inputStateRef = useRef({ prepared, inputs, recovery: inputRecovery });
   const [execution, setExecution] = useState<PineExecutionResult | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightRef = useRef<HTMLPreElement | null>(null);
@@ -114,7 +117,7 @@ export function IndicatorEditorPanel({
   const contextRef = useRef({ bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key });
   contextRef.current = { bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key };
   const executionOwnerRef = useRef<typeof contextRef.current | null>(null);
-  const matchesSelected = Boolean(selectedScript && selectedScript.source === source
+  const matchesSelected = Boolean(selectedScript && !hasLegacyPineEnums(selectedScript.pinePrepared) && !hasLegacyPineEnums(prepared ?? undefined) && selectedScript.source === source
     && JSON.stringify(selectedScript.strategySettings ?? {}) === JSON.stringify(strategySettings)
     && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs)
     && JSON.stringify(selectedScript.catalogOrigin) === JSON.stringify(catalogOrigin));
@@ -124,9 +127,16 @@ export function IndicatorEditorPanel({
   const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = usePineInputMetadata(pine ? source : undefined, prepared?.source === source ? prepared : undefined);
+  const effectivePineInputs = usePineInputMigration(prepared?.source === source ? prepared : undefined, currentPrepared, inputs, inputRecovery, (migration) => {
+    if (!currentOwner() || migration.prepared.source !== source) return;
+    invalidateExecution();
+    setPrepared(migration.prepared); setInputs(migration.inputs); setInputRecovery(migration.recovery);
+  });
+  inputStateRef.current = { prepared: currentPrepared ?? prepared, inputs: effectivePineInputs.inputs, recovery: effectivePineInputs.recovery };
+  const invalidEnumInput = currentPrepared?.inputDefinitions.some((input) => input.enumVersion === 1 && !input.options?.includes(effectivePineInputs.inputs[input.id] ?? input.defval));
   let strategySettingsError: string | null = null;
   try { validatePineStrategySettings(strategySettings); } catch (cause) { strategySettingsError = cause instanceof Error ? cause.message : "Check your strategy test settings."; }
-  const canSave = !strategySettingsError && (pine ? Boolean(currentPrepared) : Boolean(parsed.program));
+  const canSave = !strategySettingsError && !invalidEnumInput && (pine ? Boolean(currentPrepared) : Boolean(parsed.program));
   const diagnostics = pine ? currentPrepared?.diagnostics ?? [] : parsed.diagnostics;
   const currentWord = source.slice(0, textareaRef.current?.selectionStart ?? source.length).match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0]?.toLowerCase() ?? "";
   const completions = (pine ? PINE_COMPLETIONS : COMPLETIONS).filter((item) => !currentWord || item.toLowerCase().startsWith(currentWord)).slice(0, 12);
@@ -152,6 +162,7 @@ export function IndicatorEditorPanel({
     invalidateExecution();
     setSource(next);
     setPrepared(metadata?.source === next ? metadata : null);
+    setInputRecovery({});
     setQuantSemanticsWarning(null);
   }
 
@@ -161,7 +172,14 @@ export function IndicatorEditorPanel({
 
   function changeInput(key: string, value: EdgeIndicatorInputValue) {
     invalidateExecution();
-    setInputs((current) => ({ ...current, [key]: value }));
+    if (pine && currentPrepared) {
+      setPrepared(currentPrepared);
+      setInputs({ ...effectivePineInputs.inputs, [key]: value });
+      setInputRecovery(Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== key)));
+    } else {
+      setInputs((current) => ({ ...current, [key]: value }));
+      setInputRecovery((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== key)));
+    }
   }
 
   useEffect(() => {
@@ -206,13 +224,14 @@ export function IndicatorEditorPanel({
 
   async function save(clearIncompatibleQuantSemantics = false) {
     if (!currentOwner()) return null;
+    if (invalidEnumInput) { setRunState({ detail: "Choose valid Pine input options before saving.", status: "error" }); return null; }
     const attempt = attemptRef.current;
     const result = saveCustomIndicator(userScripts, {
       category: selectedScript?.category ?? "custom",
       color: selectedScript?.color ?? parsed.program?.plots[0]?.color ?? "#32d3ee",
       description: selectedScript?.description ?? (pine ? "Native Pine script." : "Custom EdgeLab DSL indicator."),
       id: selectedScript?.origin === "user" ? selectedScript.id : "",
-      inputs,
+      inputs: pine ? effectivePineInputs.inputs : inputs,
       strategySettings: pine ? strategySettings : undefined,
       name: currentPrepared?.name ?? parsed.program?.name ?? "Custom indicator",
       preview: selectedScript?.preview ?? ((currentPrepared?.overlay ?? parsed.program?.overlay) ? "trend" : "oscillator"),
@@ -306,10 +325,12 @@ export function IndicatorEditorPanel({
       const result = await job.promise;
       if (attempt !== attemptRef.current || !currentOwner() || !currentContext(context) || result.kind !== "prepare") return;
       runtimeCancelRef.current = null;
-      setPrepared(result);
+      const latest = inputStateRef.current;
+      const migrated = migratePineEnumInputs(latest.prepared?.source === source ? latest.prepared : undefined, result, latest.inputs, latest.recovery);
+      setPrepared(result); setInputRecovery(migrated.recovery);
       if (result.declaration !== "strategy") setStrategySettings({});
-      setInputs((current) => Object.fromEntries(result.inputDefinitions.flatMap((input) => {
-        const value = current[input.id] ?? input.defval;
+      setInputs(Object.fromEntries(result.inputDefinitions.flatMap((input) => {
+        const value = migrated.inputs[input.id] ?? input.defval;
         return value === null ? [] : [[input.id, value]];
       })));
       setRunState({ detail: `Checked Pine v${result.pineVersion} ${result.declaration} · ${result.inputDefinitions.length} inputs. Ready to save or run.`, status: "success" });
@@ -334,7 +355,7 @@ export function IndicatorEditorPanel({
     try {
       if (pine && pineInstrument.loading) throw new Error("Instrument details are loading. Try Run again in a moment.");
       if (pine && pineInstrument.error) throw new Error(pineInstrument.error);
-      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
+      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs: pine ? effectivePineInputs.inputs : inputs, inputMetadata: pine && (currentPrepared ?? prepared)?.source === source ? currentPrepared ?? prepared ?? undefined : undefined, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
     } catch (error) {
       setRunState({ detail: error instanceof Error ? error.message : "Script execution failed.", status: "error" }); return;
     }
@@ -367,7 +388,8 @@ export function IndicatorEditorPanel({
     if (!currentOwner()) return;
     const saved = selectedScript?.origin === "user" && matchesSelected ? selectedScript : await save();
     if (!saved || !canSave) return;
-    onAddToChart({ ...saved, inputs }, inputs);
+    const appliedInputs = pine ? effectivePineInputs.inputs : inputs;
+    onAddToChart({ ...saved, inputs: appliedInputs }, appliedInputs);
   }
 
   function insertCompletion(value: string) {
@@ -503,7 +525,7 @@ export function IndicatorEditorPanel({
             </div>
             <h3 className="mt-5 text-sm font-semibold text-white">Generated settings</h3>
             <div className="mt-2 grid gap-3">
-              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definitions={currentPrepared.inputDefinitions} inputs={inputs} definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={inputs[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
+              {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definitions={currentPrepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={effectivePineInputs.inputs[input.id]} recoveryLabel={effectivePineInputs.recovery[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
             {currentPrepared?.declaration === "strategy" ? <PineStrategySettingsControl value={strategySettings} onChange={changeStrategySettings} error={strategySettingsError} /> : null}
             {execution?.strategy && executionOwnerRef.current && currentContext(executionOwnerRef.current) ? <PineStrategyResults result={execution} /> : null}

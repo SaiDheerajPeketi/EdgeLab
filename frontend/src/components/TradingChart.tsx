@@ -1,4 +1,4 @@
-import { usePineInputMetadata } from "../lib/usePineInputMetadata";
+import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import {
   useEffect,
   useLayoutEffect,
@@ -889,6 +889,7 @@ export function TradingChart({
           bars: snapshot,
           context: nativePine ? pineInstrument.context : undefined,
           inputs: indicator.settings.customInputs,
+          inputMetadata: nativePine ? (sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource)) : undefined,
           strategySettings: nativePine ? indicator.settings.pineStrategySettings : undefined,
           mode: indicatorRuntimeMode,
           source: indicator.customScriptSource,
@@ -5612,7 +5613,10 @@ function FloatingIndicatorToolbar({
   const isVwap = indicator.kind === "vwap";
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const nativePine = indicator.kind === "custom" && !!indicator.customScriptSource && isPineScriptSource(indicator.customScriptSource);
-  const pinePrepared = usePineInputMetadata(nativePine ? indicator.customScriptSource : undefined, nativePine ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined);
+  const savedPrepared = nativePine ? sanitizePinePrepared(settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+  const pinePrepared = usePineInputMetadata(nativePine ? indicator.customScriptSource : undefined, savedPrepared);
+  const effectivePineInputs = usePineInputMigration(savedPrepared, pinePrepared, settings.customInputs, settings.pineInputRecovery, (migration) =>
+    onChange({ customInputs: migration.inputs, pineInputPrepared: migration.prepared, pineInputRecovery: migration.recovery }));
   const pineInputs = pinePrepared?.inputDefinitions ?? [];
   const customInputs = indicator.kind === "custom" && indicator.customScriptSource && !nativePine
     ? parseEdgeIndicator(indicator.customScriptSource).program?.inputs ?? []
@@ -5744,7 +5748,7 @@ function FloatingIndicatorToolbar({
       ) : null}
 
       {nativePine ? <div className="flex max-w-lg flex-wrap gap-3">
-        {pineInputs.map((definition) => <PineInputControl key={definition.id} definitions={pineInputs} inputs={settings.customInputs} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onChange({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {pineInputs.map((definition) => <PineInputControl key={definition.id} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
       {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}

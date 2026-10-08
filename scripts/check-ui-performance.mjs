@@ -22,11 +22,23 @@ const failures = [];
 for (const asset of assets) {
   let limit = budget.rawBytes.routeChunk;
   if (/^index-.*\.js$/.test(asset.name)) limit = budget.rawBytes.initialEntry;
+  else if (/^pine-native-worker-.*\.js$/.test(asset.name)) limit = budget.rawBytes.pineWorker;
   else if (/TradingChart|chart-vendor/.test(asset.name)) limit = budget.rawBytes.chartChunk;
   else if (/\.css$/.test(asset.name)) limit = budget.rawBytes.stylesheet;
   else if (/\.woff2?$/.test(asset.name)) limit = budget.rawBytes.font;
   else if (/\.(png|jpe?g|webp|avif)$/.test(asset.name)) limit = budget.rawBytes.image;
   if (asset.bytes > limit) failures.push(`${asset.name}: ${asset.bytes} > ${limit} raw bytes`);
+}
+
+// The compiler/runtime is a lazy isolated worker, not a UI route. Bound its
+// transfer and parsing costs separately without weakening page budgets.
+const pineWorkers = assets.filter(({ name }) => /^pine-native-worker-.*\.js$/.test(name));
+assert.equal(pineWorkers.length, 1, "Expected exactly one native Pine worker asset.");
+assert.ok(Number.isSafeInteger(budget.rawBytes.pineWorker) && budget.rawBytes.pineWorker > 0);
+assert.ok(Number.isSafeInteger(budget.gzipBytes.pineWorker) && budget.gzipBytes.pineWorker > 0);
+const [pineWorker] = pineWorkers;
+if (pineWorker.gzipBytes > budget.gzipBytes.pineWorker) {
+  failures.push(`${pineWorker.name}: ${pineWorker.gzipBytes} > ${budget.gzipBytes.pineWorker} gzip bytes`);
 }
 
 function moduleForSource(fragment) {
@@ -139,4 +151,4 @@ for (const [label, budgetKey, baselineThresholdMs, temporaryThresholdMs] of [
 
 assert.equal(failures.length, 0, `UI performance budget exceeded:\n${failures.join("\n")}`);
 const heaviest = assets.sort((a, b) => b.bytes - a.bytes).slice(0, 5);
-console.log(`UI performance budgets passed for ${assets.length} assets. Public initial=${publicInitialGzip} gzip bytes; authenticated initial=${authenticatedInitialGzip} gzip bytes; chart workspace=${chartWorkspaceGzip} gzip bytes; styles=${stylesheetGzip} gzip bytes; fonts=${fonts.length}/${fontBytes} raw bytes; demo media=${demoMediaBytes} raw bytes. Heaviest: ${heaviest.map((item) => `${item.name}=${item.bytes}`).join(", ")}`);
+console.log(`UI performance budgets passed for ${assets.length} assets. Public initial=${publicInitialGzip} gzip bytes; authenticated initial=${authenticatedInitialGzip} gzip bytes; chart workspace=${chartWorkspaceGzip} gzip bytes; Pine worker=${pineWorker.bytes} raw/${pineWorker.gzipBytes} gzip bytes; styles=${stylesheetGzip} gzip bytes; fonts=${fonts.length}/${fontBytes} raw bytes; demo media=${demoMediaBytes} raw bytes. Heaviest: ${heaviest.map((item) => `${item.name}=${item.bytes}`).join(", ")}`);

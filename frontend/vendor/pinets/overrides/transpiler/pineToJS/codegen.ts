@@ -46,6 +46,7 @@ export class CodeGenerator {
     // Per function scope (script body first): whether a variable name is a string.
     // `na` stored in a string variable is the na string, which is the empty string.
     private stringVarScopes: Array<Map<string, boolean>> = [new Map()];
+    private enumTypeNames = new Set<string>();
     constructor(options: { indentStr?: string; sourceCode?: string; includeSourceComments?: boolean } = {}) {
         this.indent = 0;
         this.indentStr = options.indentStr || '  ';
@@ -91,6 +92,16 @@ export class CodeGenerator {
     }
 
     generate(ast) {
+        const collectEnums = (node: any) => {
+            if (!node || typeof node !== 'object') return;
+            if (node._pineEnumName) this.enumTypeNames.add(node._pineEnumName);
+            for (const [key, child] of Object.entries(node)) {
+                if (key === 'parent') continue;
+                if (Array.isArray(child)) child.forEach(collectEnums);
+                else if (child && typeof child === 'object') collectEnums(child);
+            }
+        };
+        collectEnums(ast);
         this.output = [];
         this.indent = 0;
         this.lastCommentedLine = -1;
@@ -876,6 +887,16 @@ export class CodeGenerator {
                 this.write(this.indentStr.repeat(this.indent));
                 this.write(`${jsFnName}.__pineReceiverType__ = ${JSON.stringify(recvType)};\n`);
             }
+            // Runtime enum dispatch needs positional types, including gaps left
+            // by untyped or primitive parameters. Labels never select overloads.
+            const enumArguments = node.params.slice(1).map((parameter: any) => {
+                const type = (parameter.left ?? parameter).varType?.replace(/\b(const|input|simple|series)\s+/g, '').trim();
+                return this.enumTypeNames.has(type) ? type : null;
+            });
+            if (enumArguments.some(type => type !== null)) {
+                this.write(this.indentStr.repeat(this.indent));
+                this.write(`${jsFnName}.__pineEnumArguments__ = ${JSON.stringify(enumArguments)};\n`);
+            }
         }
 
         // Emit param-type marker for any params that carried a Pine type
@@ -988,7 +1009,7 @@ export class CodeGenerator {
                 declaredName &&
                 typeof declaredType === 'string' &&
                 /^[A-Za-z_$][\w$]*$/.test(declaredType) &&
-                declaredType[0] === declaredType[0].toUpperCase()
+                declaredType[0] === declaredType[0].toUpperCase() && !this.enumTypeNames.has(declaredType)
             ) {
                 this.write(this.indentStr.repeat(this.indent));
                 this.write(`"__pineUdtVar:${declaredName}=${declaredType}";\n`);
@@ -1641,7 +1662,7 @@ export class CodeGenerator {
         // Named args are collected into an ObjectExpression as the last argument by the parser.
         // For user-defined functions, we need to expand them into the correct positional slots.
         const calleeName = node.callee?.type === 'Identifier' ? node.callee.name : null;
-        const paramList = calleeName ? this.functionParams.get(calleeName) : null;
+        const paramList = node._pineEnumMethodParams ?? (calleeName ? this.functionParams.get(calleeName) : null);
         const lastArg = node.arguments.length > 0 ? node.arguments[node.arguments.length - 1] : null;
         const hasNamedArgs = lastArg?.type === 'ObjectExpression' && paramList;
 
@@ -2120,7 +2141,9 @@ export class CodeGenerator {
             }
 
             this.write(': ');
-            this.generateExpression(prop.value);
+            if (node._pineEnumName) {
+                this.write(`Type._enumMember(${JSON.stringify(node._pineEnumName)}, ${JSON.stringify(prop.key.name)}, ${JSON.stringify(prop.value.value)})`);
+            } else this.generateExpression(prop.value);
 
             if (i < node.properties.length - 1) {
                 this.write(', ');

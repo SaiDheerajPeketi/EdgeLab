@@ -8,11 +8,14 @@ export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, in
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
+export type PineEnumMember = { id: string; label: string };
+export type PineEnumMetadata = { enumVersion: 1; enumType: string; enumMembers: PineEnumMember[] };
 export type PineInputDefinition = {
   id: string; name: string; type: string; defval: PineScalar;
   varId?: string; title?: string; tooltip?: string; group?: string; display?: string;
   active?: boolean; activeCondition?: PineInputCondition; confirm?: boolean; inline?: string; options?: PineScalar[];
   minval?: number; maxval?: number; step?: number;
+  enumVersion?: 1; enumType?: string; enumMembers?: PineEnumMember[];
 };
 export type PineStrategySettings = {
   initial_capital?: number; default_qty_type?: "fixed" | "cash" | "percent_of_equity";
@@ -216,6 +219,22 @@ export function boundedPineMetadataBytes(value: unknown): number {
   if (bytes > PINE_LIMITS.metadataBytes) fail("Pine result metadata exceeds 1 MB.", "RESULT_LIMIT");
   return bytes;
 }
+/** Titles are display data. Only declared member IDs cross the execution boundary. */
+export function validatePineEnumMetadata(value: unknown): PineEnumMetadata {
+  boundedPineMetadataBytes(value);
+  const raw = record(value);
+  if (Object.keys(raw).some((key) => !["enumVersion", "enumType", "enumMembers"].includes(key)) || raw.enumVersion !== 1) fail("Invalid Pine enum metadata version.");
+  const enumType = string(raw.enumType, 128);
+  const identifier = (name: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !["__proto__", "prototype", "constructor"].includes(name);
+  if (!identifier(enumType)) fail("Invalid Pine enum type.");
+  const enumMembers = array(raw.enumMembers, 128).map((value) => {
+    const member = record(value), id = string(member.id, 257), label = string(member.label);
+    if (Object.keys(member).some((key) => !["id", "label"].includes(key)) || !id.startsWith(enumType + ".") || !identifier(id.slice(enumType.length + 1))) fail("Invalid Pine enum member.");
+    return { id, label };
+  });
+  if (!enumMembers.length || new Set(enumMembers.map((member) => member.id)).size !== enumMembers.length) fail("Pine enum members must be distinct.");
+  return { enumVersion: 1, enumType, enumMembers };
+}
 function inputDefinition(value: unknown): PineInputDefinition {
   const raw = record(value);
   const result: PineInputDefinition = { id: string(raw.id, 96), name: string(raw.name), type: string(raw.type, 32), defval: scalar(raw.defval) };
@@ -227,6 +246,13 @@ function inputDefinition(value: unknown): PineInputDefinition {
     try { result.activeCondition = validatePineInputCondition(raw.activeCondition); } catch { fail("Invalid Pine input activation metadata."); }
   }
   if (raw.options !== undefined) result.options = array(raw.options, 128).map(scalar);
+  if (["enumVersion", "enumType", "enumMembers"].some((key) => raw[key] !== undefined)) {
+    if (result.type !== "enum") fail("Enum metadata requires an enum input.");
+    Object.assign(result, validatePineEnumMetadata({ enumVersion: raw.enumVersion, enumType: raw.enumType, enumMembers: raw.enumMembers }));
+    const members = new Set(result.enumMembers!.map((member) => member.id));
+    if (!result.options?.length || result.options.some((option) => typeof option !== "string" || !members.has(option))
+      || typeof result.defval !== "string" || !result.options.includes(result.defval)) fail("Pine enum options and default must use declared member IDs.");
+  }
   return result;
 }
 export function validatePineResponse(value: unknown, request: PineRequest): PineResult {
@@ -271,7 +297,10 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);
-  for (const [key, val] of Object.entries(inputs)) if (val === null || !inputDefinitions.some((item) => item.id === key)) fail("Invalid runtime input ID or value.");
+  for (const [key, val] of Object.entries(inputs)) {
+    const definition = inputDefinitions.find((item) => item.id === key);
+    if (val === null || !definition || (definition.enumVersion === 1 && !definition.options?.includes(val))) fail("Invalid runtime input ID or value.");
+  }
   for (const [key, val] of Object.entries(request.inputs ?? {})) if (inputs[key] !== val) fail("Pine result changed a requested input value.");
   let points = 0;
   const barTimes = new Set(request.bars?.map((bar) => bar.time));

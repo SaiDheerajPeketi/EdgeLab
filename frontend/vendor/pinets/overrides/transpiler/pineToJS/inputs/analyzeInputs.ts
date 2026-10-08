@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
-// EdgeLab modification: preserve bounded activation and enum-alias input metadata (2026-10-08).
+// EdgeLab modification: bounded activation, canonical enum input metadata and scoped enum type checks (2026-10-08).
 
 import { Identifier, Literal, ObjectExpression, Property } from '../ast';
 import { ConstEnv, ConstType, ConstValue, dottedName, evalConst, finalizeConst, SOURCE_BUILTINS } from './constEval';
@@ -117,6 +117,304 @@ function expectedArgType(fn: string, param: string): string | undefined {
     return undefined;
 }
 
+/** Enum types are checked on the original Pine AST, including unreachable branches. */
+function checkEnumTypes(ast: any): WeakSet<object> {
+    type Binding = { type?: string; namespace?: string; init?: any; declaration?: any };
+    type Fn = { node: any; scope: Env };
+    class Env {
+        vars = new Map<string, Binding>();
+        functions = new Map<string, Fn[]>();
+        constructor(readonly parent: Env | null) {}
+        binding(name: string): Binding | undefined { return this.vars.get(name) ?? this.parent?.binding(name); }
+        functionsFor(name: string): Fn[] { return this.functions.get(name) ?? this.parent?.functionsFor(name) ?? []; }
+    }
+    const enumNames = new Set<string>();
+    const mutated = new WeakSet<object>();
+    const globalEnums = new Set((ast.body ?? []).flatMap((node: any) =>
+        node.type === 'VariableDeclaration' ? (node.declarations ?? []).map((declaration: any) => declaration.init).filter((init: any) => init?._pineEnumName) : []));
+    forEachNode(ast, node => {
+        if (!node._pineEnumName) return;
+        if (!globalEnums.has(node)) throw new Error('Enum declarations must be in global scope.');
+        if (enumNames.has(node._pineEnumName)) throw new Error('Duplicate enum declaration ' + node._pineEnumName + '.');
+        enumNames.add(node._pineEnumName);
+    });
+    const normalize = (type: unknown): string | undefined => typeof type === 'string'
+        ? type.replace(/\b(const|input|simple|series)\s+/g, '').replace(/\s+/g, '') : undefined;
+    const enumType = (type?: string) => Boolean(type && enumNames.has(type));
+    const hasEnum = (type?: string) => Boolean(type && (enumType(type) || [...enumNames].some(name => type.includes('<' + name + '>') || type.includes('<' + name + ',') || type.includes(',' + name + '>'))));
+    const compatible = (expected?: string, actual?: string, location = 'expression') => {
+        if (!expected || !actual || actual === '@na') return;
+        if ((hasEnum(expected) || hasEnum(actual)) && expected !== actual)
+            throw new Error('Incompatible enum types in ' + location + ': ' + expected + ' and ' + actual + '.');
+    };
+    const join = (left?: string, right?: string): string | undefined => {
+        if (left === '@na') return right;
+        if (right === '@na') return left;
+        compatible(left, right);
+        return left === right ? left : left ?? right;
+    };
+    const genericParts = (type?: string): string[] => {
+        const start = type?.indexOf('<') ?? -1;
+        return start < 0 ? [] : type!.slice(start + 1, -1).split(',');
+    };
+    let depth = 0;
+    let expressionVisits = 0;
+    const activeFunctions = new Set<object>();
+    function functionResult(fn: Fn, args: Array<string | undefined> = []): string | undefined {
+        if (activeFunctions.has(fn.node)) throw new Error('Recursive Pine function calls are not supported.');
+        if (++depth > 64) { depth--; throw new Error('Pine enum type analysis exceeded its function depth limit.'); }
+        activeFunctions.add(fn.node);
+        try {
+            const scope = new Env(fn.scope);
+            const params = fn.node.params ?? [];
+            for (let index = 0; index < params.length; index++) {
+                const pattern = params[index].type === 'AssignmentPattern' ? params[index].left : params[index];
+                const declared = normalize(pattern.varType);
+                const actual = args[index] ?? (params[index].type === 'AssignmentPattern' ? expression(params[index].right, scope) : undefined);
+                compatible(declared, actual, 'parameter ' + pattern.name);
+                scope.vars.set(pattern.name, { type: declared ?? actual });
+            }
+            const declared = normalize(fn.node.id?.returnType ?? fn.node.returnType);
+            const result = statements(fn.node.body?.body ?? [], scope, declared);
+            compatible(declared, result, 'return');
+            return declared ?? result;
+        } finally { activeFunctions.delete(fn.node); depth--; }
+    }
+    function expression(node: any, scope: Env): string | undefined {
+        if (!node) return undefined;
+        if (++expressionVisits > 100_000) throw new Error('Pine enum type analysis exceeded its expression budget.');
+        switch (node.type) {
+            case 'Literal': return typeof node.value === 'string' ? 'string' : typeof node.value === 'boolean' ? 'bool' : typeof node.value === 'number'
+                ? (typeof node.raw === 'string' ? /[.eE]/.test(node.raw) : !Number.isInteger(node.value)) ? 'float' : 'int' : '@na';
+            case 'Identifier': {
+                if (node.name === 'na') return '@na';
+                const binding = scope.binding(node.name);
+                if (binding) return binding.type;
+                if (SOURCE_BUILTINS.has(node.name)) return 'float';
+                if (['bar_index', 'last_bar_index', 'time', 'time_close', 'timenow', 'last_bar_time', 'dayofmonth', 'dayofweek', 'month', 'year', 'hour', 'minute', 'second'].includes(node.name)) return 'int';
+                return undefined;
+            }
+            case 'MemberExpression': {
+                if (node.computed) { expression(node.property, scope); return expression(node.object, scope); }
+                if (node.object?.type === 'Identifier') {
+                    const namespace = scope.binding(node.object.name)?.namespace;
+                    if (namespace) {
+                        const init = scope.binding(node.object.name)?.init;
+                        if (!init?.properties?.some((property: any) => property.key?.name === node.property?.name))
+                            throw new Error('Unknown enum member ' + namespace + '.' + node.property?.name + '.');
+                        return namespace;
+                    }
+                }
+                expression(node.object, scope);
+                const name = dottedName(node);
+                if (name?.startsWith('barstate.')) return 'bool';
+                if (['syminfo.ticker', 'syminfo.tickerid', 'syminfo.currency', 'syminfo.basecurrency', 'syminfo.timezone', 'syminfo.session', 'syminfo.type', 'timeframe.period'].includes(name)) return 'string';
+                if (['syminfo.mintick', 'syminfo.pointvalue', 'syminfo.minmove', 'syminfo.pricescale', 'syminfo.mincontract', 'timeframe.multiplier'].includes(name)) return 'float';
+                return undefined;
+            }
+            case 'ConditionalExpression':
+                if (enumType(expression(node.test, scope))) throw new Error('Enum values cannot be used as boolean conditions.');
+                return join(expression(node.consequent, scope), expression(node.alternate, scope));
+            case 'BinaryExpression':
+            case 'LogicalExpression': {
+                const left = expression(node.left, scope), right = expression(node.right, scope);
+                if (['==', '!=', '===', '!=='].includes(node.operator)) {
+                    compatible(left, right, 'comparison');
+                    return 'bool';
+                }
+                if (enumType(left) || enumType(right)) throw new Error('Enum values support equality comparisons only.');
+                return ['&&', '||', '<', '>', '<=', '>='].includes(node.operator) ? 'bool' : left ?? right;
+            }
+            case 'UnaryExpression': {
+                const type = expression(node.argument, scope);
+                if (enumType(type)) throw new Error('Unsupported operator on enum value.');
+                return node.operator === '!' ? 'bool' : type;
+            }
+            case 'AssignmentExpression': {
+                const actual = expression(node.right, scope);
+                if (node.operator !== '=' && (enumType(actual) || enumType(expression(node.left, scope))))
+                    throw new Error('Enum values support direct assignment only.');
+                if (node.left?.type === 'Identifier') {
+                    const binding = scope.binding(node.left.name);
+                    if (binding) {
+                        compatible(binding.type, actual, 'assignment');
+                        if (!binding.type && actual !== '@na') binding.type = actual;
+                        if (binding.init && typeof binding.init === 'object') mutated.add(binding.init);
+                    }
+                } else expression(node.left, scope);
+                return actual;
+            }
+            case 'ArrayExpression': {
+                let member: string | undefined;
+                for (const item of node.elements ?? []) member = join(member, expression(item, scope));
+                return member ? 'array<' + member + '>' : undefined;
+            }
+            case 'SwitchExpression': {
+                const subject = expression(node.discriminant, scope);
+                let result: string | undefined;
+                for (const arm of node.cases ?? []) {
+                    if (arm.test) compatible(subject, expression(arm.test, scope), 'switch');
+                    const child = new Env(scope);
+                    result = join(result, arm.statements?.length ? statements(arm.statements, child) : expression(arm.consequent, child));
+                }
+                return result;
+            }
+            case 'CallExpression': {
+                const callee = dottedName(node.callee);
+                const raw = node.arguments ?? [];
+                const named = raw.at(-1)?.type === 'ObjectExpression' ? raw.at(-1).properties ?? [] : [];
+                const positional = named.length ? raw.slice(0, -1) : raw;
+                const actual = positional.map((argument: any) => expression(argument, scope));
+                const namedTypes = new Map<string, string | undefined>(named.map((property: any) => [property.key?.name, expression(property.value, scope)]));
+                if (callee === 'input.enum') return actual[0] ?? namedTypes.get('defval');
+                if (callee?.startsWith('str.')) {
+                    const invalid = callee === 'str.tostring'
+                        ? actual.slice(1).some(enumType) || [...namedTypes].some(([name, type]) => name !== 'value' && enumType(type))
+                        : actual.some(enumType) || [...namedTypes.values()].some(enumType);
+                    if (invalid) throw new Error('Enum values require str.tostring() before use as string arguments.');
+                    if (callee === 'str.tostring') return 'string';
+                }
+                const primitiveInput = callee?.startsWith('input.') ? DEFVAL_TYPE[callee.slice(6)] : undefined;
+                if (primitiveInput) return primitiveInput;
+                if (['int', 'float', 'bool', 'string', 'color'].includes(callee ?? '')) return callee;
+                if (callee === 'na') return 'bool';
+                if (['nz', 'fixnan'].includes(callee ?? '')) return join(actual[0], actual[1]);
+                if (callee?.startsWith('math.') || callee?.startsWith('ta.')) {
+                    if (actual.some(enumType)) throw new Error('Enum values cannot be used as numeric function arguments.');
+                    return ['ta.cross', 'ta.crossover', 'ta.crossunder', 'ta.rising', 'ta.falling'].includes(callee) ? 'bool' : 'float';
+                }
+                if (['str.contains', 'str.startswith', 'str.endswith'].includes(callee ?? '')) return 'bool';
+                if (['str.length', 'str.pos', 'str.tonumber'].includes(callee ?? '')) return 'float';
+                if (['str.upper', 'str.lower', 'str.substring', 'str.replace', 'str.replace_all', 'str.format', 'str.trim', 'str.repeat'].includes(callee ?? '')) return 'string';
+                if (callee === 'array.from') { let type: string | undefined; actual.forEach((value: string | undefined) => { type = join(type, value); }); return type ? 'array<' + type + '>' : undefined; }
+                const generic = /^((?:array|map|matrix)\.new)<(.+)>$/.exec(callee ?? '');
+                if (generic) return generic[1].split('.')[0] + '<' + generic[2] + '>';
+                if (callee === 'array.new' || callee === 'map.new' || callee === 'matrix.new') {
+                    const parameters = node._pineGenericTypes;
+                    if (typeof parameters === 'string') return callee.split('.')[0] + '<' + parameters + '>';
+                }
+                if (callee?.startsWith('array.') || callee?.startsWith('map.') || callee?.startsWith('matrix.')) {
+                    const kind = callee.split('.')[0], method = callee.split('.')[1];
+                    const receiver = actual[0], parts = genericParts(receiver);
+                    if (receiver?.startsWith(kind + '<')) {
+                        if (kind === 'array') {
+                            if (['push', 'unshift', 'includes', 'indexof', 'lastindexof'].includes(method)) compatible(parts[0], actual[1], 'array element');
+                            if (['set', 'insert'].includes(method)) compatible(parts[0], actual[2], 'array element');
+                            if (['get', 'pop', 'shift', 'first', 'last'].includes(method)) return parts[0];
+                        } else if (kind === 'map') {
+                            if (['put', 'get', 'contains', 'remove'].includes(method)) compatible(parts[0], actual[1], 'map key');
+                            if (method === 'put') compatible(parts[1], actual[2], 'map value');
+                            if (['get', 'put', 'remove'].includes(method)) return parts[1];
+                        } else if (kind === 'matrix') {
+                            if (method === 'set') compatible(parts[0], actual[3], 'matrix element');
+                            if (method === 'get') return parts[0];
+                        }
+                        if (['copy', 'slice'].includes(method)) return receiver;
+                    }
+                }
+                let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name) : [];
+                if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
+                    const receiver = expression(node.callee.object, scope);
+                    const method = node.callee.property?.name;
+                    const parts = genericParts(receiver);
+                    if (receiver?.startsWith('array<')) {
+                        if (['push', 'unshift', 'includes', 'indexof', 'lastindexof'].includes(method)) compatible(parts[0], actual[0], 'array element');
+                        if (method === 'set') compatible(parts[0], actual[1], 'array element');
+                        if (['get', 'pop', 'shift', 'first', 'last'].includes(method)) return parts[0];
+                        if (['copy', 'slice'].includes(method)) return receiver;
+                    }
+                    if (receiver?.startsWith('map<')) {
+                        if (['put', 'get', 'contains', 'remove'].includes(method)) compatible(parts[0], actual[0], 'map key');
+                        if (method === 'put') compatible(parts[1], actual[1], 'map value');
+                        if (['get', 'put', 'remove'].includes(method)) return parts[1];
+                        if (method === 'copy') return receiver;
+                    }
+                    functions = scope.functionsFor(method).filter(fn => fn.node.id?.isMethod);
+                    if (functions.length) {
+                        const matching = functions.filter(fn => normalize((fn.node.params[0]?.left ?? fn.node.params[0])?.varType) === receiver);
+                        if (matching.length) functions = matching;
+                        actual.unshift(receiver);
+                    }
+                }
+                if (functions.length) {
+                    const ordered = (fn: Fn) => (fn.node.params ?? []).map((pattern: any, index: number) => actual[index] ?? namedTypes.get((pattern.left ?? pattern).name));
+                    const candidates = functions.filter(fn => {
+                        const params = fn.node.params ?? [], args = ordered(fn);
+                        if (actual.length > params.length || [...namedTypes.keys()].some(name => !params.some((pattern: any) => (pattern.left ?? pattern).name === name))) return false;
+                        return params.every((pattern: any, index: number) => {
+                            const declared = normalize((pattern.left ?? pattern).varType), supplied = args[index];
+                            if (supplied === undefined) return pattern.type === 'AssignmentPattern';
+                            return supplied === '@na' || !declared || !(hasEnum(declared) || hasEnum(supplied)) || declared === supplied;
+                        });
+                    });
+                    // Prefer an exact declared signature over an untyped overload.
+                    const score = (fn: Fn) => ordered(fn).reduce((total: number, type: string | undefined, index: number) =>
+                        total + (normalize((fn.node.params[index].left ?? fn.node.params[index]).varType) === type ? 1 : 0), 0);
+                    const fn = candidates.sort((left, right) => score(right) - score(left))[0] ?? functions[0];
+                    const args = ordered(fn);
+                    if (fn.node.id?.isMethod && (fn.node.params ?? []).some((pattern: any) => enumType(normalize((pattern.left ?? pattern).varType)))) {
+                        node._pineEnumMethodParams = fn.node.params.slice(1).map((pattern: any) => (pattern.left ?? pattern).name);
+                    }
+                    return functionResult(fn, args);
+                }
+                return undefined;
+            }
+            case 'ReturnStatement': return expression(node.argument, scope);
+            case 'ExpressionStatement': return expression(node.expression, scope);
+            case 'BlockStatement': return statements(node.body ?? [], new Env(scope));
+            default:
+                for (const [key, value] of Object.entries(node)) {
+                    if (key === 'parent' || key.startsWith('_')) continue;
+                    if (Array.isArray(value)) {
+                        for (const child of value) if (child?.type) expression(child, scope);
+                    } else if (value && typeof value === 'object' && (value as any).type) expression(value, scope);
+                }
+                return undefined;
+        }
+    }
+    function statements(nodes: any[], scope: Env, expectedReturn?: string): string | undefined {
+        for (const node of nodes) {
+            if (node.type === 'FunctionDeclaration') {
+                const name = node.id.name;
+                scope.functions.set(name, [...(scope.functions.get(name) ?? []), { node, scope }]);
+            }
+        }
+        let result: string | undefined;
+        for (const node of nodes) {
+            if (node.type === 'VariableDeclaration') {
+                for (const declaration of node.declarations ?? []) {
+                    const name = declaration.id?.name;
+                    if (!name) { expression(declaration.init, scope); continue; }
+                    if (declaration.init?._pineEnumName) {
+                        scope.vars.set(name, { namespace: declaration.init._pineEnumName, init: declaration.init });
+                        continue;
+                    }
+                    const actual = expression(declaration.init, scope);
+                    const declared = normalize(declaration.id.varType ?? declaration.varType);
+                    compatible(declared, actual, 'declaration ' + name);
+                    scope.vars.set(name, { type: declared ?? actual, init: declaration.init, declaration });
+                }
+            } else if (node.type === 'FunctionDeclaration') {
+                functionResult({ node, scope });
+            } else if (node.type === 'IfStatement') {
+                if (enumType(expression(node.test, scope))) throw new Error('Enum values cannot be used as boolean conditions.');
+                const left = node.consequent?.type === 'BlockStatement' ? statements(node.consequent.body, new Env(scope), expectedReturn) : expression(node.consequent, new Env(scope));
+                const right = node.alternate?.type === 'BlockStatement' ? statements(node.alternate.body, new Env(scope), expectedReturn) : expression(node.alternate, new Env(scope));
+                result = join(left, right);
+            } else if (node.type === 'BlockStatement') {
+                result = statements(node.body, node._sequence ? scope : new Env(scope), expectedReturn);
+            } else {
+                result = expression(node, scope);
+                if (node.type === 'ReturnStatement') compatible(expectedReturn, result, 'return');
+            }
+        }
+        return result;
+    }
+    statements(ast.body ?? [], new Env(null));
+    return mutated;
+}
+
+
 type Sym =
     | {
           kind: 'value';
@@ -171,6 +469,7 @@ class InputAnalyzer {
     private readonly sites: InputSite[] = [];
     private readonly enums = new Map<string, unknown>();
     private readonly reassigned = new Set<string>();
+    private reassignedInitializers = new WeakSet<object>();
     private readonly visited = new WeakSet<object>();
     private readonly inputDefaults = new WeakMap<object, ConstValue>();
     private readonly inputIds = new WeakMap<object, string>();
@@ -185,6 +484,7 @@ class InputAnalyzer {
     }
 
     run(): InputSite[] {
+        this.reassignedInitializers = checkEnumTypes(this.ast);
         this.collectEnumsAndReassignments(this.ast);
         const global = new Scope(null);
         this.visitStatements(this.ast.body ?? [], { scope: global, target: null, fnName: null });
@@ -204,9 +504,9 @@ class InputAnalyzer {
                     const init = decl?.init;
                     if (decl?.id?.type !== 'Identifier' || init?.type !== 'ObjectExpression' || !init.properties?.length) continue;
                     // pine2js lowers `enum E` to `E = { field: "title", … }` (string literals only).
-                    const isEnum = init.properties.every((p: any) => p.value?.type === 'Literal' && typeof p.value.value === 'string');
+                    const isEnum = init._pineEnumName === decl.id.name && init.properties.every((p: any) => p.value?.type === 'Literal' && typeof p.value.value === 'string');
                     if (!isEnum) continue;
-                    for (const p of init.properties) this.enums.set(`${decl.id.name}.${p.key.name}`, p.value.value);
+                    for (const p of init.properties) this.enums.set(`${decl.id.name}.${p.key.name}`, `${decl.id.name}.${p.key.name}`);
                 }
             }
         });
@@ -226,6 +526,12 @@ class InputAnalyzer {
     private env(scope: Scope, withInputDefaults = false): ConstEnv {
         return {
             enums: this.enums,
+            enumLabel: (id) => {
+                const [name, member] = id.split('.');
+                const declaration = scope.resolve(name);
+                return declaration?.kind === 'value' && declaration.init?._pineEnumName === name
+                    ? declaration.init.properties.find((property: any) => property.key?.name === member)?.value.value : undefined;
+            },
             truncatingIntDivision: this.truncatingIntDivision,
             lookup: (name) => {
                 const sym = scope.resolve(name);
@@ -255,7 +561,7 @@ class InputAnalyzer {
 
     private declareValue(scope: Scope, name: string, init: any, varType?: string | null, persistent = false): void {
         // An explicitly `series`/`simple` variable is never folded, nor is one reassigned anywhere.
-        const nonConst = this.reassigned.has(name) || /\b(series|simple)\b/.test(varType ?? '');
+        const nonConst = Boolean(init && this.reassignedInitializers.has(init)) || /\b(series|simple)\b/.test(varType ?? '');
         scope.vars.set(name, { kind: 'value', name, init, scope, nonConst, persistent, inputDerived: containsInputCall(init) });
     }
 
@@ -488,6 +794,15 @@ class InputAnalyzer {
         if (raw.active) values.activeCondition = this.activationCondition(raw.active.node, ctx.scope);
 
         this.checkDefvalConstraints(call, fn, raw, values, ctx.scope);
+        if (fn === 'enum') {
+            const field = this.enumField(raw.defval?.node, ctx.scope)!;
+            const enumType = field.slice(0, field.lastIndexOf('.'));
+            const declaration = ctx.scope.resolve(enumType);
+            if (declaration?.kind !== 'value') throw new Error('Missing enum declaration.');
+            values.enumType = enumType;
+            values.enumVersion = 1;
+            values.enumMembers = declaration.init.properties.map((property: any) => ({ id: `${enumType}.${property.key.name}`, label: property.value.value }));
+        }
         if (fn === 'enum' && values.options === undefined) {
             // Without `options`, the dropdown lists every field of the defval's enum.
             const field = this.enumField(raw.defval?.node, ctx.scope);
@@ -496,7 +811,7 @@ class InputAnalyzer {
                 values.options = [...this.enums].filter(([k]) => k.startsWith(prefix) && !k.slice(prefix.length).includes('.')).map(([, v]) => v);
         }
 
-        this.inlineDefval(raw.defval, ctx.scope);
+        if (fn !== 'enum') this.inlineDefval(raw.defval, ctx.scope);
 
         const id = `in_${this.sites.length}`;
         const title = typeof values.title === 'string' ? values.title : undefined;
@@ -690,7 +1005,7 @@ class InputAnalyzer {
         const declaration = scope.resolve(enumName);
         // A local variable with the same name must not resolve as the outer enum.
         if (declaration?.kind !== 'value' || declaration.nonConst || declaration.init?.type !== 'ObjectExpression') return null;
-        return declaration.init.properties?.some((property: any) => `${enumName}.${property.key?.name}` === field && property.value?.type === 'Literal' && property.value.value === this.enums.get(field)) ? field : null;
+        return declaration.init?._pineEnumName === enumName && declaration.init.properties?.some((property: any) => `${enumName}.${property.key?.name}` === field && property.value?.type === 'Literal') ? field : null;
     }
 
     private checkDefvalConstraints(call: any, fn: string, raw: Record<string, { node: any }>, values: Record<string, unknown>, scope: Scope): void {
