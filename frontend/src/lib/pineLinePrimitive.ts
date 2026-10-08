@@ -1,7 +1,7 @@
 import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, Logical, SeriesAttachedParameter, SeriesType, UTCTimestamp } from "lightweight-charts";
 import type { PineChartPlot } from "./pineChartAdapter";
-import type { PineLineDrawing } from "./pineProtocol";
-import { pineGradientColor } from "./pineVisualPrimitive";
+import type { PineLineDrawing, PineLineFillDrawing } from "./pineProtocol";
+import { clipFillPolygon, fillLobes, pineGradientColor } from "./pineVisualPrimitive";
 type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
 
@@ -29,7 +29,9 @@ export class PineLinePrimitive implements ISeriesPrimitive {
   private requestUpdate?: () => void;
   private readonly onRange = () => this.requestUpdate?.();
   private readonly views: readonly ISeriesPrimitivePaneView[];
-  constructor(private plots: readonly PineChartPlot[]) {
+  private readonly lineReferences = new WeakMap<PineChartPlot, Map<string, PineLineDrawing>>();
+  constructor(private plots: readonly PineChartPlot[], private options: { allowFillOnlyScale?: boolean; hasScalePeer?: () => boolean } = {}) {
+    for (const plot of plots) this.lineReferences.set(plot, new Map(plot.drawing!.lines.map(line => [line.id, line])));
     this.views = [{ zOrder: () => "normal", renderer: () => ({ drawBackground: target => this.draw(target, true), draw: target => this.draw(target, false) }) }];
   }
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter) {
@@ -82,6 +84,48 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     const b = scale.logicalToCoordinate(last as Logical);
     return b === null || !Number.isFinite(b) ? null : a * (last - logical) + b * (logical - first);
   }
+  private validPriceTransform(coordinate: number | null, value: number): boolean {
+    if (coordinate === null || !Number.isFinite(coordinate)) return false;
+    const price = this.series!.coordinateToPrice(coordinate as Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0]);
+    return price !== null && Number.isFinite(price) && Math.abs(price - value) <= Math.abs(value) * 1e-8;
+  }
+  /** Only common horizontal space is filled; line stroke color never controls its region. */
+  private fillVertices(plot: PineChartPlot, fill: PineLineFillDrawing, from: number, to: number, pixels: boolean): [Point, Point, Point, Point] | null {
+    if ((pineGradientColor(fill.color)?.[3] ?? 0) === 0) return null;
+    const coordinates = [fill.line1, fill.line2].map(id => {
+      const line = this.lineReferences.get(plot)?.get(id);
+      if (!line || line.x1 === null || line.x2 === null || line.y1 === null || line.y2 === null) return null;
+      const first = this.logical(plot, line, line.x1), last = this.logical(plot, line, line.x2);
+      if (first === null || last === null || first === last) return null;
+      const x1 = pixels ? this.coordinate(first) : first, x2 = pixels ? this.coordinate(last) : last;
+      const y1 = pixels ? this.series!.priceToCoordinate(line.y1) : line.y1;
+      const y2 = pixels ? this.series!.priceToCoordinate(line.y2) : line.y2;
+      if (x1 === null || x2 === null || y1 === null || y2 === null || ![x1, x2, y1, y2].every(Number.isFinite)) return null;
+      const py1 = this.series!.priceToCoordinate(line.y1), py2 = this.series!.priceToCoordinate(line.y2);
+      const transformed = !pixels && this.validPriceTransform(py1, line.y1) && this.validPriceTransform(py2, line.y2);
+      return { x1, x2, y1, y2, py1, py2, transformed, left: line.extend === "left" || line.extend === "both" ? -Infinity : Math.min(x1, x2), right: line.extend === "right" || line.extend === "both" ? Infinity : Math.max(x1, x2) };
+    });
+    const [a, b] = coordinates;
+    if (!a || !b) return null;
+    const left = Math.max(from, a.left, b.left), right = Math.min(to, a.right, b.right);
+    if (right <= left) return null;
+    const at = (line: NonNullable<typeof a>, x: number) => {
+      const t = (x - line.x1) / (line.x2 - line.x1);
+      const interpolate = (a: number, b: number) => {
+        if (a === b) return a;
+        const scale = Math.max(Math.abs(a), Math.abs(b));
+        return (a / scale * (1 - t) + b / scale * t) * scale;
+      };
+      if (line.transformed) {
+        const price = this.series!.coordinateToPrice(interpolate(line.py1!, line.py2!) as Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0]);
+        if (price !== null) return price;
+      }
+      return interpolate(line.y1, line.y2);
+    };
+    const vertices: [Point, Point, Point, Point] = [{ x: left, y: at(a, left) }, { x: right, y: at(a, right) }, { x: right, y: at(b, right) }, { x: left, y: at(b, left) }];
+    if (!vertices.every(point => Number.isFinite(point.y)) || vertices[0].y === vertices[3].y && vertices[1].y === vertices[2].y) return null;
+    return vertices;
+  }
   rangeForVisible(): AutoscaleInfo | null {
     if (!this.chart || !this.series) return null;
     const range = this.chart.timeScale().getVisibleLogicalRange();
@@ -98,20 +142,21 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       if (dx === 0) values = [line.y1!, line.y2!];
       else {
         const a = this.series.priceToCoordinate(line.y1!), b = this.series.priceToCoordinate(line.y2!);
-        const roundtrip = (coordinate: number | null, value: number) => {
-          if (coordinate === null || !Number.isFinite(coordinate)) return false;
-          const price = this.series!.coordinateToPrice(coordinate as Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0]);
-          return price !== null && Number.isFinite(price) && Math.abs(price - value) <= Math.abs(value) * 1e-8;
-        };
         // LWC's empty transform can return zero rather than null. Only a valid
         // round trip may drive log/inverted interpolation; numeric slope seeds it.
-        const transformed = roundtrip(a, line.y1!) && roundtrip(b, line.y2!);
+        const transformed = this.validPriceTransform(a, line.y1!) && this.validPriceTransform(b, line.y2!);
         values = clipped.map(t => {
           const price = !transformed ? null : this.series!.coordinateToPrice((a! + (b! - a!) * t) as Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0]);
           return price ?? line.y1! + (line.y2! - line.y1!) * t;
         });
       }
       for (const value of values) if (Number.isFinite(value)) { min = Math.min(min, value); max = Math.max(max, value); }
+    }
+    // Shading does not expand an established scale. A fill-only study can seed
+    // a scale from its visible positive-area boundaries; main-chart owners disable this.
+    if (min === Infinity && this.options.allowFillOnlyScale !== false && !this.options.hasScalePeer?.()) for (const plot of this.plots) for (const fill of plot.drawing!.lineFills ?? []) {
+      const vertices = this.fillVertices(plot, fill, Number(range.from), Number(range.to), false);
+      if (vertices) for (const point of vertices) { min = Math.min(min, point.y); max = Math.max(max, point.y); }
     }
     return min === Infinity ? null : { priceRange: { minValue: min, maxValue: max } };
   }
@@ -120,6 +165,24 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
       const width = mediaSize.width, height = mediaSize.height;
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, width, height); ctx.clip();
+      for (const plot of this.plots) {
+        if ((plot.behindChart !== false) !== behind) continue;
+        for (const fill of plot.drawing!.lineFills ?? []) {
+          const vertices = this.fillVertices(plot, fill, 0, width, true);
+          if (!vertices) continue;
+          // Split crossing lobes before clipping so translucent regions never double-paint.
+          for (const lobe of fillLobes(vertices)) {
+            const polygon = clipFillPolygon(lobe, width, height);
+            if (polygon.length < 3) continue;
+            let area = 0;
+            for (let i = 0; i < polygon.length; i++) { const a = polygon[i], b = polygon[(i + 1) % polygon.length]; area += a.x * b.y - b.x * a.y; }
+            if (area === 0) continue;
+            ctx.fillStyle = fill.color!; ctx.beginPath(); ctx.moveTo(polygon[0].x, polygon[0].y);
+            for (const point of polygon.slice(1)) ctx.lineTo(point.x, point.y);
+            ctx.closePath(); ctx.fill();
+          }
+        }
+      }
       for (const plot of this.plots) {
         if ((plot.behindChart !== false) !== behind) continue;
         for (const line of plot.drawing!.lines) {

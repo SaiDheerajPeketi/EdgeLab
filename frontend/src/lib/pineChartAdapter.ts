@@ -1,5 +1,5 @@
 import type { Candle } from "./api";
-import type { PineExecutionResult, PineLineDrawing, PinePlot, PineScalar } from "./pineProtocol";
+import type { PineExecutionResult, PineLineFillDrawing, PineLineDrawing, PinePlot, PineScalar } from "./pineProtocol";
 import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 import { PineLinePrimitive } from "./pineLinePrimitive";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
@@ -10,7 +10,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor" | "drawing_line";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  drawing?: { lines: readonly PineLineDrawing[]; bars: readonly Candle[] };
+  drawing?: { lines: readonly PineLineDrawing[]; lineFills?: readonly PineLineFillDrawing[]; bars: readonly Candle[] };
   visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot; upperOffset: number; lowerOffset: number } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
@@ -290,10 +290,15 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     if (!visual && optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== plot.options.linewidth)) warn("Per-point line width is not supported; the declared plot width is used.");
     return [{ id: plot.id, name: plot.name, overlay: plot.overlay, behindChart, kind, color: baseColor, width: Math.max(1, Math.min(4, Math.round(declaredWidth))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: ["circles", "cross"].includes(style), base: number(plot.options.histbase, 0), segments: nonempty, markers, visual }];
   });
-  if (result.lines?.length) {
+  if (result.lines?.length || result.lineFills?.length) {
     if (result.audit.bars !== bars.length) warnings.push("Pine line drawings require their execution's owned chart snapshot; mismatched drawings were omitted.");
     else for (const overlay of [false, true]) {
-      const lines = result.lines.filter(line => line.overlay === overlay);
+      const lines = (result.lines ?? []).filter(line => line.overlay === overlay);
+      const lineIds = new Set(lines.map(line => line.id));
+      const lineFills = (result.lineFills ?? []).filter(fill => fill.overlay === overlay && lineIds.has(fill.line1) && lineIds.has(fill.line2));
+      if ((result.lineFills ?? []).some(fill => fill.overlay === overlay && (!lineIds.has(fill.line1) || !lineIds.has(fill.line2)))) warnings.push("Line fills across separate chart panes are not drawn; both boundaries must share a placement.");
+      if (lineFills.length) warnings.push("Line fills use the common horizontal domain of their boundaries. Unequal/reversed endpoints and vertical-line corner cases use local geometry; complete TradingView geometry parity has not been verified.");
+      if (lineFills.some(fill => pineGradientColor(fill.color) === undefined)) warnings.push("Unsupported line-fill color formats are not painted.");
       if (!lines.length) continue;
       const unsupportedColors = lines.some(line => pineGradientColor(line.color) === undefined);
       if (unsupportedColors) warnings.push("Unsupported line-drawing colors are not painted.");
@@ -302,7 +307,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       plots.push({ id: `pine-lines-${overlay ? "overlay" : "pane"}`, name: "Lines", overlay,
         behindChart: result.overlay && result.behindChart !== false,
         kind: "drawing_line", color: lines.find(line => line.color !== null)?.color ?? "#2962FF", width: 1,
-        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, bars } });
+        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, bars } });
     }
   }
   const strategyMarkers: SeriesMarker<UTCTimestamp>[] = [];
@@ -432,7 +437,37 @@ export function installPineChartPlots(chart: IChartApi, plots: readonly PineChar
     native.push(host);
   }
   const drawings = plots.filter(plot => plot.drawing);
-  const drawingPrimitive = drawings.length ? new PineLinePrimitive(drawings) : undefined;
+  const drawingPrimitive = drawings.length ? new PineLinePrimitive(drawings, { allowFillOnlyScale: options.allowFillOnlyScale !== false, hasScalePeer: () => {
+    if (primitive?.rangeForVisible()) return true;
+    const scale = chart.timeScale(), range = scale.getVisibleLogicalRange();
+    if (!range) return false;
+    return plots.filter(plot => !plot.drawing && !plot.visual && plot.kind !== "barcolor").some(plot => plot.segments.some(segment => {
+      const locate = (point: PineChartPoint) => {
+        const coordinate = scale.timeToCoordinate(point.time);
+        return coordinate === null ? null : scale.coordinateToLogical(coordinate);
+      };
+      let lo = 0, hi = segment.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1, logical = locate(segment[mid]);
+        if (logical === null) { lo = 0; break; }
+        if (logical < range.from) lo = mid + 1; else hi = mid;
+      }
+      let start = Math.max(0, lo - 1);
+      while (start > 0 && segment[start].value === undefined && segment[start].open === undefined) start--;
+      let previous: number | null = null;
+      for (let index = start; index < segment.length; index++) {
+        const point = segment[index];
+        if (point.value === undefined && point.open === undefined) continue;
+        const logical = locate(point);
+        if (logical === null) continue;
+        if (logical >= range.from && logical <= range.to) return true;
+        if (previous !== null && ["line", "area"].includes(plot.kind) && previous < range.from && logical > range.to) return true;
+        previous = logical;
+        if (logical > range.to) break;
+      }
+      return false;
+    }));
+  } }) : undefined;
   let drawingHost: ISeriesApi<"Line"> | undefined;
   if (drawingPrimitive) {
     const timeline = new Map<number, Candle>();

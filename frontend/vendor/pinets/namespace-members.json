@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "13b93c06ad70f5637e9d16c9b797f6d73b8a66cfcdf0286a86e34659db8f9b88",
+  "namespaceSourcesSha256": "c4a4d312108b3965d458efb8c8aab6345c1f8814a5491f294641b7f5805665b0",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -23,6 +23,18 @@
     {
       "source": "src/namespaces/input/methods/enum.ts",
       "sha256": "a8d3586d85737d2e4ac47b824b7906896edbed774914647d16e76bdf56c1d7cd"
+    },
+    {
+      "source": "src/namespaces/line/LineHelper.ts",
+      "sha256": "c6f0a3b46ee77a165ac1ff75aceaa262b25b3c8b78fd85ed7d1029d12a295a2d"
+    },
+    {
+      "source": "src/namespaces/linefill/LinefillHelper.ts",
+      "sha256": "4f9e7391f114acfdc847d9872adf630af1b6e8a4255c236f007dcac8dfc16c1b"
+    },
+    {
+      "source": "src/namespaces/linefill/LinefillObject.ts",
+      "sha256": "5036bf4e61640543960e4592738a6d203f7ec5d05af0fc7bbacd578abb2dfddd"
     },
     {
       "source": "src/namespaces/PineTypeObject.ts",

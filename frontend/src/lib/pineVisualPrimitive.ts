@@ -128,7 +128,7 @@ function extend(bounds: Bounds | null, value: number | undefined): Bounds | null
 type Vertex = { x: number; y: number };
 type NumericBody = { index: number; left: number; right: number; logical: number; rounded: number; center: number; gap: number };
 /** Crossing reference lines form two lobes, not a simple quadrilateral. */
-function fillLobes(vertices: [Vertex, Vertex, Vertex, Vertex]): Vertex[][] {
+export function fillLobes(vertices: [Vertex, Vertex, Vertex, Vertex]): Vertex[][] {
   const [upperLeft, upperRight, lowerRight, lowerLeft] = vertices;
   const scale = Math.max(...vertices.map(({ y }) => Math.abs(y)), 1);
   const leftDelta = upperLeft.y / scale - lowerLeft.y / scale;
@@ -141,7 +141,7 @@ function fillLobes(vertices: [Vertex, Vertex, Vertex, Vertex]): Vertex[][] {
   return [vertices];
 }
 /** Clip geometry before rasterization: Canvas clipping alone loses precision for extreme prices. */
-function clipFillPolygon(vertices: Vertex[], width: number, height: number): Vertex[] {
+export function clipFillPolygon(vertices: Vertex[], width: number, height: number): Vertex[] {
   if (!vertices.every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))) return [];
   if (vertices.every(({ x, y }) => x >= 0 && x <= width && y >= 0 && y <= height)) return vertices;
   let polygon = vertices;

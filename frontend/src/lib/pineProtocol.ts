@@ -4,7 +4,7 @@ import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 
-export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500 });
+export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500 });
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
@@ -44,12 +44,13 @@ export type PineLineDrawing = {
   color: string | null; style: "solid" | "dashed" | "dotted" | "arrow_left" | "arrow_right" | "arrow_both";
   width: number; overlay: boolean;
 };
+export type PineLineFillDrawing = { id: string; line1: string; line2: string; color: string | null; overlay: boolean };
 export type PineStrategyResult = {
   config: Record<string, PineScalar>; metrics: Record<string, PineScalar>;
   closedTrades: Record<string, PineScalar>[]; openTrades: Record<string, PineScalar>[]; pendingOrders: Record<string, PineScalar>[];
 };
 export type PineExecutionResult = Omit<PinePrepareResult, "kind"> & {
-  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; strategy?: PineStrategyResult;
+  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; strategy?: PineStrategyResult;
   audit: { engine: "PineTS"; engineVersion: "0.11.0"; bars: number; sourceBytes: number; mode: "historical" | "live"; elapsedMs: number };
 };
 export type PineResult = PinePrepareResult | PineExecutionResult;
@@ -349,7 +350,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -417,6 +418,22 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     return { id, ...coordinates, xloc: line.xloc, extend: line.extend, style: line.style, width, color, overlay: bool(line.overlay) } as PineLineDrawing;
   });
   if (lines && new Set(lines.map(line => line.id)).size !== lines.length) fail("Duplicate Pine line ID.");
+  const lineIds = new Map(lines?.map(line => [line.id, line]));
+  const fillPairs = new Set<string>();
+  const lineFills = raw.lineFills === undefined ? undefined : array(raw.lineFills, PINE_LIMITS.lineFills).map((item): PineLineFillDrawing => {
+    const fill = ordinaryFields(item);
+    if (Object.keys(fill).length !== 5 || Object.keys(fill).some(key => !["id", "line1", "line2", "color", "overlay"].includes(key))) fail("Invalid Pine line-fill fields.");
+    const id = string(fill.id, 128), line1 = string(fill.line1, 128), line2 = string(fill.line2, 128);
+    const first = lineIds.get(line1), second = lineIds.get(line2), overlay = bool(fill.overlay);
+    if (!id || !first || !second || overlay !== (first.overlay || second.overlay)) fail("Line fills require active boundary references and consistent placement.");
+    const pair = JSON.stringify([line1, line2].sort());
+    if (fillPairs.has(pair)) fail("Duplicate active Pine line-fill pair.");
+    fillPairs.add(pair);
+    const color = fill.color === null ? null : string(fill.color, 128);
+    if (color !== null && !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(color)) fail("Invalid Pine line-fill color.");
+    return { id, line1, line2, color, overlay };
+  });
+  if (lineFills && new Set(lineFills.map(fill => fill.id)).size !== lineFills.length) fail("Duplicate Pine line-fill ID.");
   const audit = record(raw.audit);
   if (audit.engine !== "PineTS" || audit.engineVersion !== "0.11.0" || audit.bars !== request.bars?.length || audit.sourceBytes !== new TextEncoder().encode(request.source).length || audit.mode !== (request.mode ?? "historical") || finite(audit.elapsedMs) < 0) fail("Invalid Pine execution audit.");
   let strategy: PineStrategyResult | undefined;
@@ -436,5 +453,5 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     strategy = { config: scalarRecord(state.config), metrics: scalarRecord(state.metrics), closedTrades, openTrades, pendingOrders };
     for (const [key, value] of Object.entries(request.strategySettings ?? {})) if (strategy.config[key] !== value) fail("Pine result changed a requested strategy setting.", "INVALID_STRATEGY_SETTINGS");
   } else if (base.declaration === "strategy") fail("Strategy execution is missing its engine ledger.");
-  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
+  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
 }

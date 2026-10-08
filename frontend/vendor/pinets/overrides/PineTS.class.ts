@@ -16,6 +16,8 @@ import { ChartPointObject } from './namespaces/chart/ChartPointObject';
 import { Indicator } from './Indicator';
 import { LineObject } from './namespaces/line/LineObject';
 import { LineHelper } from './namespaces/line/LineHelper';
+import { LinefillObject } from './namespaces/linefill/LinefillObject';
+import { LinefillHelper } from './namespaces/linefill/LinefillHelper';
 import { processHistoricalFillBar, processStrategyOrders, processOrdersOnClose, processExitOrders, processMarginCall, finalizeStrategyBar, finalizeStrategyRun, isAdverseFirstBar, applyPendingCloseMarginCall, snapshotStrategyState, restoreStrategyState } from './namespaces/strategy/utils';
 
 import { parseTimeframe, timeframeSeconds } from './timeframe';
@@ -65,11 +67,13 @@ function* realtimeRoots(context: any, varipOnly = false): Generator<any> {
         // Only the known line payload list is a root; never traverse helper/context closures.
         for (const helper of context._drawingHelpers ?? [])
             if (helper instanceof LineHelper) yield (helper as any)._lines;
+            else if (helper instanceof LinefillHelper) yield (helper as any)._linefills;
     }
 }
 const realtimePayload = (value: any): any => value instanceof PineArrayObject ? value.array
     : value instanceof PineMapObject ? value.map : value instanceof PineMatrixObject ? value.matrix : value;
 function realtimeFields(value: any): readonly string[] | null {
+    if (value instanceof LinefillObject) return ['line1', 'line2', 'color', '_deleted', '_createdAtBar'];
     if (value instanceof LineObject) return ['x1', 'y1', 'x2', 'y2', 'xloc', 'extend', 'color', 'style', 'width', 'force_overlay', '_deleted', '_createdAtBar'];
     if (!(value instanceof PineTypeObject)) return null;
     return value._udt?._definitionKeys ?? Object.keys(value.__def__);
@@ -1256,11 +1260,14 @@ export class PineTS {
         // identity so rollback can restore deleted/evicted objects as well as setters.
         const lineRoots = new Map(context._drawingHelpers.filter(helper => helper instanceof LineHelper)
             .map(helper => [helper, (helper as any)._lines]));
-        return { scopes, graph, plots, lineRoots, result: this._getResultLength(context.result), data: context.data.close.data.length };
+        const lineFillRoots = new Map(context._drawingHelpers.filter(helper => helper instanceof LinefillHelper)
+            .map(helper => [helper, (helper as any)._linefills]));
+        return { scopes, graph, plots, lineRoots, lineFillRoots, result: this._getResultLength(context.result), data: context.data.close.data.length };
     }
 
     private _restoreRealtimeSnapshot(context: Context, snapshot: any) {
         for (const [helper, lines] of snapshot.lineRoots ?? []) (helper as any)._lines = lines;
+        for (const [helper, fills] of snapshot.lineFillRoots ?? []) (helper as any)._linefills = fills;
         snapshot.graph.restore();
         for (const container of [context, ...context.lctx.values()]) {
             const state = snapshot.scopes.get(container);

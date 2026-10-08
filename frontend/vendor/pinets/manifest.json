@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-line-drawings-121",
+  "patch": "edgelab-line-fills-122",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "303e3399048018b2f066e5b09f9ccfbdf1945ceedeace6b5b1a99fcabfe687e8"
+      "sha256": "77e010d229b74bb21881dd02c9c1ee5581f49fa6bf4bc37cc1fcf5bb2c79b92f"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -159,10 +159,28 @@
       "file": "overrides/namespaces/request/methods/param.ts",
       "upstreamSha256": "708ba9671e95c658377606e7fe34416b1c6d7b97c2303e2a746fcd7889089e2f",
       "sha256": "555da476fdf35f3dc889e30b56be40ca932a5d2f70d4848cdcc354a401ae8d0b"
+    },
+    {
+      "source": "src/namespaces/line/LineHelper.ts",
+      "file": "overrides/namespaces/line/LineHelper.ts",
+      "upstreamSha256": "4c3d8ce0b2dd37632adf394e77655fd3437497667b7fa579076fb983b00b532b",
+      "sha256": "c6f0a3b46ee77a165ac1ff75aceaa262b25b3c8b78fd85ed7d1029d12a295a2d"
+    },
+    {
+      "source": "src/namespaces/linefill/LinefillHelper.ts",
+      "file": "overrides/namespaces/linefill/LinefillHelper.ts",
+      "upstreamSha256": "c9e0c437532e113b37c5c6cf68423d2b70ffe9c814ac1cc8a6a7aec5d03bd1e8",
+      "sha256": "4f9e7391f114acfdc847d9872adf630af1b6e8a4255c236f007dcac8dfc16c1b"
+    },
+    {
+      "source": "src/namespaces/linefill/LinefillObject.ts",
+      "file": "overrides/namespaces/linefill/LinefillObject.ts",
+      "upstreamSha256": "0283bbc71487a58923e105138ad3958b00d0d58d146b602b3bcfaa7e24b8c96a",
+      "sha256": "5036bf4e61640543960e4592738a6d203f7ec5d05af0fc7bbacd578abb2dfddd"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "95dbb1a43f7345ee03c1693fcc3f71bb14b7f7b415af8addeb3babcb1b33c8c2"
+    "sha256": "68b9db01824d1196d9a898dfec558560fcefd8dc93d17f09931ed5a23d1a56f2"
   }
 }
