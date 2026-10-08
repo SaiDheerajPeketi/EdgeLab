@@ -178,7 +178,8 @@ for (const path of paths) {
     await expect(apply(page)).toBeDisabled();
     await expect(template(page)).toBeEnabled();
     release();
-    await expect(savedStatus(page, "Journal defaults saved")).toBeVisible();
+    await expect(apply(page)).toBeEnabled();
+    await expect(savedStatus(page, "Journal defaults saved")).toBeHidden();
     await expect(currency(page)).toBeEnabled();
     await expect(currency(page)).toHaveValue(initialJournalDefaults.default_currency);
     await switchRenderer(page, state, path, false, true);
