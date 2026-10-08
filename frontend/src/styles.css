@@ -1022,6 +1022,8 @@ button:disabled {
     background: var(--ui-inset);
     color: var(--text-primary);
   }
+  .settings-search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
   .settings-field::placeholder { color: var(--text-muted); }
   .settings-field:focus { border-color: var(--ui-focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-focus) 20%, transparent); }
 

@@ -13,7 +13,7 @@ test.beforeAll(async () => {
     useChartSettings: "export function useChartSettings(){return {dirty:false,pending:false}}",
     useBacktestSettings: "export function useBacktestSettings(){return {dirty:false,pending:false}}",
     useSettingsPreferences: "export function useSettingsPreferences(){return {draft:{density:'comfortable'},dirty:false,pending:false}}",
-    authSession: "export function getStoredAuthSession(){return null}",
+    authSession: "export function getStoredAuthSession(){return null} export const subscribeAuthSession=()=>()=>{};",
     "react-router-dom": "export function useLocation(){return {pathname:'/app/settings/data-providers'}}",
     SessionPrivacyPanels: "export const AccountSettingsPanel=()=>null,AiSettingsPanel=()=>null,GlobalSettingsPanel=()=>null,PrivacySettingsPanel=()=>null",
     ChartSettingsPanel: "export const ChartSettingsPanel=()=>null",

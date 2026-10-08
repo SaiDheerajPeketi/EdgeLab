@@ -7,6 +7,8 @@ import {
   type SettingsCategoryId,
   type SettingsControl,
 } from "./settingsCatalog";
+import { OverlaySurface } from "../overlays/OverlaySurface";
+import { ThemedSelect } from "../ThemedSelect";
 import { fieldClassName } from "./SettingsPrimitives";
 
 export function SettingsSearch({
@@ -16,6 +18,8 @@ export function SettingsSearch({
 }) {
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<SettingsCategoryId | "all">("all");
@@ -26,13 +30,9 @@ export function SettingsSearch({
   );
   const open = expanded && results.length > 0;
   useEffect(() => {
-    if (!expanded) return;
-    const dismiss = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setExpanded(false);
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [expanded]);
+    if (!open) return;
+    surfaceRef.current?.querySelector<HTMLElement>(`#${CSS.escape(`${listboxId}-${activeIndex}`)}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, listboxId, open]);
 
   function choose(result: SettingsControl) {
     setExpanded(false);
@@ -44,6 +44,7 @@ export function SettingsSearch({
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       setExpanded(false);
       setActiveIndex(0);
       return;
@@ -65,11 +66,12 @@ export function SettingsSearch({
   }
 
   return (
-    <div className="relative" ref={rootRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setExpanded(false); }}>
+    <div className="relative" ref={rootRef}>
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="relative">
           <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)]" />
           <input
+            ref={inputRef}
             type="search"
             value={query}
             onChange={(event) => { setQuery(event.target.value); setExpanded(true); setActiveIndex(0); }}
@@ -82,35 +84,35 @@ export function SettingsSearch({
             aria-expanded={open}
             aria-activedescendant={open ? `${listboxId}-${activeIndex}` : undefined}
             role="combobox"
-            className={`${fieldClassName} ps-9 pe-9`}
+            className={`${fieldClassName} settings-search-input ps-9 pe-9`}
           />
           {query ? (
-            <button type="button" onClick={() => setQuery("")} aria-label="Clear settings search" className="absolute end-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-[var(--text-secondary)] hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+            <button type="button" onClick={() => { setQuery(""); setExpanded(false); setActiveIndex(0); inputRef.current?.focus({ preventScroll: true }); }} aria-label="Clear settings search" className="absolute end-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]">
               <X aria-hidden="true" className="h-4 w-4" />
             </button>
           ) : null}
         </div>
-        <select aria-label="Filter settings search by category" value={filter} onChange={(event) => { setFilter(event.target.value as SettingsCategoryId | "all"); setActiveIndex(0); }} className={fieldClassName}>
-          <option value="all">All categories</option>
-          {SETTINGS_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-        </select>
+        <ThemedSelect ariaLabel="Filter settings search by category" value={filter}
+          onChange={(value) => { setFilter(value as SettingsCategoryId | "all"); setActiveIndex(0); setExpanded(true); inputRef.current?.focus({ preventScroll: true }); }}
+          onOpenChange={(next) => { if (next) setExpanded(false); }}
+          className="h-11 min-w-0" portal
+          options={[{ value: "all", label: "All categories" }, ...SETTINGS_CATEGORIES.map((category) => ({ value: category.id, label: category.label }))]} />
       </div>
-      {expanded && query.trim() && !results.length ? <p className="absolute z-30 mt-2 w-full rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-floating)] px-4 py-3 text-sm text-[var(--text-secondary)] shadow-2xl" role="status">No supported setting matches “{query.trim()}”.</p> : null}
-      {open ? (
-        <ul id={listboxId} role="listbox" className="absolute z-30 mt-2 max-h-80 w-full overflow-auto rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-floating)] p-1.5 shadow-2xl">
-          {results.map((result, index) => {
-            const category = SETTINGS_CATEGORIES.find((item) => item.id === result.category);
-            return (
-              <li key={`${result.category}-${result.id}`} id={`${listboxId}-${index}`} role="option" aria-selected={index === activeIndex}>
-                <button type="button" onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(result)} className={`w-full rounded px-3 py-2.5 text-start ${index === activeIndex ? "bg-[var(--ui-selection)]" : "hover:bg-[var(--ui-hover)]"}`}>
-                  <span className="ui-resilient-text block text-sm font-medium text-[var(--text-primary)]" dir="auto">{highlight(result.label, query)}</span>
-                  <span className="ui-resilient-text mt-0.5 block text-xs text-[var(--text-secondary)]" dir="auto">{category?.label} · {result.description}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <OverlaySurface anchorRef={rootRef} triggerRef={inputRef} surfaceRef={surfaceRef}
+        open={Boolean(expanded && query.trim())} onDismiss={() => setExpanded(false)}
+        id={listboxId} role={open ? "listbox" : "status"} ariaLabel={open ? "Settings search results" : undefined}
+        estimatedHeight={320} className="z-[var(--layer-popover)] rounded-md bg-[var(--ui-floating)] p-1.5 text-[var(--text-primary)] shadow-[var(--elevation-floating)]">
+        {!results.length ? <p className="ui-resilient-text px-3 py-2.5 text-sm text-[var(--text-secondary)]">No supported setting matches “{query.trim()}”.</p> : results.map((result, index) => {
+          const category = SETTINGS_CATEGORIES.find((item) => item.id === result.category);
+          return <button key={`${result.category}-${result.id}`} id={`${listboxId}-${index}`} type="button"
+            role="option" aria-selected={index === activeIndex} tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(result)}
+            className={`w-full rounded px-3 py-2.5 text-start ${index === activeIndex ? "bg-[var(--ui-selection)]" : "hover:bg-[var(--ui-hover)]"}`}>
+            <span className="ui-resilient-text block text-sm font-medium text-[var(--text-primary)]" dir="auto">{highlight(result.label, query)}</span>
+            <span className="ui-resilient-text mt-0.5 block text-xs text-[var(--text-secondary)]" dir="auto">{category?.label} · {result.description}</span>
+          </button>;
+        })}
+      </OverlaySurface>
     </div>
   );
 }
