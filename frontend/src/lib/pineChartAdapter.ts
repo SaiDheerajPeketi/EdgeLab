@@ -292,9 +292,28 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
   for (const trade of [...result.strategy?.closedTrades ?? [], ...result.strategy?.openTrades ?? []]) {
     for (const leg of ["entry", "exit"] as const) {
       const rawTime = trade[`${leg}_time`];
-      if (typeof rawTime !== "number") continue;
-      const time = rawTime > 253_402_300_799 ? rawTime / 1000 : rawTime;
-      if (!barsByTime.has(time)) continue;
+      if (typeof rawTime !== "number" || !Number.isFinite(rawTime)) continue;
+      let time: number;
+      const indexKey = `${leg}_bar_index`;
+      if (Object.prototype.hasOwnProperty.call(trade, indexKey)) {
+        // Native indexes belong to the request's chart bars, while magnified
+        // ledger timestamps retain the real child candle opening time.
+        if (result.audit.bars !== bars.length) {
+          warnings.push("Strategy markers require the execution's owned chart snapshot; indexed markers were omitted.");
+          continue;
+        }
+        const index = trade[indexKey];
+        if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0 || index >= bars.length) {
+          warnings.push("Strategy markers require a valid parent bar index; invalid indexed markers were omitted.");
+          continue;
+        }
+        time = bars[index].time;
+      } else {
+        // Older ledgers have no parent index. Only an exact real chart time
+        // can locate them; do not infer a timeframe interval or invent a bar.
+        time = rawTime > 253_402_300_799 ? rawTime / 1000 : rawTime;
+        if (!barsByTime.has(time)) continue;
+      }
       const long = number(trade.size, 0) > 0;
       const buy = leg === "entry" ? long : !long;
       strategyMarkers.push({ time: time as UTCTimestamp, position: buy ? "belowBar" : "aboveBar", color: buy ? "#22c55e" : "#fb7185", shape: buy ? "arrowUp" : "arrowDown", text: `Pine ${leg} ${String(trade.entry_id ?? trade.id)}` });

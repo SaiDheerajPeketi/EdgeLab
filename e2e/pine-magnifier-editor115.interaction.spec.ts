@@ -11,6 +11,7 @@ type Receipt = { operation_id: string; method: string; path: string; status: "re
 declare global {
   interface Window {
     __nativeEditorResults: PineResponse[];
+    __nativeChartMarkerPaint: Array<{ text: string; vertices: number; coloredPixels: number; connectedChart: boolean; bounds: number[] }>;
   }
 }
 
@@ -70,6 +71,53 @@ async function fixture(page: Page) {
 
       }
     }, true);
+  });
+  // Observe the native marker's arrow pixels on the actual primary canvas.
+  // The worker response, adapter, chart series and canvas operations remain real.
+  await page.addInitScript(() => {
+    window.__nativeChartMarkerPaint = [];
+    const pending = new WeakMap<CanvasRenderingContext2D, { text: string; path: number[][] }>();
+    const proto = CanvasRenderingContext2D.prototype;
+    const nativeText = proto.fillText, nativeBegin = proto.beginPath;
+    const nativeMove = proto.moveTo, nativeLine = proto.lineTo, nativeFill = proto.fill;
+    proto.fillText = function (...args: Parameters<typeof nativeText>) {
+      Reflect.apply(nativeText, this, args);
+      if (/^Pine (entry|exit) /.test(String(args[0]))) pending.set(this, { text: String(args[0]), path: [] });
+    };
+    proto.beginPath = function () {
+      nativeBegin.call(this);
+      const marker = pending.get(this);
+      if (marker) marker.path = [];
+    };
+    const record = (context: CanvasRenderingContext2D, x: number, y: number) => {
+      const marker = pending.get(context);
+      if (marker) {
+        const point = new DOMPoint(x, y).matrixTransform(context.getTransform());
+        marker.path.push([point.x, point.y]);
+      }
+    };
+    proto.moveTo = function (x, y) { nativeMove.call(this, x, y); record(this, x, y); };
+    proto.lineTo = function (x, y) { nativeLine.call(this, x, y); record(this, x, y); };
+    proto.fill = function (...args: Parameters<typeof nativeFill>) {
+      Reflect.apply(nativeFill, this, args);
+      const marker = pending.get(this);
+      if (!marker) return;
+      pending.delete(this);
+      if (marker.path.length < 3) return;
+      const canvas = this.canvas;
+      const x = Math.max(0, Math.floor(Math.min(...marker.path.map(point => point[0]))));
+      const y = Math.max(0, Math.floor(Math.min(...marker.path.map(point => point[1]))));
+      const width = Math.max(0, Math.min(canvas.width, Math.ceil(Math.max(...marker.path.map(point => point[0]))) + 1) - x);
+      const height = Math.max(0, Math.min(canvas.height, Math.ceil(Math.max(...marker.path.map(point => point[1]))) + 1) - y);
+      let coloredPixels = 0;
+      const data = width && height ? this.getImageData(x, y, width, height).data : [];
+      for (let index = 0; index < data.length; index += 4) {
+        const expected = marker.text.startsWith("Pine entry") ? [34, 197, 94] : [251, 113, 133];
+        if (data[index] === expected[0] && data[index + 1] === expected[1] && data[index + 2] === expected[2] && data[index + 3] > 0) coloredPixels++;
+      }
+      window.__nativeChartMarkerPaint.push({ text: marker.text, vertices: marker.path.length, coloredPixels,
+        connectedChart: canvas.isConnected && !!canvas.closest(".chart-stage"), bounds: [x, y, width, height] });
+    } as typeof nativeFill;
   });
   await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
   await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
@@ -156,8 +204,15 @@ test("actual editor saves trader bar-detail settings and runs owned minute chron
  await expect(controls.getByRole("combobox",{name:"Recalculate after fills",exact:true})).toContainText("After fills and at candle close");
  await run(editor);const restored=await nativeRun(page,source);assertRun(restored);
  const before=await page.evaluate(source=>window.__nativeEditorResults.filter(r=>r.status==="completed"&&r.result.kind==="run"&&r.result.source===source).length,source);
+ expect(await page.evaluate(() => window.__nativeChartMarkerPaint)).toEqual([]);
  await editor.getByRole("button",{name:"Add to chart",exact:true}).click();
  await expect.poll(()=>page.evaluate(source=>window.__nativeEditorResults.filter(r=>r.status==="completed"&&r.result.kind==="run"&&r.result.source===source).length,source)).toBeGreaterThan(before);
- const chartResult=await nativeRun(page,source);assertRun(chartResult);expect(errors).toEqual([]);
- fs.writeFileSync(path.join(artifacts,info.project.name,"editor.json"),JSON.stringify({source,saved,first,restored,chartResult,color,errors},null,2));
+ const chartResult=await nativeRun(page,source);assertRun(chartResult);
+ await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();
+ await expect.poll(() => page.evaluate(() => window.__nativeChartMarkerPaint.some(marker =>
+   marker.text === "Pine entry L" && marker.connectedChart && marker.vertices >= 7 && marker.coloredPixels > 0))).toBe(true);
+ const markerPaint=await page.evaluate(() => window.__nativeChartMarkerPaint);
+ expect(markerPaint.some(marker => marker.text.startsWith("Pine exit"))).toBe(false);
+ expect(errors).toEqual([]);
+ fs.writeFileSync(path.join(artifacts,info.project.name,"editor.json"),JSON.stringify({source,saved,first,restored,chartResult,markerPaint,color,errors},null,2));
 });
