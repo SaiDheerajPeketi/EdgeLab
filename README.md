@@ -6,6 +6,8 @@ The native Pine editor uses PineTS 0.11.0 with reviewed local source patches und
 
 The editor's community catalog preserves 21 original GPL-3.0 studies by Alex Orekhov (everget), with commit, source hash and licence records. Four originals use Pine v6; the other 17 have separate reviewed Pine v5 derivatives, while their originals remain available to inspect and download. Catalog refreshes append revisions and leave saved scripts and chart copies unchanged. See [catalog maintenance](scripts/README.md#pine-community-catalog).
 
+Native Pine signal shapes include crosses, diamonds and flags alongside circles, squares, triangles, arrows and labels. Pane-top and pane-bottom signals follow their bars horizontally while staying at the pane edge and leaving price autoscale unchanged. Shape dimensions, text metrics and edge spacing use local canvas rules; exact TradingView pixels are not guaranteed.
+
 ## What is here
 
 - Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.

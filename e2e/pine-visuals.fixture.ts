@@ -55,7 +55,7 @@ export async function run(source, bars, options = {}) {
   await paint();
   return summary();
 }
-export function summary() { return { outputs: state.result.plots.length, plots: state.result.plots.map(p => ({ id: p.id, name: p.name, style: p.style, options: p.options })), drawn: state.adapted.plots.map(p => p.name), warnings: state.adapted.warnings, packed: state.result.plots.map(p => Boolean(getPackedPinePlot(p))), placements: state.placements.map(p => ({ beforeCoordinate: p.beforeCoordinate, primaryCoordinate: p.base.priceToCoordinate(100), visible: p.chart.timeScale().getVisibleLogicalRange(), series: p.installed.series.length, finiteHostCoordinate: p.installed.series.length ? Number.isFinite(p.installed.series[0].priceToCoordinate(100)) : true, range: p.installed.primitive?.rangeForVisible(), stats: p.installed.primitive?.debugStats })) }; }
+export function summary() { return { outputs: state.result.plots.length, plots: state.result.plots.map(p => ({ id: p.id, name: p.name, style: p.style, options: p.options })), drawn: state.adapted.plots.map(p => p.name), warnings: state.adapted.warnings, adapterWarnings: state.adapted.adapterWarnings, packed: state.result.plots.map(p => Boolean(getPackedPinePlot(p))), placements: state.placements.map(p => ({ beforeCoordinate: p.beforeCoordinate, primaryCoordinate: p.base.priceToCoordinate(100), visible: p.chart.timeScale().getVisibleLogicalRange(), series: p.installed.series.length, finiteHostCoordinate: p.installed.series.length ? Number.isFinite(p.installed.series[0].priceToCoordinate(100)) : true, range: p.installed.primitive?.rangeForVisible(), stats: p.installed.primitive?.debugStats })) }; }
 export function probe(time, price, { placement = 0, radius = 2, dx = 0, dy = 0 } = {}) {
   const p = state.placements[placement], after = image(p.chart, p.element), before = p.before, x = p.chart.timeScale().timeToCoordinate(time), y = (p.disposed ? p.base : p.installed.series[0] ?? p.base)?.priceToCoordinate(price);
   if (x === null || y === null || !Number.isFinite(x + y))
@@ -125,4 +125,27 @@ export function levelProbe(price, { placement = 0, channel = "red" } = {}) {
     prior = hit;
   }
   return { y, width, painted, samples: width - 8, runs };
+}
+
+// Pane-edge signals are measured directly in the actual composited canvases,
+// independent of price conversion, so scale leaks cannot hide behind a probe.
+export function screenMarkerProbe(time, { placement = 0, radius = 24 } = {}) {
+  const p = state.placements[placement], after = image(p.chart, p.element);
+  const x = p.chart.timeScale().timeToCoordinate(time), height = p.chart.paneSize().height;
+  const rows = { red: [], green: [], blue: [] };
+  if (x !== null) for (let y = 0; y < height; y++) {
+    const hit = { red: false, green: false, blue: false };
+    for (let xx = Math.max(0, Math.floor(x - radius)); xx <= Math.min(after.width - 1, Math.ceil(x + radius)); xx++) {
+      const offset = (y * after.width + xx) * 4, [r, g, b] = after.pixels.slice(offset, offset + 3);
+      if (r > 120 && r > g * 1.5 && r > b * 1.5) hit.red = true;
+      if (g > 120 && g > r * 1.5 && g > b * 1.5) hit.green = true;
+      if (b > 120 && b > r * 1.5 && b > g * 1.5) hit.blue = true;
+    }
+    for (const channel of Object.keys(rows)) if (hit[channel]) rows[channel].push(y);
+  }
+  return { x, height, bounds: Object.fromEntries(Object.entries(rows).map(([key, values]) => [key, values.length ? [Math.min(...values), Math.max(...values)] : null])), range: p.installed.primitive.rangeForVisible() };
+}
+export async function invertPriceScale() {
+  for (const p of state.placements) p.chart.priceScale("right").applyOptions({ invertScale: true });
+  await paint(); return summary();
 }

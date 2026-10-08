@@ -131,10 +131,17 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }
     const numericStyle = ["line", "area", "histogram"].includes(kind);
-    const plotOffset = numericStyle && plot.options.offset !== undefined ? plot.options.offset : 0;
+    const supportsOffset = numericStyle || kind === "markers";
+    const plotOffset = supportsOffset && plot.options.offset !== undefined ? plot.options.offset : 0;
     if (typeof plotOffset !== "number" || !Number.isSafeInteger(plotOffset)) { warn("Plot offsets require a constant safe integer."); return []; }
-    if (numericStyle && optionSets.some((options) => options.offset !== undefined && options.offset !== plotOffset)) { warn("Changing per-bar plot offsets are not rendered."); return []; }
-    if (!numericStyle && hasOffset(plot)) { warn("Offsets for this plot style are not rendered by this chart adapter."); return []; }
+    if (supportsOffset && optionSets.some((options) => {
+      // PineTS emits null per-sample defaults for omitted plotshape arguments.
+      // Only that absent global declaration means zero; authored nulls and
+      // changing resolved offsets retain the strict constant-offset guard.
+      const omittedMarkerOffset = kind === "markers" && plot.options.offset === undefined && options.offset === null;
+      return !omittedMarkerOffset && options.offset !== undefined && options.offset !== plotOffset;
+    })) { warn("Changing per-bar plot offsets are not rendered."); return []; }
+    if (!supportsOffset && hasOffset(plot)) { warn("Offsets for this plot style are not rendered by this chart adapter."); return []; }
     const numericBody = kind === "area" || kind === "histogram";
     const base = plot.options.histbase === undefined ? 0 : plot.options.histbase;
     if (numericBody && (typeof base !== "number" || !Number.isFinite(base) || optionSets.some((options) => options.histbase !== undefined && options.histbase !== base))) { warn("Numeric filled plots require a constant finite histbase; changing or invalid baselines are not rendered."); return []; }
@@ -184,11 +191,11 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");
     } else if (kind === "candles" && ["color", "wickcolor", "bordercolor"].some((key) => plot.options[key] === undefined)) warnings.push("Omitted native candle colors use local defaults and inheritance; TradingView default color calibration has not been verified.");
     if (kind === "markers") {
-      const allowedShapes = ["circle", "square", "arrowup", "arrowdown", "triangleup", "triangledown", "labelup", "labeldown"];
+      const allowedShapes = ["circle", "square", "arrowup", "arrowdown", "triangleup", "triangledown", "labelup", "labeldown", "cross", "xcross", "diamond", "flag"];
       const supported = optionSets.every((options) => {
         const shape = String(options.shape ?? plot.options.shape ?? "circle").toLowerCase().replace(/^shape[._]/, "").replace(/_/g, "");
         const location = String(options.location ?? plot.options.location ?? "abovebar").toLowerCase().replace(/^location[._]/, "");
-        return allowedShapes.includes(shape) && ["absolute", "abovebar", "belowbar"].includes(location);
+        return allowedShapes.includes(shape) && ["absolute", "abovebar", "belowbar", "top", "bottom"].includes(location);
       });
       if (!supported) { warn("This shape or location is not rendered by this chart adapter."); return []; }
       if (plot.options.size != null || optionSets.some((options) => options.size != null)) warnings.push("Shape sizes and text use local pixel metrics; TradingView font and size calibration has not been verified.");
@@ -214,18 +221,21 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       }
       if (kind === "markers") {
         const shapes: Record<string, SeriesMarker<UTCTimestamp>["shape"]> = { circle: "circle", square: "square", arrowup: "arrowUp", arrowdown: "arrowDown", triangleup: "arrowUp", triangledown: "arrowDown", labelup: "arrowUp", labeldown: "arrowDown" };
-        const nativeShape = String(options.shape ?? "circle").replace(/^shape[._]/, "").replace(/_/g, "");
+        const nativeShape = String(options.shape ?? "circle").toLowerCase().replace(/^shape[._]/, "").replace(/_/g, "");
         const shape = shapes[nativeShape];
         const location = String(options.location ?? "abovebar").toLowerCase().replace(/^location[._]/, "");
         if (point.value === null || point.value === false || (location !== "absolute" && point.value === 0)) continue;
         const bar = barsByTime.get(point.time);
-        if (!shape || !["abovebar", "belowbar", "absolute"].includes(location) || !bar) {
+        if (![...Object.keys(shapes), "cross", "xcross", "diamond", "flag"].includes(nativeShape) || !["abovebar", "belowbar", "absolute", "top", "bottom"].includes(location) || !bar) {
           if (!warnedShape) { warn("This shape or location is not rendered by this chart adapter."); warnedShape = true; }
           continue;
         }
         if (location === "absolute" && typeof point.value !== "number") continue;
+        // Edge locations have no price coordinate. Lightweight marker metadata
+        // cannot express them; the source-backed primitive renders them directly.
+        if (location === "top" || location === "bottom") continue;
         segments[0].push({ time, value: location === "absolute" ? point.value as number : location === "belowbar" ? bar.low : bar.high });
-        markers.push({ time, color: pointColor, shape, position: location === "absolute" ? "inBar" : location === "belowbar" ? "belowBar" : "aboveBar", text: typeof options.text === "string" ? options.text : undefined });
+        if (shape) markers.push({ time, color: pointColor, shape, position: location === "absolute" ? "inBar" : location === "belowbar" ? "belowBar" : "aboveBar", text: typeof options.text === "string" ? options.text : undefined });
         continue;
       }
       if (point.value === null) {

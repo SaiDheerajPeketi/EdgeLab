@@ -12,7 +12,7 @@ declare global {
 const root = path.resolve(import.meta.dirname, ".."), bytes = fs.readFileSync(path.join(root, "e2e/pine-visuals.bars.json")), bars = JSON.parse(bytes.toString());
 const hashes: Record<string, string> = { supertrend: "f693c60a20960bbd156455744838dc97892f2a5662810770c7677a66e9b5705d", chandelier_exit: "d505921fb4b9b7933b45a443cd3c13c255b30fa6c6216e7061844d3fb62eceda", halftrend: "efa1915b4d0812d8126bd27c7667f9408e90aeed94988058b1b1edeaa23f4a3c" };
 const sourceFor = (name: string) => fs.readFileSync(path.join(root, "frontend/public/catalog/pine/everget/0b164e1e4f2fb7b06524c6d0a26e6132228c9448/trailing_stops", name + ".pine"), "utf8");
-const program = (body: string, overlay = true) => "//@version=6\nindicator(\"Canvas oracle\",overlay=" + overlay + ")\n" + body;
+const program = (body: string, overlay = true, behindChart = true) => "//@version=6\nindicator(\"Canvas oracle\",overlay=" + overlay + (behindChart ? "" : ",behind_chart=false") + ")\n" + body;
 type Harness = {
   origin: string;
   workerRequests: string[];
@@ -101,7 +101,7 @@ for (const name of Object.keys(hashes))
     expect(output.outputs).toBe(9);
     expect(output.placements[0].series).toBe(1);
     expect(output.placements[0].finiteHostCoordinate).toBe(true);
-    expect(output.warnings.filter((warning: string) => /not drawn|omitt|not rendered/i.test(warning))).toEqual([]);
+    expect(output.adapterWarnings.filter((warning: string) => /not drawn|omitt|not rendered/i.test(warning))).toEqual([]);
     expect(harness.workerRequests).toHaveLength(1);
     expect(harness.otherRequests).toEqual([]);
     await capture(page, name + "-tail", info.project.name);
@@ -327,7 +327,7 @@ for (const overlay of [true, false]) test("fixed native levels span the pane wit
   const placement = overlay ? 0 : 1;
   const output = await run(page, source, bars, { from: 250, to: 290, bounds: [80, 120] });
   expect(output.drawn).toEqual(["Dotted", "Dashed", "Solid"]);
-  expect(output.warnings.filter((warning: string) => /not rendered|not drawn|omitt/i.test(warning))).toEqual([]);
+  expect(output.adapterWarnings.filter((warning: string) => /not rendered|not drawn|omitt/i.test(warning))).toEqual([]);
   expect(output.placements[placement].range.priceRange).toEqual({ minValue: 90, maxValue: 110 });
   async function rows() {
     for (const [price, channel, solid] of [[90, "green", false], [100, "blue", false], [110, "red", true]] as const) {
@@ -355,7 +355,7 @@ for (const overlay of [true, false]) test("fixed native levels span the pane wit
 });
 
 test("hidden null and transparent native levels neither paint nor expand the active scale", async ({ page, harness }, info) => {
-  const source = program('hline(100,"Shown",#ff0000,hline.style_solid,2)\nhline(1000000000,"Hidden",#0000ff,hline.style_solid,2,true,display.none)\nhline(-1000000000,"Transparent",#00ff0000,hline.style_solid,2)\nhline(na,"Absent",#0000ff,hline.style_solid,2)\nhline(120,"No color",na,hline.style_solid,2)');
+  const source = program('hline(100,"Shown",#ff0000,hline.style_solid,2)\nhline(1000000000,"Hidden",#0000ff,hline.style_solid,2,true,display.none)\nhline(-1000000000,"Transparent",#00ff0000,hline.style_solid,2)\nhline(na,"Absent",#0000ff,hline.style_solid,2)\nhline(120,"No color",na,hline.style_solid,2)', true, false);
   const output = await run(page, source, bars, { from: 120, to: 140, bounds: [80, 120] });
   expect(output.placements[0].range.priceRange).toEqual({ minValue: 100, maxValue: 100 });
   expect(output.placements[0].primaryCoordinate).toBeCloseTo(output.placements[0].beforeCoordinate, 8);
@@ -427,4 +427,51 @@ test("genuine worker keeps solid na six/eight positional overloads solid and unp
   }
   expect(harness.workerRequests).toHaveLength(2);
   await capture(page, "solid-na-overloads", info.project.name);
+});
+
+async function captureShapes78(page: any, name: string, project: string) {
+  const directory = path.join(root, ".artifacts/pine-shapes78"); fs.mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true });
+}
+test("missing standard Pine shapes paint genuine native signals in both overlay and separate panes", async ({ page, harness }, info) => {
+  for (const overlay of [true, false]) {
+    const source = program(["cross", "xcross", "diamond", "flag"].map((shape, index) =>
+      `plotshape(bar_index==${120 + index * 4}?100:na,"${shape}",style=shape.${shape},location=location.absolute,color=#0000ff,size=size.huge)`
+    ).join("\n"), overlay);
+    const output = await run(page, source, bars, { from: 116, to: 136 });
+    expect(output.drawn, JSON.stringify(output)).toEqual(["cross", "xcross", "diamond", "flag"]);
+    expect(output.adapterWarnings.filter((warning: string) => /not drawn|omitt|not rendered/i.test(warning))).toEqual([]);
+    const placement = overlay ? 0 : 1;
+    expect(output.placements[placement].range.priceRange).toEqual({ minValue: 100, maxValue: 100 });
+    for (let index = 0; index < 4; index++) {
+      const pixel = await probe(page, 120 + index * 4, 100, { placement, radius: 18 });
+      expect(pixel.blue).toBeGreaterThan(8);
+    }
+    await captureShapes78(page, overlay ? "overlay-shapes" : "pane-shapes", info.project.name);
+  }
+  expect(harness.workerRequests).toHaveLength(2); expect(harness.otherRequests).toEqual([]);
+});
+test("pane-edge Pine signals stay pinned through resizing and inversion without changing price scale", async ({ page, harness }, info) => {
+  const source = program('plotshape(bar_index==124,"Top",style=shape.flag,location=location.top,color=#ff0000,size=size.large)\nplotshape(bar_index==124,"Bottom",style=shape.diamond,location=location.bottom,color=#00ff00,size=size.large)', false);
+  const output = await run(page, source, bars, { from: 116, to: 132 });
+  expect(output.drawn, JSON.stringify(output)).toEqual(["Top", "Bottom"]);
+  expect(output.placements[1].range).toBeNull();
+  expect(output.placements[1].primaryCoordinate).toBe(output.placements[1].beforeCoordinate);
+  const inspect = () => page.evaluate(time => window.pineVisualFixture.screenMarkerProbe(time, { placement: 1 }), bars[124].time);
+  const initial = await inspect();
+  expect(initial.bounds.red).not.toBeNull(); expect(initial.bounds.green).not.toBeNull();
+  expect(initial.bounds.red[0]).toBeGreaterThanOrEqual(3); expect(initial.bounds.red[0]).toBeLessThanOrEqual(5);
+  expect(initial.height - 1 - initial.bounds.green[1]).toBeGreaterThanOrEqual(3);
+  expect(initial.height - 1 - initial.bounds.green[1]).toBeLessThanOrEqual(5);
+  await page.evaluate(() => window.pineVisualFixture.invertPriceScale());
+  const inverted = await inspect(); expect(inverted.bounds).toEqual(initial.bounds); expect(inverted.range).toBeNull();
+  await page.evaluate(() => window.pineVisualFixture.resize());
+  const resized = await inspect(); expect(resized.bounds.red).toEqual(initial.bounds.red);
+  expect(resized.height - 1 - resized.bounds.green[1]).toBeGreaterThanOrEqual(3);
+  expect(resized.height - 1 - resized.bounds.green[1]).toBeLessThanOrEqual(5);
+  await captureShapes78(page, "pane-edge-signals", info.project.name);
+  const disposed = await page.evaluate(() => window.pineVisualFixture.dispose());
+  expect(disposed[1].stats.cacheEntries).toBe(0);
+  const removed = await inspect(); expect(removed.bounds.red).toBeNull(); expect(removed.bounds.green).toBeNull();
+  expect(harness.workerRequests).toHaveLength(1); expect(harness.otherRequests).toEqual([]);
 });

@@ -2,7 +2,7 @@ import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPri
 type CanvasRenderingTarget2D = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 import type { PineChartPlot } from "./pineChartAdapter";
 import type { PinePlot, PineScalar } from "./pineProtocol";
-import { getPackedPinePlot, pointAtBar } from "./pinePacked";
+import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 
 const BLOCK = 128;
 const MAX_CACHED_SAMPLES = 8192;
@@ -92,10 +92,17 @@ function candleValues(plot: PineChartPlot, index: number): readonly number[] | F
   return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite) ? value : undefined;
 }
 
+function markerLocation(plot: PineChartPlot, sample: Sample | undefined) {
+  return norm(option(plot.visual!.source, sample, "location"), "location", "abovebar");
+}
+function markerActive(sample: Sample | undefined, location: string) {
+  return !!sample && (typeof sample.value === "number" ? Number.isFinite(sample.value) && (location === "absolute" || sample.value !== 0) : sample.value === true);
+}
 function anchor(plot: PineChartPlot, index: number, sample: Sample | undefined): number | undefined {
   if (!sample || sample.value === null || sample.value === false) return undefined;
   if (plot.kind !== "markers") return typeof sample.value === "number" ? sample.value : undefined;
-  const location = norm(option(plot.visual!.source, sample, "location"), "location", "abovebar");
+  const location = markerLocation(plot, sample);
+  if (!markerActive(sample, location)) return undefined;
   if (location === "absolute") return typeof sample.value === "number" ? sample.value : undefined;
   if (sample.value === 0) return undefined;
   const bar = plot.visual!.bars[index];
@@ -192,6 +199,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private requestUpdate?: () => void;
   private samples = new Map<PinePlot, Map<number, Sample | undefined>>();
   private markerBlocks = new Map<PineChartPlot, Map<number, MarkerBounds>>();
+  private markerReaches = new Map<PineChartPlot, number>();
   private textLayouts = new Map<number, Map<string, TextLayout>>();
   private numericIndices = new Map<PinePlot, Uint16Array>();
   private blocks = new Map<PineChartPlot, Map<number, Bounds | null>>();
@@ -221,7 +229,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   detached() {
     this.chart?.timeScale().unsubscribeVisibleTimeRangeChange(this.onRange);
     this.chart = undefined; this.series = undefined; this.requestUpdate = undefined;
-    this.samples.clear(); this.cacheSize = 0; this.blocks.clear(); this.numericIndices.clear(); this.markerBlocks.clear(); this.textLayouts.clear(); this.rangeKey = ""; this.rangeCache = null;
+    this.samples.clear(); this.cacheSize = 0; this.blocks.clear(); this.numericIndices.clear(); this.markerBlocks.clear(); this.markerReaches.clear(); this.textLayouts.clear(); this.rangeKey = ""; this.rangeCache = null;
     this.plots = []; this.scalePeers = []; this.from = 0; this.to = -1;
   }
   updateAllViews() { /* Coordinates are read at draw time so price zoom/resize cannot reuse stale geometry. */ }
@@ -272,6 +280,51 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     if (to < bars[0].time || from > bars[bars.length - 1].time) return [0, -1];
     const lo = search(bars, from), hi = search(bars, to, true) - 1;
     return [Math.max(plot.visual.showFrom, lo - (neighbors ? 1 : 0), 0), Math.min(bars.length - 1, hi + (neighbors ? 1 : 0))];
+  }
+  /** Retain bodies and text that reach the pane even when their source centers are outside it. */
+  private markerDrawRange(plot: PineChartPlot, ctx: CanvasRenderingContext2D): [number, number] {
+    const scale = this.chart!.timeScale(), range = scale.getVisibleLogicalRange();
+    if (!range) return this.visible(plot, true);
+    const left = scale.logicalToCoordinate(range.from), right = scale.logicalToCoordinate(range.to);
+    if (left === null || right === null || !Number.isFinite(left) || !Number.isFinite(right)) return this.visible(plot, true);
+    let reach = this.markerReaches.get(plot);
+    if (reach === undefined) {
+      reach = 0;
+      const source = plot.visual!.source;
+      let previousText: string | undefined, previousSize = 0;
+      // Stream packed option variants without decoding or caching historical samples.
+      // Keep only one conservative pixel reach per plot, independently of pan/zoom.
+      for (const options of pinePlotOptionSets(source)) {
+        const sample: Sample = { value: true, options };
+        const size = SIZES[norm(option(source, sample, "size"), "size", "auto")] ?? 10;
+        reach = Math.max(reach, size);
+        const text = option(source, sample, "text");
+        if (typeof text !== "string" || (text === previousText && size === previousSize)) continue;
+        previousText = text; previousSize = size;
+        ctx.font = `${size + 3}px sans-serif`; ctx.textAlign = "center";
+        for (const line of text.split("\n")) {
+          if (!line.trim()) continue;
+          const metrics = ctx.measureText(line);
+          reach = Math.max(reach, metrics.width / 2 + 4, Math.abs(metrics.actualBoundingBoxLeft ?? 0), Math.abs(metrics.actualBoundingBoxRight ?? 0));
+        }
+      }
+      this.markerReaches.set(plot, reach);
+    }
+    const bars = plot.visual!.bars, offset = plot.visual!.plotOffset ?? 0;
+    let valid = true;
+    const locate = (pixel: number, upper = false) => {
+      let lo = 0, hi = bars.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1, center = scale.timeToCoordinate(bars[mid].time as UTCTimestamp);
+        const logical = center === null ? null : scale.coordinateToLogical(center);
+        const x = logical === null ? null : scale.logicalToCoordinate((Number(logical) + offset) as Logical);
+        if (x === null || !Number.isFinite(x)) { valid = false; return 0; }
+        if (x < pixel || (upper && x === pixel)) lo = mid + 1; else hi = mid;
+      }
+      return lo;
+    };
+    const from = locate(Math.min(left, right) - reach), to = locate(Math.max(left, right) + reach, true) - 1;
+    return valid ? [Math.max(plot.visual!.showFrom, from), Math.min(bars.length - 1, to)] : this.visible(plot, true);
   }
   private sample(plot: PineChartPlot, index: number, source = plot.visual!.source) {
     let cache = this.samples.get(source);
@@ -523,6 +576,14 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return;
       }
+      if (plot.kind === "markers") {
+        const marker = to >= from ? this.markerBounds(plot, from, to) : undefined;
+        if (marker?.bounds) {
+          bounds = extend(bounds, marker.bounds.min); bounds = extend(bounds, marker.bounds.max);
+          above = Math.max(above, marker.above); below = Math.max(below, marker.below);
+        }
+        return;
+      }
       if (plot.visual?.plotOffset) {
         const found = to >= from ? this.bounds(plot, from, to) : null;
         if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
@@ -533,9 +594,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         return;
       }
       if (to < from || plot.kind === "fill" || plot.kind === "background") return;
-      const marker = plot.kind === "markers" ? this.markerBounds(plot, from, to) : undefined;
-      const found = marker ? marker.bounds : this.bounds(plot, from, to);
-      if (marker) { above = Math.max(above, marker.above); below = Math.max(below, marker.below); }
+      const found = this.bounds(plot, from, to);
       if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
       if (plot.kind === "line" && !plot.pointsOnly && !["linebr", "steplinebr", "areabr"].includes(plot.visual!.style)) {
         bounds = extend(bounds, this.interpolated(plot, from, plot.visual!.source, plot.step));
@@ -608,7 +667,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(mediaSize.width, y); ctx.stroke(); ctx.restore();
           }
         }
-        let [from, to] = this.visible(plot, true);
+        let [from, to] = plot.kind === "markers" ? this.markerDrawRange(plot, ctx) : this.visible(plot, true);
         this.from = from; this.to = to;
         if (plot.visual?.pointStyle) { this.drawPointPlot(ctx, plot, from, to, mediaSize.width, mediaSize.height); continue; }
         if (to < from) continue;
@@ -692,12 +751,27 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         } else positions = (function* () { for (let index = from; index <= to; index++) yield index; })();
         for (const index of positions) {
           const sample = this.sample(plot, index), value = anchor(plot, index, sample);
+          if (plot.kind === "markers") {
+            const location = markerLocation(plot, sample);
+            if (!markerActive(sample, location)) continue;
+            const px = x(index);
+            if (px === null || !Number.isFinite(px)) continue;
+            if (location === "top" || location === "bottom") {
+              const geometry = this.markerGeometry(plot, sample!, ctx);
+              if (!geometry) continue;
+              const py = location === "top" ? 4 - geometry.min : mediaSize.height - 4 - geometry.max;
+              this.shape(ctx, plot, sample!, px, py, mediaSize.height);
+            } else if (value !== undefined) {
+              const py = this.series!.priceToCoordinate(value);
+              if (py !== null && Number.isFinite(py)) this.shape(ctx, plot, sample!, px, py, mediaSize.height);
+            }
+            continue;
+          }
           if (value === undefined) { if (["linebr", "steplinebr", "areabr"].includes(plot.visual!.style)) previous = null; continue; }
           const px = x(index), py = this.series!.priceToCoordinate(value);
           if (px === null || py === null) { previous = null; continue; }
           const options = plot.visual!.source;
           const shade = pineVisualColor(option(options, sample, "color"), plot.color);
-          if (plot.kind === "markers") { this.shape(ctx, plot, sample!, px, py, mediaSize.height); continue; }
           const width = Math.max(1, Math.min(4, Number(option(options, sample, "linewidth") ?? plot.width)));
           ctx.strokeStyle = shade; ctx.fillStyle = shade; ctx.lineWidth = width;
           if (plot.pointsOnly) { ctx.beginPath(); ctx.arc(px, py, width + 1, 0, Math.PI * 2); ctx.fill(); }
@@ -902,10 +976,11 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     const lineHeight = size + 5;
     const labelHeight = Math.max(size + 8, layout.lines.length * lineHeight + 6);
     const labelTop = direction > 0 ? offset + 4 : offset - labelHeight - 4;
-    const textY = shape.startsWith("label") ? labelTop + 3 + lineHeight / 2 : location === "belowbar" ? offset + size + 6 : offset - size - 6 - (layout.lines.length - 1) * lineHeight;
+    const textY = shape.startsWith("label") ? labelTop + 3 + lineHeight / 2 : ["belowbar", "bottom"].includes(location) ? offset + size + 6 : offset - size - 6 - (layout.lines.length - 1) * lineHeight;
     let min = Infinity, max = -Infinity;
     if (painted(shade)) {
-      if (shape === "circle" || shape === "square") { min = offset - size / 2; max = offset + size / 2; }
+      if (["circle", "square", "cross", "xcross", "diamond"].includes(shape)) { min = offset - size / 2; max = offset + size / 2; }
+      else if (shape === "flag") { min = offset - size; max = offset; }
       else if (shape.startsWith("label")) { min = Math.min(offset, labelTop); max = Math.max(offset, labelTop + labelHeight); }
       else { const end = offset + direction * size * (shape.startsWith("arrow") ? 1.6 : 1); min = Math.min(offset, end); max = Math.max(offset, end); }
     }
@@ -926,6 +1001,23 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     if (painted(shade)) {
       if (shape === "circle") { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
       else if (shape === "square") ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      else if (shape === "cross") {
+        const radius = size / 2, halfArm = Math.max(1, size / 5) / 2;
+        // One nonzero-fill path paints the intersection once, including alpha.
+        ctx.beginPath(); ctx.rect(x - radius, y - halfArm, size, halfArm * 2); ctx.rect(x - halfArm, y - radius, halfArm * 2, size); ctx.fill();
+      } else if (shape === "xcross" || shape === "diamond" || shape === "flag") {
+        const r = size / 2, t = Math.max(1, size / 5);
+        const polygons = shape === "diamond" ? [[[0, -r], [r, 0], [0, r], [-r, 0]]]
+          : shape === "flag" ? [[[0, 0], [0, -size], [size * .75, -size], [size * .75, -size / 2], [t, -size / 2], [t, 0]]]
+          : [[[-r, -r + t], [-r + t, -r], [r, r - t], [r - t, r]], [[-r, r - t], [r - t, -r], [r, -r + t], [-r + t, r]]];
+        ctx.beginPath();
+        for (const polygon of polygons) {
+          ctx.moveTo(x + polygon[0][0], y + polygon[0][1]);
+          for (let index = 1; index < polygon.length; index++) ctx.lineTo(x + polygon[index][0], y + polygon[index][1]);
+          ctx.closePath();
+        }
+        ctx.fill();
+      }
       else if (shape.startsWith("label")) {
         ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + direction * 4); ctx.lineTo(x + 4, y + direction * 4); ctx.closePath(); ctx.fill();
         ctx.fillRect(x - layout.width / 2, anchorY + labelTop, layout.width, labelHeight);
