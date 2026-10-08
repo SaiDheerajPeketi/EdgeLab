@@ -57,7 +57,7 @@ export async function run(source, bars, options = {}) {
   return render(result, bars, options);
 }
 export function summary() {
-  return { labels: state.result.labels ?? [], boxes: state.result.boxes ?? [], lineFills: state.result.lineFills ?? [], lines: state.result.lines ?? [], plots: state.result.plots.map(p => ({ name: p.name, style: p.style, options: p.options, points: getPackedPinePlot(p) ? undefined : p.points?.map(v => ({ time: v.time, value: v.value, options: v.options })) })),
+  return { polylines: state.result.polylines ?? [], labels: state.result.labels ?? [], boxes: state.result.boxes ?? [], lineFills: state.result.lineFills ?? [], lines: state.result.lines ?? [], plots: state.result.plots.map(p => ({ name: p.name, style: p.style, options: p.options, points: getPackedPinePlot(p) ? undefined : p.points?.map(v => ({ time: v.time, value: v.value, options: v.options })) })),
     inputs: state.result.inputs, warnings: state.adapted.warnings, adapterWarnings: state.adapted.adapterWarnings, packed: state.result.plots.map(p => Boolean(getPackedPinePlot(p))),
     placements: state.placements.map(p => ({ visible: p.chart.timeScale().getVisibleLogicalRange(), drawingRange: p.installed.drawingPrimitive?.rangeForVisible(), range: p.installed.drawingPrimitive?.rangeForVisible() ?? p.installed.primitive?.rangeForVisible(), stats: p.installed.primitive?.debugStats })) };
 }

@@ -9,7 +9,7 @@ import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineDiagnostic, PinePolylineDrawing, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -332,6 +332,46 @@ function lineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   return lines;
 }
 
+function polylineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PinePolylineDrawing[] {
+  const polylines: PinePolylineDrawing[] = []; let count = 0, pointCount = 0, omitted = false;
+  for (const value of Object.values(raw)) {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (plot.options?.style !== "drawing_polyline") continue;
+    const snapshot = plot.data?.at(-1)?.value;
+    if (!Array.isArray(snapshot)) error("UNSUPPORTED_RESULT", "Native polylines require a final object snapshot.");
+    count += snapshot.length;
+    if (count > PINE_LIMITS.polylines) error("DRAWING_LIMIT", "Pine output exceeds 100 active polylines.");
+    for (const item of snapshot) {
+      const polyline = item as Record<string, unknown>;
+      if (!polyline || typeof polyline !== "object" || !Array.isArray(polyline.points)) error("UNSUPPORTED_RESULT", "Invalid native polyline.");
+      if (polyline.points.length > PINE_LIMITS.polylinePoints) error("DRAWING_LIMIT", "A Pine polyline exceeds 10,000 points.");
+      pointCount += polyline.points.length;
+      if (pointCount > PINE_LIMITS.polylineTotalPoints) error("DRAWING_LIMIT", "Pine active polylines exceed 32,000 total points.");
+      if (polyline._deleted === true) continue;
+      const xloc = polyline.xloc === "bi" ? "bar_index" : polyline.xloc === "bt" ? "bar_time" : undefined;
+      const lineStyle = String(polyline.line_style).replace(/^style_/, ""), lineWidth = polyline.line_width;
+      if (!xloc || !["solid", "dashed", "dotted", "arrow_left", "arrow_right", "arrow_both"].includes(lineStyle) || typeof lineWidth !== "number" || !Number.isInteger(lineWidth) || lineWidth < 1 || lineWidth > 16 || typeof polyline.curved !== "boolean" || typeof polyline.closed !== "boolean") { omitted = true; continue; }
+      const coordinate = (value: unknown) => {
+        if (value == null || typeof value === "number" && Number.isNaN(value)) return null;
+        if (typeof value !== "number" || !Number.isFinite(value)) error("UNSUPPORTED_RESULT", "Invalid native polyline coordinate.");
+        return value;
+      };
+      const points = polyline.points.map(item => {
+        if (!item || typeof item !== "object") error("UNSUPPORTED_RESULT", "Invalid native polyline point.");
+        const point = item as Record<string, unknown>, rawX = coordinate(point[xloc === "bar_index" ? "index" : "time"]);
+        return { x: rawX === null ? null : xloc === "bar_time" ? rawX / 1000 : rawX, y: coordinate(point.price) };
+      });
+      if (points.some(point => point.x !== null && (xloc === "bar_index" ? !Number.isSafeInteger(point.x) || point.x < -10000 || point.x > bars.length - 1 + 500 : point.x < 0 || point.x > 253402300799 || !Number.isSafeInteger(point.x * 1000)))) { omitted = true; continue; }
+      const lineColor = polyline.line_color === undefined || polyline.line_color === "" ? "#2962ff" : plainScalar(polyline.line_color);
+      const fillColor = polyline.fill_color === "" ? null : plainScalar(polyline.fill_color);
+      if ([lineColor, fillColor].some(shade => shade !== null && (typeof shade !== "string" || !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade)))) { omitted = true; continue; }
+      polylines.push({ id: `polyline:${String(polyline.id)}`, points, curved: polyline.curved, closed: polyline.closed, xloc, lineColor: lineColor as string | null, fillColor: fillColor as string | null, lineStyle: lineStyle as PinePolylineDrawing["lineStyle"], lineWidth, overlay: overlay || polyline.force_overlay === true, forceOverlay: polyline.force_overlay === true });
+    }
+  }
+  if (omitted) diagnostics.push(warning("UNSUPPORTED_POLYLINE_SETTING", "Some polylines use unsupported coordinates, colors, styles or widths and are not drawn. Widths from 1 to 16 pixels are supported."));
+  return polylines;
+}
+
 function labelResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PineLabelDrawing[] {
   const labels: PineLabelDrawing[] = [];
   const sizes: Record<string, number> = { auto: 0, tiny: 7, small: 10, normal: 12, large: 18, huge: 24 };
@@ -456,7 +496,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
     if (!drawings.has(plot.options?.style ?? "")) return true;
-    if (!["drawing_line", "linefill", "drawing_box", "label"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    if (!["drawing_line", "linefill", "drawing_box", "label", "drawing_polyline"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
   if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
@@ -1182,8 +1222,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const lineFills = lineFillResults(context.plots, lines, overlay, diagnostics);
   const boxes = boxResults(context.plots, overlay, diagnostics, request.bars!);
   const labels = labelResults(context.plots, overlay, diagnostics, request.bars!);
+  const polylines = polylineResults(context.plots, overlay, diagnostics, request.bars!);
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 

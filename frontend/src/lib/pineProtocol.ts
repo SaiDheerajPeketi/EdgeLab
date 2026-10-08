@@ -4,7 +4,7 @@ import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 
-export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500, boxes: 500, labels: 500 });
+export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500, boxes: 500, labels: 500, polylines: 100, polylinePoints: 10_000, polylineTotalPoints: 32_000 });
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
@@ -59,13 +59,18 @@ export type PineLabelDrawing = {
   textAlign: "left" | "center" | "right"; tooltip: string; textFontFamily: "default" | "monospace";
   textFormatting: "none" | "bold" | "italic" | "bolditalic"; overlay: boolean; forceOverlay: boolean;
 };
+export type PinePolylineDrawing = {
+  id: string; points: { x: number | null; y: number | null }[]; curved: boolean; closed: boolean;
+  xloc: "bar_index" | "bar_time"; lineColor: string | null; fillColor: string | null;
+  lineStyle: PineLineDrawing["style"]; lineWidth: number; overlay: boolean; forceOverlay: boolean;
+};
 export type PineLineFillDrawing = { id: string; line1: string; line2: string; color: string | null; overlay: boolean };
 export type PineStrategyResult = {
   config: Record<string, PineScalar>; metrics: Record<string, PineScalar>;
   closedTrades: Record<string, PineScalar>[]; openTrades: Record<string, PineScalar>[]; pendingOrders: Record<string, PineScalar>[];
 };
 export type PineExecutionResult = Omit<PinePrepareResult, "kind"> & {
-  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; boxes?: PineBoxDrawing[]; labels?: PineLabelDrawing[]; strategy?: PineStrategyResult;
+  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; boxes?: PineBoxDrawing[]; labels?: PineLabelDrawing[]; polylines?: PinePolylineDrawing[]; strategy?: PineStrategyResult;
   audit: { engine: "PineTS"; engineVersion: "0.11.0"; bars: number; sourceBytes: number; mode: "historical" | "live"; elapsedMs: number };
 };
 export type PineResult = PinePrepareResult | PineExecutionResult;
@@ -365,7 +370,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -501,6 +506,29 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   if (labels && new Set(labels.map(label => label.id)).size !== labels.length) fail("Duplicate Pine label ID.");
   const audit = record(raw.audit);
   if (audit.engine !== "PineTS" || audit.engineVersion !== "0.11.0" || audit.bars !== request.bars?.length || audit.sourceBytes !== new TextEncoder().encode(request.source).length || audit.mode !== (request.mode ?? "historical") || finite(audit.elapsedMs) < 0) fail("Invalid Pine execution audit.");
+  let polylinePointCount = 0;
+  const polylines = raw.polylines === undefined ? undefined : array(raw.polylines, PINE_LIMITS.polylines).map((item): PinePolylineDrawing => {
+    const polyline = ordinaryFields(item), keys = ["id", "points", "curved", "closed", "xloc", "lineColor", "fillColor", "lineStyle", "lineWidth", "overlay", "forceOverlay"];
+    if (Object.keys(polyline).length !== keys.length || Object.keys(polyline).some(key => !keys.includes(key))) fail("Invalid Pine polyline fields.");
+    const id = string(polyline.id, 128), xloc = polyline.xloc;
+    if (!id || !["bar_index", "bar_time"].includes(String(xloc)) || !["solid", "dashed", "dotted", "arrow_left", "arrow_right", "arrow_both"].includes(String(polyline.lineStyle))) fail("Invalid Pine polyline settings.");
+    const rawPoints = array(polyline.points, PINE_LIMITS.polylinePoints);
+    polylinePointCount += rawPoints.length;
+    if (polylinePointCount > PINE_LIMITS.polylineTotalPoints) fail("Pine polylines exceed 32,000 total points.", "RESULT_LIMIT");
+    const points = rawPoints.map(item => {
+      const point = ordinaryFields(item);
+      if (Object.keys(point).length !== 2 || Object.keys(point).some(key => !["x", "y"].includes(key))) fail("Invalid Pine polyline point fields.");
+      const x = point.x === null ? null : finite(point.x), y = point.y === null ? null : finite(point.y);
+      if (x !== null && (xloc === "bar_index" ? !Number.isSafeInteger(x) || x < -10000 || x > request.bars!.length - 1 + 500 : x < 0 || x > 253402300799 || !Number.isSafeInteger(x * 1000))) fail("Invalid Pine polyline x coordinate.");
+      return { x, y };
+    });
+    const lineWidth = finite(polyline.lineWidth), forceOverlay = bool(polyline.forceOverlay), overlay = bool(polyline.overlay);
+    if (!Number.isInteger(lineWidth) || lineWidth < 1 || lineWidth > 16) fail("Invalid Pine polyline width.");
+    if (overlay !== (base.overlay || forceOverlay)) fail("Pine polylines require consistent forced overlay placement.");
+    const color = (value: unknown) => { if (value === null) return null; const shade = string(value, 128); if (!/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade)) fail("Invalid Pine polyline color."); return shade; };
+    return { id, points, xloc: xloc as PinePolylineDrawing["xloc"], curved: bool(polyline.curved), closed: bool(polyline.closed), lineColor: color(polyline.lineColor), fillColor: color(polyline.fillColor), lineStyle: polyline.lineStyle as PinePolylineDrawing["lineStyle"], lineWidth, overlay, forceOverlay };
+  });
+  if (polylines && new Set(polylines.map(polyline => polyline.id)).size !== polylines.length) fail("Duplicate Pine polyline ID.");
   let strategy: PineStrategyResult | undefined;
   if (raw.strategy !== undefined) {
     if (base.declaration !== "strategy") fail("Indicator returned a strategy ledger.");
@@ -518,5 +546,5 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     strategy = { config: scalarRecord(state.config), metrics: scalarRecord(state.metrics), closedTrades, openTrades, pendingOrders };
     for (const [key, value] of Object.entries(request.strategySettings ?? {})) if (strategy.config[key] !== value) fail("Pine result changed a requested strategy setting.", "INVALID_STRATEGY_SETTINGS");
   } else if (base.declaration === "strategy") fail("Strategy execution is missing its engine ledger.");
-  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
+  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(polylines ? { polylines } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
 }

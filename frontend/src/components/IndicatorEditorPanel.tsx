@@ -425,7 +425,7 @@ export function IndicatorEditorPanel({
         setExecution(result);
         if (result.declaration !== "strategy") setStrategySettings({});
         setInputs(result.inputs);
-        setRunState({ detail: `${result.plots.length} plots${result.lines?.length ? ` · ${result.lines.length} line${result.lines.length === 1 ? "" : "s"}` : ""}${result.lineFills?.length ? ` · ${result.lineFills.length} line fill${result.lineFills.length === 1 ? "" : "s"}` : ""}${result.boxes?.length ? ` · ${result.boxes.length} box${result.boxes.length === 1 ? "" : "es"}` : ""} · ${result.audit.bars.toLocaleString()} bars · PineTS ${result.audit.engineVersion}.`, status: "success" });
+        setRunState({ detail: `${result.plots.length} plots${result.lines?.length ? ` · ${result.lines.length} line${result.lines.length === 1 ? "" : "s"}` : ""}${result.lineFills?.length ? ` · ${result.lineFills.length} line fill${result.lineFills.length === 1 ? "" : "s"}` : ""}${result.boxes?.length ? ` · ${result.boxes.length} box${result.boxes.length === 1 ? "" : "es"}` : ""}${result.labels?.length ? ` · ${result.labels.length} label${result.labels.length === 1 ? "" : "s"}` : ""}${result.polylines?.length ? ` · ${result.polylines.length} polyline${result.polylines.length === 1 ? "" : "s"}` : ""} · ${result.audit.bars.toLocaleString()} bars · PineTS ${result.audit.engineVersion}.`, status: "success" });
       } else {
         setRunState({ detail: `${result.plots.length} plot${result.plots.length === 1 ? "" : "s"} · ${result.audit.operations.toLocaleString()} deterministic operations.`, status: "success" });
       }

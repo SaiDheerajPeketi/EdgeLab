@@ -1,9 +1,10 @@
 import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer, ISeriesPrimitivePaneView, Logical, MouseEventParams, SeriesAttachedParameter, SeriesType, UTCTimestamp } from "lightweight-charts";
 import type { PineChartPlot } from "./pineChartAdapter";
-import type { PineLineDrawing, PineLineFillDrawing, PineBoxDrawing, PineLabelDrawing } from "./pineProtocol";
+import type { PineLineDrawing, PineLineFillDrawing, PineBoxDrawing, PineLabelDrawing, PinePolylineDrawing } from "./pineProtocol";
 import { pineLabelLayout, paintPineLabel, hitPineLabel } from "./pineLabelLayout";
 import type { PineLabelLayout } from "./pineLabelLayout";
 import { clipFillPolygon, fillLobes, pineGradientColor } from "./pineVisualPrimitive";
+import { polylineRuns, visiblePolylineY, polylineHasArea, tracePolyline } from "./pinePolylineGeometry";
 type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
 const drawingBehind = (plot: PineChartPlot, drawing: { forceOverlay?: boolean }) => plot.behindChart !== false && drawing.forceOverlay !== true;
@@ -83,6 +84,7 @@ export class PineLinePrimitive implements ISeriesPrimitive {
   private textMeasurementContext?: CanvasRenderingContext2D | null;
   private readonly boxTextBounds = new WeakMap<PineBoxDrawing, { font: string; left: number; right: number }>();
   private readonly boxTextLayouts = new WeakMap<PineBoxDrawing, { width: number; font: string; lines: string[] }>();
+  private readonly polylineRanges = new WeakMap<PinePolylineDrawing, { from: number; to: number; transform: string; points: (Point | null)[]; values: number[] }>();
   private readonly lineReferences = new WeakMap<PineChartPlot, Map<string, PineLineDrawing>>();
   constructor(private plots: readonly PineChartPlot[], private options: { allowFillOnlyScale?: boolean; hasScalePeer?: () => boolean } = {}) {
     for (const plot of plots) this.lineReferences.set(plot, new Map(plot.drawing!.lines.map(line => [line.id, line])));
@@ -197,6 +199,81 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     const vertices: [Point, Point, Point, Point] = [{ x: left, y: at(a, left) }, { x: right, y: at(a, right) }, { x: right, y: at(b, right) }, { x: left, y: at(b, left) }];
     if (!vertices.every(point => Number.isFinite(point.y)) || vertices[0].y === vertices[3].y && vertices[1].y === vertices[2].y) return null;
     return vertices;
+  }
+  private polylinePoints(plot: PineChartPlot, polyline: PinePolylineDrawing, pixels: boolean, transformed = true) {
+    return polyline.points.map(point => {
+      if (point.x === null || point.y === null) return null;
+      const logical = this.logical(plot, polyline, point.x);
+      if (logical === null) return null;
+      const x = pixels ? this.coordinate(logical) : logical, y = transformed ? this.series!.priceToCoordinate(point.y) : point.y;
+      return x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y) ? null : { x, y };
+    });
+  }
+  private polylineRange(plot: PineChartPlot, polyline: PinePolylineDrawing, from: number, to: number): number[] {
+    const stroke = (pineGradientColor(polyline.lineColor)?.[3] ?? 0) > 0;
+    const transformed = polyline.points.every(point => point.y === null || this.validPriceTransform(this.series!.priceToCoordinate(point.y), point.y));
+    const points = this.polylinePoints(plot, polyline, false, transformed), transform = this.priceTransform();
+    const cached = this.polylineRanges.get(polyline);
+    if (cached && cached.from === from && cached.to === to && cached.transform === transform && cached.points.length === points.length
+      && points.every((point, index) => point === null ? cached.points[index] === null : point.x === cached.points[index]?.x && point.y === cached.points[index]?.y)) return cached.values;
+    const runs = polylineRuns(points, polyline.curved, polyline.closed);
+    const fill = points.every(Boolean) && points.length >= 3 && (pineGradientColor(polyline.fillColor)?.[3] ?? 0) > 0 && polylineHasArea(points as Point[]);
+    if (!stroke && !fill) return [];
+    const segments = runs.flatMap(run => {
+      if (!run.segments.length) return [];
+      const segments = [...run.segments];
+      // An open path's fill closes implicitly while its stroke keeps authored endpoints.
+      if (fill && !run.closed) segments.push({ a: run.points.at(-1)!, b: run.points[0] });
+      return segments;
+    }).filter(segment => segment.a.x !== segment.b.x || segment.a.y !== segment.b.y || segment.c1 && segment.c2 && (segment.c1.x !== segment.a.x || segment.c1.y !== segment.a.y || segment.c2.x !== segment.b.x || segment.c2.y !== segment.b.y));
+    const values = visiblePolylineY(segments, from, to).flatMap(y => {
+      const price = transformed ? this.series!.coordinateToPrice(y as Parameters<ISeriesApi<SeriesType>["coordinateToPrice"]>[0]) : y;
+      return price !== null && Number.isFinite(price) ? [price] : [];
+    });
+    this.polylineRanges.set(polyline, { from, to, transform, points, values });
+    return values;
+  }
+  private drawPolyline(plot: PineChartPlot, polyline: PinePolylineDrawing, ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const points = this.polylinePoints(plot, polyline, true), runs = polylineRuns(points, polyline.curved, polyline.closed);
+    const stroke = (pineGradientColor(polyline.lineColor)?.[3] ?? 0) > 0;
+    const fill = points.every(Boolean) && points.length >= 3 && (pineGradientColor(polyline.fillColor)?.[3] ?? 0) > 0 && polylineHasArea(points as Point[]);
+    if (!stroke && !fill) return;
+    ctx.save(); ctx.lineWidth = polyline.lineWidth; ctx.lineJoin = "round";
+    ctx.lineCap = polyline.lineStyle === "dotted" ? "round" : "butt";
+    ctx.setLineDash(polyline.lineStyle === "dashed" ? [6 * polyline.lineWidth, 4 * polyline.lineWidth] : polyline.lineStyle === "dotted" ? [0, 2 * polyline.lineWidth] : []);
+    for (const run of runs) {
+      if (!run.segments.length) continue;
+      ctx.beginPath(); tracePolyline(ctx, run);
+      if (fill) { ctx.fillStyle = polyline.fillColor!; ctx.fill("nonzero"); }
+      if (stroke) { ctx.strokeStyle = polyline.lineColor!; ctx.stroke(); }
+    }
+    ctx.setLineDash([]);
+    // Arrow tips only belong to the complete authored path's actual endpoints.
+    // Clipping never manufactures an arrow on a pane edge or an NA gap.
+    if (stroke && points.every(Boolean) && runs.length === 1 && !polyline.closed) {
+      const segments = runs[0].segments;
+      const arrow = (tip: Point, adjacent: Point) => {
+        if (tip.x < 0 || tip.x > width || tip.y < 0 || tip.y > height) return;
+        const magnitude = Math.max(Math.abs(tip.x), Math.abs(tip.y), Math.abs(adjacent.x), Math.abs(adjacent.y), 1);
+        const dx = tip.x / magnitude - adjacent.x / magnitude, dy = tip.y / magnitude - adjacent.y / magnitude, length = Math.hypot(dx, dy);
+        if (!length) return;
+        const ux = dx / length, uy = dy / length, size = Math.max(6, polyline.lineWidth * 3);
+        ctx.beginPath(); ctx.moveTo(tip.x - ux * size - uy * size / 2, tip.y - uy * size + ux * size / 2);
+        ctx.lineTo(tip.x, tip.y); ctx.lineTo(tip.x - ux * size + uy * size / 2, tip.y - uy * size - ux * size / 2); ctx.stroke();
+      };
+      const first = segments[0], last = segments.at(-1);
+      const direction = (tip: Point, reverse: boolean) => {
+        for (const segment of reverse ? [...segments].reverse() : segments) {
+          const candidates = reverse ? [segment.c2, segment.c1, segment.a] : [segment.c1, segment.c2, segment.b];
+          const adjacent = candidates.find(point => point && (point.x !== tip.x || point.y !== tip.y));
+          if (adjacent) return adjacent;
+        }
+        return tip;
+      };
+      if (first && ["arrow_left", "arrow_both"].includes(polyline.lineStyle)) arrow(first.a, direction(first.a, false));
+      if (last && ["arrow_right", "arrow_both"].includes(polyline.lineStyle)) arrow(last.b, direction(last.b, true));
+    }
+    ctx.restore();
   }
   private labelLayout(label: PineLabelDrawing): PineLabelLayout | null {
     if (this.labelLayouts.has(label)) return this.labelLayouts.get(label)!;
@@ -382,6 +459,9 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       if ((left > range.to || right < range.from) && !(text && this.overflowingBoxTextVisible(box, position))) continue;
       min = Math.min(min, box.top!, box.bottom!); max = Math.max(max, box.top!, box.bottom!);
     }
+    for (const plot of this.plots) for (const polyline of plot.drawing!.polylines ?? []) {
+      for (const value of this.polylineRange(plot, polyline, Number(range.from), Number(range.to))) { min = Math.min(min, value); max = Math.max(max, value); }
+    }
     for (const plot of this.plots) for (const label of plot.drawing!.labels ?? []) {
       const layout = this.labelLayout(label), position = this.labelPosition(plot, label);
       if (!layout || !position) continue;
@@ -474,6 +554,10 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       }
       for (const plot of this.plots) {
         for (const box of plot.drawing!.boxes ?? []) if (drawingBehind(plot, box) === behind) this.drawBox(plot, box, ctx, width, height);
+      }
+      // Polyline layer placement is local; the public TradingView z-index list omits it.
+      for (const plot of this.plots) for (const polyline of plot.drawing!.polylines ?? []) {
+        if (drawingBehind(plot, polyline) === behind) this.drawPolyline(plot, polyline, ctx, width, height);
       }
       for (const plot of this.plots) {
         for (const label of plot.drawing!.labels ?? []) {

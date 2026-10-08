@@ -14,6 +14,8 @@ import { PineMatrixObject } from './namespaces/matrix/PineMatrixObject';
 import { PineTypeObject } from './namespaces/PineTypeObject';
 import { ChartPointObject } from './namespaces/chart/ChartPointObject';
 import { Indicator } from './Indicator';
+import { PolylineObject } from './namespaces/polyline/PolylineObject';
+import { PolylineHelper } from './namespaces/polyline/PolylineHelper';
 import { BoxObject } from './namespaces/box/BoxObject';
 import { BoxHelper } from './namespaces/box/BoxHelper';
 import { LabelObject } from './namespaces/label/LabelObject';
@@ -74,11 +76,14 @@ function* realtimeRoots(context: any, varipOnly = false): Generator<any> {
             else if (helper instanceof LinefillHelper) yield (helper as any)._linefills;
             else if (helper instanceof BoxHelper) yield (helper as any)._boxes;
             else if (helper instanceof LabelHelper) yield (helper as any)._labels;
+            else if (helper instanceof PolylineHelper) yield (helper as any)._polylines;
     }
 }
 const realtimePayload = (value: any): any => value instanceof PineArrayObject ? value.array
     : value instanceof PineMapObject ? value.map : value instanceof PineMatrixObject ? value.matrix : value;
 function realtimeFields(value: any): readonly string[] | null {
+    if (value instanceof ChartPointObject) return ['time', 'index', 'price'];
+    if (value instanceof PolylineObject) return ['points', 'curved', 'closed', 'xloc', 'line_color', 'fill_color', 'line_style', 'line_width', 'force_overlay', '_deleted', '_createdAtBar'];
     if (value instanceof LabelObject) return ['x', 'y', 'text', 'xloc', 'yloc', 'color', 'style', 'textcolor', 'size', 'textalign', 'tooltip', 'text_font_family', 'force_overlay', 'text_formatting', '_deleted', '_createdAtBar'];
     if (value instanceof BoxObject) return ['left', 'top', 'right', 'bottom', 'xloc', 'extend', 'border_color', 'border_style', 'border_width', 'bgcolor', 'text', 'text_color', 'text_size', 'text_halign', 'text_valign', 'text_wrap', 'text_font_family', 'text_formatting', 'force_overlay', '_deleted', '_createdAtBar'];
     if (value instanceof LinefillObject) return ['line1', 'line2', 'color', '_deleted', '_createdAtBar'];
@@ -1274,7 +1279,9 @@ export class PineTS {
             .map(helper => [helper, (helper as any)._boxes]));
         const labelRoots = new Map(context._drawingHelpers.filter(helper => helper instanceof LabelHelper)
             .map(helper => [helper, (helper as any)._labels]));
-        return { scopes, graph, plots, lineRoots, lineFillRoots, boxRoots, labelRoots, result: this._getResultLength(context.result), data: context.data.close.data.length };
+        const polylineRoots = new Map(context._drawingHelpers.filter(helper => helper instanceof PolylineHelper)
+            .map(helper => [helper, (helper as any)._polylines]));
+        return { scopes, graph, plots, lineRoots, lineFillRoots, boxRoots, labelRoots, polylineRoots, result: this._getResultLength(context.result), data: context.data.close.data.length };
     }
 
     private _restoreRealtimeSnapshot(context: Context, snapshot: any) {
@@ -1282,6 +1289,7 @@ export class PineTS {
         for (const [helper, fills] of snapshot.lineFillRoots ?? []) (helper as any)._linefills = fills;
         for (const [helper, boxes] of snapshot.boxRoots ?? []) (helper as any)._boxes = boxes;
         for (const [helper, labels] of snapshot.labelRoots ?? []) (helper as any)._labels = labels;
+        for (const [helper, polylines] of snapshot.polylineRoots ?? []) (helper as any)._polylines = polylines;
         snapshot.graph.restore();
         for (const container of [context, ...context.lctx.values()]) {
             const state = snapshot.scopes.get(container);

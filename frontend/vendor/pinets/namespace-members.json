@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "61dea72dcb69a8aa8d6058f9f0ec5e5c3d8d0f46f3316cb0cc25ff90ab499f1a",
+  "namespaceSourcesSha256": "6d1adb188150a88f50108e05b14bcb62ee3436025426964658f42d0c1cc615d2",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -47,6 +47,10 @@
     {
       "source": "src/namespaces/PineTypeObject.ts",
       "sha256": "ccaa0107c821aec508835f6f81b65056f2829ce7b995d0e9958a40d373e26fa3"
+    },
+    {
+      "source": "src/namespaces/polyline/PolylineHelper.ts",
+      "sha256": "8c1f05afc9eafaefa0fe3306b95a6024d2fc99d707100713708df13844687f53"
     },
     {
       "source": "src/namespaces/request/methods/param.ts",
