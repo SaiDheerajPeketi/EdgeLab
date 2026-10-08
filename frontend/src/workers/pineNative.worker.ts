@@ -325,7 +325,7 @@ function lineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
       const shade = line.color === "" || line.color === undefined ? "#2962FF" : plainScalar(line.color);
       if (shade !== null && (typeof shade !== "string" || !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade))) { omitted = true; continue; }
       lines.push({ id: `line:${String(line.id)}`, x1, y1: coordinate("y1"), x2, y2: coordinate("y2"), xloc, extend,
-        color: shade as string | null, style: style as PineLineDrawing["style"], width, overlay: overlay || line.force_overlay === true });
+        color: shade as string | null, style: style as PineLineDrawing["style"], width, overlay: overlay || line.force_overlay === true, forceOverlay: line.force_overlay === true });
     }
   }
   if (omitted) diagnostics.push(warning("UNSUPPORTED_LINE_SETTING", "Some line drawings use unsupported coordinates, colors, styles or widths. Widths from 1 to 16 pixels are rendered; omitted lines are not replaced."));
@@ -420,7 +420,7 @@ function boxResults(raw: Record<string, unknown>, overlay: boolean, diagnostics:
         bgcolor: shades[1] as string | null, text, textColor: shades[2] as string | null, textSize,
         textHalign: box.text_halign as PineBoxDrawing["textHalign"], textValign: box.text_valign as PineBoxDrawing["textValign"],
         textWrap: textWrap as PineBoxDrawing["textWrap"], textFontFamily: box.text_font_family as PineBoxDrawing["textFontFamily"],
-        textFormatting: textFormatting as PineBoxDrawing["textFormatting"], overlay: overlay || box.force_overlay === true });
+        textFormatting: textFormatting as PineBoxDrawing["textFormatting"], overlay: overlay || box.force_overlay === true, forceOverlay: box.force_overlay === true });
     }
   }
   if (omitted) diagnostics.push(warning("UNSUPPORTED_BOX_SETTING", "Some boxes use unsupported coordinates or settings and are not drawn. Border widths 0–16, text sizes 0–512 and text up to 4096 characters are supported."));

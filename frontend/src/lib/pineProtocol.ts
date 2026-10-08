@@ -42,7 +42,7 @@ export type PineLineDrawing = {
   id: string; x1: number | null; y1: number | null; x2: number | null; y2: number | null;
   xloc: "bar_index" | "bar_time"; extend: "none" | "left" | "right" | "both";
   color: string | null; style: "solid" | "dashed" | "dotted" | "arrow_left" | "arrow_right" | "arrow_both";
-  width: number; overlay: boolean;
+  width: number; overlay: boolean; forceOverlay: boolean;
 };
 export type PineBoxDrawing = {
   id: string; left: number | null; top: number | null; right: number | null; bottom: number | null;
@@ -50,7 +50,7 @@ export type PineBoxDrawing = {
   borderColor: string | null; borderStyle: "solid" | "dashed" | "dotted"; borderWidth: number; bgcolor: string | null;
   text: string; textColor: string | null; textSize: number; textHalign: "left" | "center" | "right";
   textValign: "top" | "center" | "bottom"; textWrap: "none" | "auto"; textFontFamily: "default" | "monospace";
-  textFormatting: "none" | "bold" | "italic" | "bolditalic"; overlay: boolean;
+  textFormatting: "none" | "bold" | "italic" | "bolditalic"; overlay: boolean; forceOverlay: boolean;
 };
 export const PINE_LABEL_STYLES = ["label_down", "label_up", "label_left", "label_right", "label_lower_left", "label_lower_right", "label_upper_left", "label_upper_right", "label_center", "circle", "square", "diamond", "flag", "arrowup", "arrowdown", "cross", "xcross", "triangleup", "triangledown", "none", "text_outline"] as const;
 export type PineLabelDrawing = {
@@ -416,7 +416,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   const lines = raw.lines === undefined ? undefined : array(raw.lines, PINE_LIMITS.lines).map((item): PineLineDrawing => {
     const line = ordinaryFields(item);
-    const keys = ["id", "x1", "y1", "x2", "y2", "xloc", "extend", "color", "style", "width", "overlay"];
+    const keys = ["id", "x1", "y1", "x2", "y2", "xloc", "extend", "color", "style", "width", "overlay", "forceOverlay"];
     if (Object.keys(line).length !== keys.length || Object.keys(line).some(key => !keys.includes(key))) fail("Invalid Pine line fields.");
     const id = string(line.id, 128);
     if (!id || !["bar_index", "bar_time"].includes(String(line.xloc)) || !["none", "left", "right", "both"].includes(String(line.extend))
@@ -430,7 +430,8 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isInteger(width) || width < 1 || width > 16) fail("Pine line width must be an integer from 1 to 16.");
     const color = line.color === null ? null : string(line.color, 128);
     if (color !== null && !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(color)) fail("Invalid Pine line color.");
-    return { id, ...coordinates, xloc: line.xloc, extend: line.extend, style: line.style, width, color, overlay: bool(line.overlay) } as PineLineDrawing;
+    if (bool(line.overlay) !== (base.overlay || bool(line.forceOverlay))) fail("Pine lines require consistent forced overlay placement.");
+    return { id, ...coordinates, xloc: line.xloc, extend: line.extend, style: line.style, width, color, overlay: bool(line.overlay), forceOverlay: bool(line.forceOverlay) } as PineLineDrawing;
   });
   if (lines && new Set(lines.map(line => line.id)).size !== lines.length) fail("Duplicate Pine line ID.");
   const lineIds = new Map(lines?.map(line => [line.id, line]));
@@ -451,7 +452,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   if (lineFills && new Set(lineFills.map(fill => fill.id)).size !== lineFills.length) fail("Duplicate Pine line-fill ID.");
   const boxes = raw.boxes === undefined ? undefined : array(raw.boxes, PINE_LIMITS.boxes).map((item): PineBoxDrawing => {
     const box = ordinaryFields(item);
-    const keys = ["id", "left", "top", "right", "bottom", "xloc", "extend", "borderColor", "borderStyle", "borderWidth", "bgcolor", "text", "textColor", "textSize", "textHalign", "textValign", "textWrap", "textFontFamily", "textFormatting", "overlay"];
+    const keys = ["id", "left", "top", "right", "bottom", "xloc", "extend", "borderColor", "borderStyle", "borderWidth", "bgcolor", "text", "textColor", "textSize", "textHalign", "textValign", "textWrap", "textFontFamily", "textFormatting", "overlay", "forceOverlay"];
     if (Object.keys(box).length !== keys.length || Object.keys(box).some(key => !keys.includes(key))) fail("Invalid Pine box fields.");
     const id = string(box.id, 128);
     if (!id || !["bar_index", "bar_time"].includes(String(box.xloc)) || !["none", "left", "right", "both"].includes(String(box.extend))
@@ -468,11 +469,12 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
       if (color !== null && !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(color)) fail("Invalid Pine box color.");
       return [key, color];
     }));
+    if (bool(box.overlay) !== (base.overlay || bool(box.forceOverlay))) fail("Pine boxes require consistent forced overlay placement.");
     const borderWidth = finite(box.borderWidth), textSize = finite(box.textSize);
     if (!Number.isInteger(borderWidth) || borderWidth < 0 || borderWidth > 16 || !Number.isInteger(textSize) || textSize < 0 || textSize > 512) fail("Pine box border or text size exceeds supported bounds.");
     return { id, ...coordinates, ...colors, xloc: box.xloc, extend: box.extend, borderStyle: box.borderStyle, borderWidth,
       text: string(box.text, 4096), textSize, textHalign: box.textHalign, textValign: box.textValign, textWrap: box.textWrap,
-      textFontFamily: box.textFontFamily, textFormatting: box.textFormatting, overlay: bool(box.overlay) } as PineBoxDrawing;
+      textFontFamily: box.textFontFamily, textFormatting: box.textFormatting, overlay: bool(box.overlay), forceOverlay: bool(box.forceOverlay) } as PineBoxDrawing;
   });
   if (boxes && new Set(boxes.map(box => box.id)).size !== boxes.length) fail("Duplicate Pine box ID.");
   const labels = raw.labels === undefined ? undefined : array(raw.labels, PINE_LIMITS.labels).map((item): PineLabelDrawing => {

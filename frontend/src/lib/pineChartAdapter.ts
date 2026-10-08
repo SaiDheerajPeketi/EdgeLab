@@ -309,20 +309,16 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (labels.some(label => label.xloc === "bar_time" && label.x !== null && !barsByTime.has(label.x))) warnings.push("Label times between candles interpolate positions. Above/below-bar labels require an actual referenced candle; missing-session anchors are not fabricated.");
       if (labels.some(label => label.yloc !== "price" && label.xloc === "bar_index" && label.x !== null && (label.x < 0 || label.x >= bars.length))) warnings.push("Above/below-bar labels outside loaded history have no candle anchor and are not painted.");
       const behindChart = result.overlay && result.behindChart !== false;
-      const forcedLabels = behindChart ? labels.filter(label => label.forceOverlay) : [];
-      const regularLabels = behindChart ? labels.filter(label => !label.forceOverlay) : labels;
-      if (forcedLabels.length) plots.push({ id: "pine-labels-overlay-front", name: "Labels", overlay: true, behindChart: false,
-        kind: "drawing_line", color: "#2962FF", width: 1, step: false, pointsOnly: false, base: 0, segments: [], markers: [],
-        drawing: { lines: [], labels: forcedLabels, bars } });
-      if (!lines.length && !boxes.length && !regularLabels.length) continue;
+      if (lineFills.some(fill => lines.find(line => line.id === fill.line1)?.forceOverlay || lines.find(line => line.id === fill.line2)?.forceOverlay)) warnings.push("Line-fill layers follow the pinned engine: forcing either boundary onto the main chart places its fill in front. Mixed boundary layering has not been calibrated against TradingView.");
+      if (!lines.length && !boxes.length && !labels.length) continue;
       const unsupportedColors = lines.some(line => pineGradientColor(line.color) === undefined);
       if (unsupportedColors) warnings.push("Unsupported line-drawing colors are not painted.");
       if (lines.some(line => line.xloc === "bar_time" && [line.x1, line.x2].some(time => time !== null && !barsByTime.has(time)))) warnings.push("Line times between loaded candles interpolate chart positions; times outside history use the nearest known interval. Exchange-session time placement has not been verified.");
       if (lines.some(line => line.style !== "solid")) warnings.push("Line dashes, dots and arrowheads use local canvas metrics; TradingView pixel calibration has not been verified.");
-      plots.push({ id: `pine-lines-${overlay ? "overlay" : "pane"}`, name: boxes.length || regularLabels.length ? "Drawings" : "Lines", overlay,
+      plots.push({ id: `pine-lines-${overlay ? "overlay" : "pane"}`, name: boxes.length || labels.length ? "Drawings" : "Lines", overlay,
         behindChart,
         kind: "drawing_line", color: lines.find(line => line.color !== null)?.color ?? "#2962FF", width: 1,
-        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, boxes, labels: regularLabels, bars } });
+        step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, boxes, labels, bars } });
     }
   }
   const strategyMarkers: SeriesMarker<UTCTimestamp>[] = [];

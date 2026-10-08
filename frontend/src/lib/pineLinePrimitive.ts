@@ -6,6 +6,7 @@ import type { PineLabelLayout } from "./pineLabelLayout";
 import { clipFillPolygon, fillLobes, pineGradientColor } from "./pineVisualPrimitive";
 type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
+const drawingBehind = (plot: PineChartPlot, drawing: { forceOverlay?: boolean }) => plot.behindChart !== false && drawing.forceOverlay !== true;
 const tooltipContainers = new WeakMap<HTMLDivElement, { count: number; previous: string }>();
 function acquireTooltipContainer(element: HTMLDivElement) {
   const owned = tooltipContainers.get(element);
@@ -54,9 +55,10 @@ export class PineLinePrimitive implements ISeriesPrimitive {
     // Magnet crosshairs can snap to a candle far from the actual mouse/touch hit.
     const { localX: x, localY: y } = event.sourceEvent, { width, height } = this.chart.paneSize();
     if (x < 0 || x >= width || y < 0 || y >= height) { this.hideTooltip(); return; }
-    const ordered = [...this.plots].reverse().sort((a, b) => Number(a.behindChart !== false) - Number(b.behindChart !== false));
+    const ordered = [...this.plots].reverse();
     // Frontmost labels win. Non-tooltip labels also occlude lower labels.
-    for (const plot of ordered) for (const label of [...(plot.drawing!.labels ?? [])].reverse()) {
+    for (const behind of [false, true]) for (const plot of ordered) for (const label of [...(plot.drawing!.labels ?? [])].reverse()) {
+      if (drawingBehind(plot, label) !== behind) continue;
       const layout = this.labelLayout(label), position = this.labelAnchor(plot, label);
       if (!layout || !position || !hitPineLabel(layout, x - position.x, y - position.y)) continue;
       if (!label.tooltip) { this.hideTooltip(); return; }
@@ -411,8 +413,10 @@ export class PineLinePrimitive implements ISeriesPrimitive {
       const width = mediaSize.width, height = mediaSize.height;
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, width, height); ctx.clip();
       for (const plot of this.plots) {
-        if ((plot.behindChart !== false) !== behind) continue;
         for (const fill of plot.drawing!.lineFills ?? []) {
+          const refs = this.lineReferences.get(plot);
+          const forced = refs?.get(fill.line1)?.forceOverlay === true || refs?.get(fill.line2)?.forceOverlay === true;
+          if (drawingBehind(plot, { forceOverlay: forced }) !== behind) continue;
           const vertices = this.fillVertices(plot, fill, 0, width, true);
           if (!vertices) continue;
           // Split crossing lobes before clipping so translucent regions never double-paint.
@@ -429,9 +433,8 @@ export class PineLinePrimitive implements ISeriesPrimitive {
         }
       }
       for (const plot of this.plots) {
-        if ((plot.behindChart !== false) !== behind) continue;
         for (const line of plot.drawing!.lines) {
-          if (!visible(line)) continue;
+          if (drawingBehind(plot, line) !== behind || !visible(line)) continue;
           const l1 = this.logical(plot, line, line.x1!), l2 = this.logical(plot, line, line.x2!);
           if (l1 === null || l2 === null) continue;
           const x1 = this.coordinate(l1), x2 = this.coordinate(l2);
@@ -470,12 +473,11 @@ export class PineLinePrimitive implements ISeriesPrimitive {
         }
       }
       for (const plot of this.plots) {
-        if ((plot.behindChart !== false) !== behind) continue;
-        for (const box of plot.drawing!.boxes ?? []) this.drawBox(plot, box, ctx, width, height);
+        for (const box of plot.drawing!.boxes ?? []) if (drawingBehind(plot, box) === behind) this.drawBox(plot, box, ctx, width, height);
       }
       for (const plot of this.plots) {
-        if ((plot.behindChart !== false) !== behind) continue;
         for (const label of plot.drawing!.labels ?? []) {
+          if (drawingBehind(plot, label) !== behind) continue;
           const layout = this.labelLayout(label), position = this.labelAnchor(plot, label);
           if (!layout || !position || position.x + layout.bounds.right <= 0 || position.x + layout.bounds.left >= width
             || position.y + layout.bounds.bottom <= 0 || position.y + layout.bounds.top >= height) continue;
