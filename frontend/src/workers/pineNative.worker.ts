@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../lib/pineHigherTimeframe";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
@@ -76,11 +77,12 @@ function displayName(source: string, declaration: string): string {
   return `Pine ${declaration}`;
 }
 function normalizeSymbol(symbol: string): string { return symbol.toUpperCase(); }
-function chartProvider(request: PineRequest) {
+function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>()) {
   const context = request.context!;
   const timeframe = canonicalPineTimeframe(context.timeframe);
   let failure: PineProtocolError | undefined;
-  let calls = 0;
+  let calls = 0, requestedBars = 0, retainedSlots = 0;
+  const notices: string[] = [];
   const reject = (symbol: string, tf?: string) => {
     failure ??= new PineProtocolError("UNAVAILABLE_DATA", `Only loaded ${context.symbol} ${context.timeframe} chart data is available; requested ${symbol}${tf ? ` ${tf}` : ""}.`);
   };
@@ -100,15 +102,32 @@ function chartProvider(request: PineRequest) {
     recommendations_buy: 0, recommendations_buy_strong: 0, recommendations_date: 0, recommendations_hold: 0, recommendations_sell: 0, recommendations_sell_strong: 0, recommendations_total: 0,
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
   };
+  const snapshots = new Map<string, Kline[]>([[timeframe, candles]]);
+  const dataFor = (tf: string): Kline[] => {
+    const existing = snapshots.get(tf);
+    if (existing) return existing;
+    if (realtime) { reject(symbol, tf); throw failure!; }
+    const duration = pineHigherTimeframeDuration(tf)!;
+    const data = aggregatePineHigherTimeframe(request.bars!, timeframe, tf).map(bar => ({ ...candle(bar), closeTime: (bar.time + duration) * 1000 }));
+    if (data.length * duration / pineHigherTimeframeDuration(timeframe)! < request.bars!.length) {
+      notices.push(`Requested ${tf} values use complete loaded candles; partial or missing groups are omitted.`);
+    }
+    snapshots.set(tf, data);
+    return data;
+  };
   const provider: IProvider = {
     configure() { /* Owned chart snapshots only, with no credentials or network. */ },
     async getMarketData(requestedSymbol, requestedTimeframe, limit, start, end) {
-      if (++calls > 64) error("REQUEST_LIMIT", "Pine requested too many data snapshots.");
+      if (++calls > 64) { failure ??= new PineProtocolError("REQUEST_LIMIT", "Pine requested too many data snapshots."); return []; }
       let tf: string;
       try { tf = canonicalPineTimeframe(requestedTimeframe); } catch { reject(requestedSymbol, requestedTimeframe); return []; }
-      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol) || tf !== timeframe) { reject(requestedSymbol, requestedTimeframe); return []; }
-      let result = candles.filter((bar) => (start === undefined || bar.openTime >= start) && (end === undefined || bar.openTime <= end));
-      if (limit !== undefined) result = result.slice(-Math.min(candles.length, Math.max(0, Math.floor(limit))));
+      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol)) { reject(requestedSymbol, requestedTimeframe); return []; }
+      let data: Kline[];
+      try { data = dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; return []; }
+      let result = data.filter((bar) => (start === undefined || bar.openTime >= start) && (end === undefined || bar.openTime <= end));
+      if (limit !== undefined) result = result.slice(-Math.min(data.length, Math.max(0, Math.floor(limit))));
+      requestedBars += result.length;
+      if (requestedBars > PINE_LIMITS.points) { failure ??= new PineProtocolError("REQUEST_LIMIT", "Pine requested too much secondary candle history."); return []; }
       return result.map((bar) => ({ ...bar }));
     },
     async getSymbolInfo(requestedSymbol) {
@@ -116,22 +135,50 @@ function chartProvider(request: PineRequest) {
       return { ...info };
     },
   };
-  // Native request shortcuts must validate the original full identity before decoding it.
-  // An immutable provider-owned callback is captured by every request namespace factory.
-  Object.defineProperty(provider, "_edgelabRequestContext", { value: (requestedSymbol: unknown, requestedTimeframe: unknown) => {
-    const requested = requestedSymbol === "" ? symbol : requestedSymbol;
-    const rawTimeframe = requestedTimeframe === "" ? context.timeframe : String(requestedTimeframe ?? "");
-    let tf: string | undefined;
-    try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Unavailable context, including invalid timeframes. */ }
-    if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol) || tf !== timeframe) {
-      reject(String(requested), rawTimeframe);
-      throw failure!;
-    }
-    return { symbol, timeframe };
-  } });
+  // The provider owns immutable policies, captured before executing any authored script.
+  Object.defineProperties(provider, {
+    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: Context & { _edgelabEnclosingExpression?: string; _edgelabRequestDependencies?: readonly string[] }, expressionName: string) => {
+      const rawTimeframe = String(requestedTimeframe ?? "");
+      let tf: string | undefined;
+      try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
+      if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol) || !tf
+        || (kind === "security_lower_tf" && tf !== timeframe)) {
+        reject(String(requested), rawTimeframe); throw failure!;
+      }
+      const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
+        ?? parent.strategy?.config?.dynamic_requests ?? parent.pineVersion === 6;
+      if (parent.isSecondaryContext && dynamic === false && parent._edgelabEnclosingExpression !== expressionName && parent._edgelabRequestDependencies?.includes(expressionName.match(/p\d+$/)?.[0] ?? expressionName)) {
+        error("UNSUPPORTED_REQUEST_EXPRESSION", "Nested requests with dynamic_requests=false are unavailable. Use dynamic_requests=true for nested timeframe calculations.");
+      }
+      try { dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
+      return { symbol, timeframe: tf };
+    } },
+    _edgelabRunRequest: { value: async (engine: PineTS, slice: Function | undefined, parent: Context & { _edgelabRequestDepth?: number; _ltfTruncatedBodies?: object }, expressionName: string) => {
+      if (!slice) error("UNSUPPORTED_REQUEST_EXPRESSION", "This requested expression cannot be isolated safely by the Pine compiler.");
+      const depth = (parent._edgelabRequestDepth ?? 0) + 1;
+      if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
+      const prepared = { fn: slice } as PreparedScript;
+      bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, false, context.quantityStep);
+      const bound = prepared.fn;
+      const fn = (child: Context) => {
+        Object.assign(child, { _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
+        return bound(child);
+      };
+      Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
+      engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
+      const child = await engine.runPretranspiled(fn, parent.inputs);
+      for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
+        for (const scope of [owner.const, owner.var, owner.varip, owner.let, owner.params]) {
+          for (const value of Object.values(scope ?? {})) retainedSlots += Array.isArray(value) ? value.length : (value as { data?: unknown[] })?.data?.length ?? 0;
+        }
+      }
+      if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much secondary series history.");
+      return child;
+    } },
+  });
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
   return {
-    provider,
+    provider, notices,
     unavailable: () => failure,
     reset() { calls = 0; failure = undefined; },
     update(bar: Candle, append: boolean) {
@@ -797,7 +844,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
   const encounteredAlerts = new Set<string>();
   bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts, false, request.context?.quantityStep);
-  const local = chartProvider(request);
+  const local = chartProvider(request, false, encounteredAlerts);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
   engine.setMaxLoops(PINE_LIMITS.loops);
   engine.setTimezone("UTC");
@@ -810,6 +857,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();
+  context.warnings.push(...local.notices.map(message => ({ message, method: "request.security", bar: 0 })));
   return executionResult(request, descriptor, inputs, context, encounteredAlerts, started);
 }
 
@@ -873,7 +921,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           if (declaration !== "indicator") error("LIVE_STRATEGY_UNAVAILABLE", "Persistent realtime execution is available only for indicators; strategy tick scheduling is unavailable.");
           const alerts = new Set<string>();
           bindClosedSnapshot(prepared, false, alerts, true, request.context?.quantityStep);
-          const local = chartProvider(request);
+          const local = chartProvider(request, true, alerts);
           const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
           engine.setMaxLoops(PINE_LIMITS.loops);
           engine.setTimezone("UTC");

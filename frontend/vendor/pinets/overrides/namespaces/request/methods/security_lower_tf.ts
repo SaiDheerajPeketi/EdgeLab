@@ -292,7 +292,7 @@ export function security_lower_tf(context: any) {
         let rawSymbol = symbolSlot instanceof Series ? symbolSlot.get(0) : symbolSlot;
         let rawTimeframe = timeframeSlot instanceof Series ? timeframeSlot.get(0) : timeframeSlot;
         if (typeof validateRequest === 'function') {
-            const owned = validateRequest(rawSymbol, rawTimeframe);
+            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security_lower_tf', context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression));
             rawSymbol = owned.symbol;
             rawTimeframe = owned.timeframe;
         }

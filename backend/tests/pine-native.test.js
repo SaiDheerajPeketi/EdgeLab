@@ -86,12 +86,12 @@ test("native strategy preserves open positions and last-bar pending orders", asy
   assert.equal(result.strategy.pendingOrders[0].time, bars[5].time);
 });
 
-test("security can use loaded chart data and rejects other symbol or timeframe", async () => {
+test("security can use loaded chart data and rejects other symbols or unavailable calendar data", async () => {
   const security = (symbol, tf) => `//@version=6\nindicator("Security")\nplot(request.security("${symbol}","${tf}",close),"Close")`;
   const same = await pine.executePineRequest(request({ source: security("TEST", "1") }));
   assert.deepEqual(same.plots[0].points.map((point) => point.value), bars.map((bar) => bar.close));
   await assert.rejects(pine.executePineRequest(request({ source: security("OTHER", "1") })), fails("UNAVAILABLE_DATA"));
-  await assert.rejects(pine.executePineRequest(request({ source: security("TEST", "60") })), fails("UNAVAILABLE_DATA"));
+  await assert.rejects(pine.executePineRequest(request({ source: security("TEST", "1D") })), fails("UNAVAILABLE_DATA"));
 });
 
 test("native loop protection and compiler errors are explicit", async () => {

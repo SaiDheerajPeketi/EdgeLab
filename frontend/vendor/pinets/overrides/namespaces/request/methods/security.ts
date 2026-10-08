@@ -108,6 +108,7 @@ function resolveExprValue(v: any): any {
 export function security(context: any) {
     // Capture the host policy before user execution. Never infer identity from a stripped ticker.
     const validateRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestContext')?.value;
+    const runRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRunRequest')?.value;
     return async (...rawArgs: any[]) => {
         // Pine named-arg semantics: bind to the function's known signature by name,
         // not by position. The transpiler emits a trailing options object; we let
@@ -136,7 +137,7 @@ export function security(context: any) {
         let rawSymbol = symbolSlot instanceof Series ? symbolSlot.get(0) : symbolSlot;
         let rawTimeframe = timeframeSlot instanceof Series ? timeframeSlot.get(0) : timeframeSlot;
         if (typeof validateRequest === 'function') {
-            const owned = validateRequest(rawSymbol, rawTimeframe);
+            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security', context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression));
             rawSymbol = owned.symbol;
             rawTimeframe = owned.timeframe;
         }
@@ -150,7 +151,7 @@ export function security(context: any) {
         // An encoded tickerid (ticker.new / ticker.modify with a session or adjustment) is requested
         // as its symbol.
         const resolvedSymbol = plainTickerId(rawSymbol === '' ? context.tickerId : rawSymbol);
-        const _symbol = typeof resolvedSymbol === 'string' && resolvedSymbol.includes(':') ? resolvedSymbol.split(':')[1] : resolvedSymbol;
+        const _symbol = validateRequest ? rawSymbol : (typeof resolvedSymbol === 'string' && resolvedSymbol.includes(':') ? resolvedSymbol.split(':')[1] : resolvedSymbol);
         // Empty string "" means "use chart's timeframe" (Pine Script spec)
         const _timeframe = rawTimeframe === '' ? context.timeframe : (typeof rawTimeframe === 'string' ? rawTimeframe : String(rawTimeframe ?? ''));
         const _expression = expressionSlot;
@@ -175,7 +176,7 @@ export function security(context: any) {
         // CRITICAL: Prevent infinite recursion in secondary contexts
         // If this is a secondary context (created by another request.security),
         // just return the expression value directly without creating another context
-        if (context.isSecondaryContext) {
+        if (context.isSecondaryContext && !validateRequest) {
             const resolved = resolveExprValue(_expression);
             return Array.isArray(resolved) ? [resolved] : resolved;
         }
@@ -201,7 +202,7 @@ export function security(context: any) {
         // secondary context, and vice versa on a standard chart.
         const reqParts = typeof _symbol === 'string' ? splitTickerModifier(_symbol) : { symbol: _symbol, modifier: null };
         const reqModifier = reqParts.modifier === 'standard' ? null : reqParts.modifier; // ";standard" ≡ no modifier
-        const isSameSymbol = !_symbol || _symbol === '' || (reqParts.symbol === ctxParts.symbol && reqModifier === chartModifier);
+        const isSameSymbol = validateRequest ? _symbol === context.tickerId : (!_symbol || _symbol === '' || (reqParts.symbol === ctxParts.symbol && reqModifier === chartModifier));
 
         // Same length is not enough: "7D" bars follow the yearly day grid, "W" bars start on Mondays.
         const isSameTimeframe = formatTimeframe(ctxTimeframe) === formatTimeframe(reqTimeframe);
@@ -210,6 +211,34 @@ export function security(context: any) {
             // in the expression that haven't been extracted to their primitive values yet.
             const resolved = resolveExprValue(_expression);
             return Array.isArray(resolved) ? [resolved] : resolved;
+        }
+
+        if (typeof runRequest === 'function') {
+            // Owned closed snapshots use complete higher candles, never a wall-clock realtime heuristic.
+            const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}`;
+            let secondary = context.cache[key];
+            if (!secondary) {
+                const sliceKey = String(_expression_name).match(/p\d+$/)?.[0] ?? _expression_name;
+                const slice = context._ltfTruncatedBodies?.[sliceKey];
+                const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
+                engine.markAsSecondary();
+                secondary = await runRequest(engine, slice, context, _expression_name);
+                context.cache[key] = secondary;
+            }
+            const opens = secondary.data.openTime.data, closes = secondary.data.closeTime.data;
+            const chartOpen = Series.from(context.data.openTime).get(0);
+            const chartClose = Series.from(context.data.closeTime).get(0);
+            const times = _lookahead ? opens : closes;
+            const boundary = _lookahead ? chartOpen : chartClose;
+            let low = 0, high = times.length;
+            while (low < high) {
+                const middle = (low + high) >>> 1;
+                if (times[middle] <= boundary) low = middle + 1; else high = middle;
+            }
+            const index = low - 1;
+            if (index < 0 || (_gaps && (_lookahead ? opens[index] !== chartOpen : !(chartOpen < closes[index] && closes[index] <= chartClose)))) return NaN;
+            const value = secondary.params[_expression_name]?.[index];
+            return Array.isArray(value) ? [value] : value;
         }
 
         const isLTF = ctxSeconds > reqSeconds;

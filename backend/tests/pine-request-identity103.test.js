@@ -62,9 +62,9 @@ test("cross-exchange aliases and same/lower/higher requests all fail unavailable
   }
 });
 
-test("same symbol higher/lower data is unavailable without an owned additional snapshot", async () => {
+test("lower-timeframe and calendar data remain unavailable without an owned snapshot", async () => {
   for (const version of [5, 6]) {
-    for (const timeframe of ['"30S"', '"5"', '"D"'])
+    for (const timeframe of ['"30S"', '"D"'])
       await assert.rejects(execute(security('"CHART:TEST"', timeframe), { version }), failure);
   }
 });
@@ -78,7 +78,7 @@ test("native saved input IDs preserve selection and reject mismatched overrides"
     const saved = JSON.parse(JSON.stringify({ in_0: "CHART:TEST", in_1: "1" }));
     const same = await execute(body, { version, inputs: saved });
     assert.deepEqual(same.inputs, saved); assert.deepEqual(values(same), closes);
-    for (const inputs of [{ ...saved, in_0: "OTHER:TEST" }, { ...saved, in_1: "5" }])
+    for (const inputs of [{ ...saved, in_0: "OTHER:TEST" }, { ...saved, in_1: "D" }])
       await assert.rejects(execute(body, { version, inputs }), failure);
   }
 });

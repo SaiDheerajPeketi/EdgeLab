@@ -533,3 +533,61 @@ test("production request identity103 rejects unavailable contexts without substi
   await expect(page.locator("#parent-secret")).toHaveText("Parent workspace secret");
   await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
 });
+
+test("production higher timeframe104 evaluates remote candles inputs and historical merge events", async ({ page, harness }) => {
+  const snapshot = Array.from({ length: 12 }, (_, index) => ({
+    time: 1_700_000_100 + index * 60, open: 9 + index, high: 12 + index, low: 8 + index, close: 10 + index, volume: 100 + index,
+  }));
+  expect(snapshot[0].time % 900).toBe(0);
+  const context = { symbol: "CHART:TEST", timeframe: "1", mintick: 0.01, pointvalue: 1 };
+  // Hand-calculated 3-minute closes are 12,15,18,21; length3 SMA is 15,18.
+  const expected = {
+    Close: [null, null, 12, 12, 12, 15, 15, 15, 18, 18, 18, 21],
+    SMA: [null, null, null, null, null, null, null, null, 15, 15, 15, 18],
+    Previous: [null, null, null, 12, 12, 12, 15, 15, 15, 18, 18, 18],
+    Gaps: [null, null, 12, null, null, 15, null, null, 18, null, null, 21],
+  };
+  for (const version of [5, 6] as const) {
+    const body = 'length=input.int(2,"Remote length",minval=1,maxval=10)\n' +
+      'plot(request.security("CHART:TEST","3",close),"Close")\n' +
+      'plot(request.security("CHART:TEST","3",ta.sma(close,length)),"SMA")\n' +
+      'plot(request.security("CHART:TEST","3",close[1],lookahead=barmerge.lookahead_on),"Previous")\n' +
+      'plot(request.security("CHART:TEST","3",close,gaps=barmerge.gaps_on),"Gaps")';
+    const source = `//@version=${version}\nindicator("Production higher104")\n${body}`;
+    const request = { ...runtimeRequest(source), bars: snapshot, context, inputs: { in_0: 3 } };
+    const prepared = await run(page, { ...request, action: "prepare" });
+    expect(prepared.ok, JSON.stringify(prepared.error)).toBe(true);
+    expect(prepared.value.source).toBe(source);
+    expect(prepared.value.inputDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "in_0", type: "int", defval: 2, title: "Remote length" }),
+    ]));
+    const savedInputs = JSON.parse(JSON.stringify(request.inputs));
+    const output = await run(page, { ...request, inputs: savedInputs });
+    expect(output.ok, JSON.stringify(output.error)).toBe(true);
+    expect(output.value.source).toBe(source);
+    expect(output.value.inputs).toEqual(savedInputs);
+    for (const [name, numbers] of Object.entries(expected))
+      expect(output.value.plots.find((plot: any) => plot.name === name).points.map((point: any) => point.value)).toEqual(numbers);
+    const failures = [
+      { body: 'plot(request.security("OTHER:TEST","3",close))', code: "UNAVAILABLE_DATA", declaration: 'indicator("Foreign higher104")' },
+      { body: 'plot(request.security(ticker.heikinashi(syminfo.tickerid),"3",close))', code: "UNAVAILABLE_DATA", declaration: 'indicator("Nonstandard higher104")' },
+      { body: 'inner=request.security("","",timeframe.period=="1"?1:15)\nplot(request.security("CHART:TEST","3",inner))',
+        code: "UNSUPPORTED_REQUEST_EXPRESSION", declaration: 'indicator("Static higher104",dynamic_requests=false)' },
+    ];
+    for (const failure of failures) {
+      const failedSource = `//@version=${version}\n${failure.declaration}\n${failure.body}`;
+      const outcome = await run(page, { ...runtimeRequest(failedSource), bars: snapshot, context });
+      expect(outcome.ok).toBe(false);
+      expect(outcome.error?.code, JSON.stringify(outcome.error)).toBe(failure.code);
+      expect(outcome.value).toBeUndefined();
+    }
+    const ordinary = `//@version=${version}\nindicator("Ordinary after higher104")\nplot(close,"Close")`;
+    const followUp = await run(page, { ...runtimeRequest(ordinary), bars: snapshot, context });
+    expect(followUp.ok, JSON.stringify(followUp.error)).toBe(true);
+    expect(followUp.value.plots.find((plot: any) => plot.name === "Close").points.map((point: any) => point.value))
+      .toEqual(snapshot.map(bar => bar.close));
+  }
+  expect(harness.assetRequests).toContain(harness.workerPath);
+  expect(harness.endpointRequests).toEqual([]);
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+});
