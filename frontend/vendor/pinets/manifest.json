@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-bar-magnifier-115",
+  "patch": "edgelab-line-drawings-121",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "2effed8cc2729b0dd8e9d97997460a4c75631946d6468db862f39c493605eb88"
+      "sha256": "303e3399048018b2f066e5b09f9ccfbdf1945ceedeace6b5b1a99fcabfe687e8"
     },
     {
       "source": "src/namespaces/Barstate.ts",

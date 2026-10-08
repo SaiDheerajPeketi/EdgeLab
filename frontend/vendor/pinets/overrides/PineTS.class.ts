@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: explicit realtime rollback and chart-owned historical intrabar fill scheduling.
+// EdgeLab modification, 2026-10-09: explicit realtime rollback and chart-owned historical intrabar fill scheduling.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only. Upstream notices retained below.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
@@ -14,6 +14,8 @@ import { PineMatrixObject } from './namespaces/matrix/PineMatrixObject';
 import { PineTypeObject } from './namespaces/PineTypeObject';
 import { ChartPointObject } from './namespaces/chart/ChartPointObject';
 import { Indicator } from './Indicator';
+import { LineObject } from './namespaces/line/LineObject';
+import { LineHelper } from './namespaces/line/LineHelper';
 import { processHistoricalFillBar, processStrategyOrders, processOrdersOnClose, processExitOrders, processMarginCall, finalizeStrategyBar, finalizeStrategyRun, isAdverseFirstBar, applyPendingCloseMarginCall, snapshotStrategyState, restoreStrategyState } from './namespaces/strategy/utils';
 
 import { parseTimeframe, timeframeSeconds } from './timeframe';
@@ -57,11 +59,18 @@ function* realtimeRoots(context: any, varipOnly = false): Generator<any> {
             const item = container[kind][key];
             if (item instanceof Series) yield* item.data;
         }
-    if (!varipOnly) { yield context.taState; yield context.cache; }
+    if (!varipOnly) {
+        yield context.taState; yield context.cache;
+        // Drawing objects remain active even when their creation result is discarded.
+        // Only the known line payload list is a root; never traverse helper/context closures.
+        for (const helper of context._drawingHelpers ?? [])
+            if (helper instanceof LineHelper) yield (helper as any)._lines;
+    }
 }
 const realtimePayload = (value: any): any => value instanceof PineArrayObject ? value.array
     : value instanceof PineMapObject ? value.map : value instanceof PineMatrixObject ? value.matrix : value;
 function realtimeFields(value: any): readonly string[] | null {
+    if (value instanceof LineObject) return ['x1', 'y1', 'x2', 'y2', 'xloc', 'extend', 'color', 'style', 'width', 'force_overlay', '_deleted', '_createdAtBar'];
     if (!(value instanceof PineTypeObject)) return null;
     return value._udt?._definitionKeys ?? Object.keys(value.__def__);
 }
@@ -1243,10 +1252,15 @@ export class PineTS {
         }
         (context as any)._captureRealtimeObject = graph.capture;
         const plots = new Map(Object.entries(context.plots).map(([key, plot]: [string, any]) => [key, { plot, length: plot.data.length }]));
-        return { scopes, graph, plots, result: this._getResultLength(context.result), data: context.data.close.data.length };
+        // syncToPlot compacts by replacing its backing array. Retain that root's
+        // identity so rollback can restore deleted/evicted objects as well as setters.
+        const lineRoots = new Map(context._drawingHelpers.filter(helper => helper instanceof LineHelper)
+            .map(helper => [helper, (helper as any)._lines]));
+        return { scopes, graph, plots, lineRoots, result: this._getResultLength(context.result), data: context.data.close.data.length };
     }
 
     private _restoreRealtimeSnapshot(context: Context, snapshot: any) {
+        for (const [helper, lines] of snapshot.lineRoots ?? []) (helper as any)._lines = lines;
         snapshot.graph.restore();
         for (const container of [context, ...context.lctx.values()]) {
             const state = snapshot.scopes.get(container);

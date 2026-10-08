@@ -9,7 +9,7 @@ import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineDiagnostic, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -292,12 +292,52 @@ export function normalizePinePlotValue(value: unknown): PinePlot["points"][numbe
   return scalar;
 }
 
+/** Drawing channels contain one current object snapshot, not historical plot samples. */
+function lineResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly Candle[]): PineLineDrawing[] {
+  const lines: PineLineDrawing[] = [];
+  const extendsById: Record<string, PineLineDrawing["extend"]> = { n: "none", l: "left", r: "right", b: "both", none: "none", left: "left", right: "right", both: "both" };
+  const supportedStyles = new Set(["solid", "dashed", "dotted", "arrow_left", "arrow_right", "arrow_both"]);
+  let omitted = false, count = 0;
+  for (const value of Object.values(raw)) {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (plot.options?.style !== "drawing_line") continue;
+    const snapshot = plot.data?.at(-1)?.value;
+    if (!Array.isArray(snapshot)) error("UNSUPPORTED_RESULT", "Native line drawings require a final object snapshot.");
+    count += snapshot.length;
+    if (count > PINE_LIMITS.lines) error("DRAWING_LIMIT", "Pine output exceeds 500 active line drawings.");
+    for (const item of snapshot) {
+      const line = item as Record<string, unknown>;
+      if (!line || typeof line !== "object") error("UNSUPPORTED_RESULT", "Invalid native line drawing.");
+      if (line._deleted === true) continue;
+      const xloc = line.xloc === "bi" ? "bar_index" : line.xloc === "bt" ? "bar_time" : undefined;
+      const extend = extendsById[String(line.extend)];
+      const style = String(line.style).replace(/^style_/, "");
+      const width = line.width;
+      if (!xloc || !extend || !supportedStyles.has(style) || typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > 16) { omitted = true; continue; }
+      const coordinate = (key: string) => {
+        const val = line[key];
+        if (val == null || typeof val === "number" && Number.isNaN(val)) return null;
+        if (typeof val !== "number" || !Number.isFinite(val)) error("UNSUPPORTED_RESULT", "Invalid native line coordinate.");
+        return key.startsWith("x") && xloc === "bar_time" ? val / 1000 : val;
+      };
+      const x1 = coordinate("x1"), x2 = coordinate("x2");
+      if ([x1, x2].some(x => x !== null && (xloc === "bar_index" ? !Number.isSafeInteger(x) || x < -10000 || x > bars.length - 1 + 500 : x < 0 || x > 253402300799 || !Number.isSafeInteger(x * 1000)))) { omitted = true; continue; }
+      const shade = line.color === "" || line.color === undefined ? "#2962FF" : plainScalar(line.color);
+      if (shade !== null && (typeof shade !== "string" || !/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade))) { omitted = true; continue; }
+      lines.push({ id: `line:${String(line.id)}`, x1, y1: coordinate("y1"), x2, y2: coordinate("y2"), xloc, extend,
+        color: shade as string | null, style: style as PineLineDrawing["style"], width, overlay: overlay || line.force_overlay === true });
+    }
+  }
+  if (omitted) diagnostics.push(warning("UNSUPPORTED_LINE_SETTING", "Some line drawings use unsupported coordinates, colors, styles or widths. Widths from 1 to 16 pixels are rendered; omitted lines are not replaced."));
+  return lines;
+}
+
 function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly { time: number }[]): { plots: PinePlot[] } | { plots: PinePackedPlot[]; buffers: ArrayBuffer[] } {
   const drawings = new Set(["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"]);
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
     if (!drawings.has(plot.options?.style ?? "")) return true;
-    if (plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    if (plot.options?.style !== "drawing_line" && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
   if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
@@ -1019,8 +1059,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   }
   const properties = context.strategy?.config ?? context.indicator;
   const overlay = properties?.overlay === true;
+  const lines = lineResults(context.plots, overlay, diagnostics, request.bars!);
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 
