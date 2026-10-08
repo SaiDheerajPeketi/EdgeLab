@@ -3,6 +3,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 import binascii
 import json
 import logging
+import math
 import os
 import re
 from secrets import compare_digest, token_urlsafe
@@ -874,6 +875,20 @@ def fetch_google_userinfo(access_token: str) -> dict[str, object]:
     email = clean_text(result.get("email")) if isinstance(result, dict) else ""
     if not email or result.get("email_verified") is not True or not valid_google_subject(result.get("sub")):
         raise HTTPException(status_code=502, detail="Google userinfo requires a verified email and stable subject")
+    return result
+
+
+def binance_symbol_filter_metadata(value: object) -> dict[str, float | None]:
+    fields = {"tick_size": ("PRICE_FILTER", "tickSize"),
+              "min_quantity": ("LOT_SIZE", "minQty"),
+              "quantity_step": ("LOT_SIZE", "stepSize")}
+    filters = value if isinstance(value, list) else []
+    result: dict[str, float | None] = {}
+    for key, (kind, field) in fields.items():
+        matches = [item for item in filters if isinstance(item, dict) and item.get("filterType") == kind]
+        raw = matches[0].get(field) if len(matches) == 1 else None
+        number = clean_float(raw) if isinstance(raw, (str, int, float)) and not isinstance(raw, bool) else None
+        result[key] = number if number is not None and math.isfinite(number) and 1e-10 <= number <= 1e9 else None
     return result
 
 
@@ -2823,6 +2838,7 @@ def binance_instruments(
                 base_asset=base_asset,
                 quote_asset=quote_asset,
                 status=status,
+                **binance_symbol_filter_metadata(raw_payload.get("filters")),
             )
         )
 

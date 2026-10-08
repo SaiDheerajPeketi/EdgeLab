@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-strategy-full-percent-68",
+  "patch": "edgelab-instrument-quantities-69",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -74,7 +74,7 @@
       "source": "src/namespaces/strategy/utils.ts",
       "file": "overrides/namespaces/strategy/utils.ts",
       "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
-      "sha256": "21f90f53ae82fba00948315b613c05bccf15e3e5dbc3eda2c55d95f816d1b278"
+      "sha256": "2d7aeb629ec5842756fcf7d08c58b97216c82def5e7467ed2aa4253f439f57af"
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",

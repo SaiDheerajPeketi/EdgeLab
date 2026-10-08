@@ -17,7 +17,7 @@ export type PineStrategySettings = {
   default_qty_value?: number; commission_type?: "percent" | "cash_per_contract" | "cash_per_order";
   commission_value?: number; slippage?: number; pyramiding?: number; process_orders_on_close?: boolean;
 };
-export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number };
+export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number; mincontract?: number; quantityStep?: number; currency?: string; basecurrency?: string };
 export type PineRequest = {
   id: string; action: "prepare" | "run"; source: string; bars?: Candle[];
   strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext;
@@ -117,6 +117,17 @@ export function canonicalPineTimeframe(timeframe: string): string {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1440 || (match[2] === "S" && ![1, 5, 10, 15, 30, 45].includes(amount))) fail("Invalid Pine timeframe.", "INVALID_CONTEXT");
   return `${amount}${match[2] ?? ""}`;
 }
+function decimalPlaces(value: number): number {
+  const [coefficient, exponent = "0"] = value.toString().toLowerCase().split("e");
+  return Math.max(0, (coefficient.split(".")[1]?.length ?? 0) - Number(exponent));
+}
+export function pineTickRepresentation(tick: number): { minmove: number; pricescale: number } {
+  const pricescale = 10 ** decimalPlaces(tick), minmove = Math.round(tick * pricescale);
+  if (!Number.isSafeInteger(pricescale) || !Number.isSafeInteger(minmove) || minmove <= 0 || minmove / pricescale !== tick) {
+    fail("Chart price tick exceeds supported decimal precision.", "INVALID_CONTEXT");
+  }
+  return { minmove, pricescale };
+}
 export function validatePineBar(value: unknown): Candle {
   const bar = record(value);
   const time = finite(bar.time), open = finite(bar.open), high = finite(bar.high), low = finite(bar.low), close = finite(bar.close), volume = finite(bar.volume);
@@ -142,10 +153,17 @@ export function validatePineRequest(value: unknown): PineRequest {
     if (!/^[A-Za-z0-9_.:/!-]+$/.test(symbol)) fail("A valid chart symbol is required.", "INVALID_CONTEXT");
     canonicalPineTimeframe(timeframe);
     context = { symbol, timeframe };
-    for (const key of ["mintick", "pointvalue"] as const) if (ctx[key] !== undefined) {
+    for (const key of ["mintick", "pointvalue", "mincontract", "quantityStep"] as const) if (ctx[key] !== undefined) {
       const val = finite(ctx[key]);
       if (val <= 0) fail(`Chart ${key} must be positive.`, "INVALID_CONTEXT");
+      if ((key === "mincontract" || key === "quantityStep") && (val < 1e-10 || val > 1e9)) fail(`Chart ${key} is outside supported quantity bounds.`, "INVALID_CONTEXT");
+      if ((key === "mincontract" || key === "quantityStep") && decimalPlaces(val) > 10) fail(`Chart ${key} supports at most 10 decimal places.`, "INVALID_CONTEXT");
+      if (key === "mintick") pineTickRepresentation(val);
       context[key] = val;
+    }
+    for (const key of ["currency", "basecurrency"] as const) if (ctx[key] !== undefined) {
+      if (typeof ctx[key] !== "string" || !/^[A-Z0-9]{1,16}$/.test(ctx[key])) fail(`Chart ${key} must be a currency code.`, "INVALID_CONTEXT");
+      context[key] = ctx[key];
     }
   }
   let bars: Candle[] | undefined;

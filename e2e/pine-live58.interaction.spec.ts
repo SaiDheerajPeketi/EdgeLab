@@ -332,6 +332,7 @@ test("real Live editor consumes Binance ticks close append and destroys changed 
     socket.onClose(() => { const index = sockets.indexOf(socket); if (index >= 0) sockets.splice(index, 1); });
   });
   const installProviderRoutes = async () => {
+    await page.route("**/api/live/binance/instruments?**", route => route.fulfill({ json: { provider: "binance", instruments: ["BTCUSDT", "ETHUSDT"].map(symbol => ({ symbol, name: symbol, status: "TRADING", asset_class: "crypto", base_asset: symbol.slice(0, -4), quote_asset: "USDT", tick_size: 0.01, min_quantity: 0.00001, quantity_step: 0.00001 })), total: 2 } }));
     await page.route("https://data-api.binance.vision/**", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/klines")) {

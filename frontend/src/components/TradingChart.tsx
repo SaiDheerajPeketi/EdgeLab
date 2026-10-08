@@ -178,7 +178,7 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
-import { isPersistentPineIndicator, isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
+import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
 import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
@@ -188,6 +188,7 @@ import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import { useLivePineRuntime } from "./chart/useLivePineRuntime";
+import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
 import { paneSubscriptionKey } from "../lib/paneSubscriptions";
 
@@ -689,8 +690,9 @@ export function TradingChart({
   const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
   const persistentPineFeed = indicatorRuntimeMode === "live" && chartSettings.tradingHoursMode === "extended"
     && ["crypto-24x7", "always-open"].includes(sessionTemplate.id) ? pineLiveFeed : undefined;
+  const pineInstrument = usePineInstrumentContext(symbol ?? "", timeframe, pineLiveFeed, indicatorInstances.some(indicator => indicator.visible !== false && Boolean(indicator.customScriptSource) && isPineScriptSource(indicator.customScriptSource!)));
   const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, indicators: indicatorInstances,
-    mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, feed: pineLiveFeed,
+    mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, metadataKey: pineInstrument.key, feed: pineLiveFeed,
     feedEpoch: pineLiveFeed?.getSnapshot().epoch, userId: authSession?.user.id, token: authSession?.token };
   // Filter during render: an effect cleanup is too late to prevent old values
   // and notices from being attributed to the newly selected chart/account.
@@ -699,7 +701,8 @@ export function TradingChart({
   const snapshotRuntimeStudies = ownedSnapshot.studies;
   const snapshotRuntimeWarnings = ownedSnapshot.warnings;
   const pineStrategyMarkers = ownedSnapshot.markers;
-  const livePine = useLivePineRuntime({ feed: persistentPineFeed,
+  const livePine = useLivePineRuntime({ feed: persistentPineFeed, context: pineInstrument.context,
+    contextLoading: pineInstrument.loading, contextError: pineInstrument.error, metadataKey: pineInstrument.key,
     timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token,
     onRuntimeState: onIndicatorRuntimeState });
   const livePineAdapted = useMemo(() => livePine.flatMap(study => {
@@ -879,9 +882,11 @@ export function TradingChart({
       if (!snapshot.length) return;
       let job: ReturnType<typeof createCustomScriptRuntimeJob>;
       try {
+        if (nativePine && pineInstrument.loading) return;
+        if (nativePine && pineInstrument.error) throw new Error(pineInstrument.error);
         job = createCustomScriptRuntimeJob({
           bars: snapshot,
-          context: nativePine ? pineContextForChart(symbol ?? "", timeframe) : undefined,
+          context: nativePine ? pineInstrument.context : undefined,
           inputs: indicator.settings.customInputs,
           strategySettings: nativePine ? indicator.settings.pineStrategySettings : undefined,
           mode: indicatorRuntimeMode,
@@ -927,7 +932,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe]);
+  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe, pineInstrument.key, pineInstrument.context, pineInstrument.loading, pineInstrument.error]);
 
   useEffect(() => {
     if (!drawingControlsActive) {

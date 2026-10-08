@@ -1,3 +1,5 @@
+import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
+import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -27,7 +29,6 @@ import {
   DEFAULT_PINE_STRATEGY_SOURCE,
   duplicateCustomIndicator,
   isPineScriptSource,
-  pineContextForChart,
   saveCustomIndicator,
   type CustomIndicatorScript,
 } from "../lib/customIndicators";
@@ -58,6 +59,7 @@ type Props = {
   bars: Candle[];
   symbol: string;
   timeframe: string;
+  pineLiveFeed?: PineLiveFeed;
   onAddToChart: (script: CustomIndicatorScript, inputs: Record<string, EdgeIndicatorInputValue>) => void;
   onClose: () => void;
   onScriptsChange: (scripts: CustomIndicatorScript[]) => void | Promise<unknown>;
@@ -78,6 +80,7 @@ export function IndicatorEditorPanel({
   bars,
   symbol,
   timeframe,
+  pineLiveFeed,
   onAddToChart,
   onClose,
   onScriptsChange,
@@ -103,11 +106,13 @@ export function IndicatorEditorPanel({
   const ownerRef = useRef({ id: getStoredAuthSession()?.user.id ?? null, token: getApiBearerToken() });
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  const contextRef = useRef({ bars, symbol, timeframe, nonce: request.nonce });
-  contextRef.current = { bars, symbol, timeframe, nonce: request.nonce };
   const userScripts = scripts.filter((script) => script.origin === "user");
   const selectedScript = scripts.find((script) => script.id === selectedId) ?? null;
   const pine = isPineScriptSource(source);
+  const pineInstrument = usePineInstrumentContext(symbol, timeframe, pineLiveFeed, pine);
+  const contextRef = useRef({ bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key });
+  contextRef.current = { bars, symbol, timeframe, nonce: request.nonce, metadataKey: pineInstrument.key };
+  const executionOwnerRef = useRef<typeof contextRef.current | null>(null);
   const matchesSelected = Boolean(selectedScript && selectedScript.source === source
     && JSON.stringify(selectedScript.strategySettings ?? {}) === JSON.stringify(strategySettings)
     && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs)
@@ -139,7 +144,7 @@ export function IndicatorEditorPanel({
   function currentContext(snapshot: typeof contextRef.current) {
     const current = contextRef.current;
     return current.bars === snapshot.bars && current.symbol === snapshot.symbol
-      && current.timeframe === snapshot.timeframe && current.nonce === snapshot.nonce;
+      && current.timeframe === snapshot.timeframe && current.nonce === snapshot.nonce && current.metadataKey === snapshot.metadataKey;
   }
 
   function changeSource(next: string, metadata: PinePrepareResult | null = null) {
@@ -174,7 +179,7 @@ export function IndicatorEditorPanel({
   useEffect(() => {
     invalidateExecution();
     return () => { attemptRef.current += 1; runtimeCancelRef.current?.(); };
-  }, [bars, symbol, timeframe]);
+  }, [bars, symbol, timeframe, pineLiveFeed, pineInstrument.key]);
   useEffect(() => {
     const onAuthChange = () => {
       if (currentOwner()) return;
@@ -326,7 +331,9 @@ export function IndicatorEditorPanel({
     const context = contextRef.current;
     let job: ReturnType<typeof createCustomScriptRuntimeJob>;
     try {
-      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs, mode: "historical", source, context: pine ? pineContextForChart(symbol, timeframe) : undefined, strategySettings: pine ? strategySettings : undefined });
+      if (pine && pineInstrument.loading) throw new Error("Instrument details are loading. Try Run again in a moment.");
+      if (pine && pineInstrument.error) throw new Error(pineInstrument.error);
+      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
     } catch (error) {
       setRunState({ detail: error instanceof Error ? error.message : "Script execution failed.", status: "error" }); return;
     }
@@ -340,6 +347,7 @@ export function IndicatorEditorPanel({
         setPrepared({ kind: "prepare", source: result.source, language: result.language,
           pineVersion: result.pineVersion, declaration: result.declaration, name: result.name,
           overlay: result.overlay, behindChart: result.behindChart, inputDefinitions: result.inputDefinitions, diagnostics: result.diagnostics });
+        executionOwnerRef.current = context;
         setExecution(result);
         if (result.declaration !== "strategy") setStrategySettings({});
         setInputs(result.inputs);
@@ -482,7 +490,7 @@ export function IndicatorEditorPanel({
               <h3 className="text-sm font-semibold text-white">Diagnostics</h3>
               <div className="flex flex-wrap gap-1">
               {pine ? <button className="studio-tool-button" disabled={runState.status === "running"} onClick={() => void checkScript()} type="button">Check script</button> : null}
-              <button className="studio-tool-button" disabled={runState.status !== "running" && Boolean(strategySettingsError)} onClick={runState.status === "running" ? () => { invalidateExecution(); setRunState({ detail: "Execution cancelled.", status: "idle" }); } : run} type="button">
+              <button className="studio-tool-button" disabled={runState.status !== "running" && (Boolean(strategySettingsError) || (pine && pineInstrument.loading))} onClick={runState.status === "running" ? () => { invalidateExecution(); setRunState({ detail: "Execution cancelled.", status: "idle" }); } : run} type="button">
                 {runState.status === "running" ? <Square size={12} /> : <Play size={12} />}{runState.status === "running" ? "Cancel" : "Run"}
               </button>
               </div>
@@ -497,7 +505,7 @@ export function IndicatorEditorPanel({
               {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={inputs[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
             {currentPrepared?.declaration === "strategy" ? <PineStrategySettingsControl value={strategySettings} onChange={changeStrategySettings} error={strategySettingsError} /> : null}
-            {execution?.strategy ? <PineStrategyResults result={execution} /> : null}
+            {execution?.strategy && executionOwnerRef.current && currentContext(executionOwnerRef.current) ? <PineStrategyResults result={execution} /> : null}
             <p className="mt-5 text-[11px] leading-5 text-slate-300">Ctrl+Space opens completion. Tab moves between controls. Scripts execute without network, storage or page access.</p>
           </aside>
         </div>

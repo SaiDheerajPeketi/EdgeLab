@@ -5,9 +5,9 @@ import type { ChartIndicatorInstance, ChartTimeframe } from "../../lib/charting"
 import { isPersistentPineIndicator, pineContextForChart } from "../../lib/customIndicators";
 import { pineFeedChartSnapshot, type PineFeedSnapshot, type PineLiveFeed } from "../../lib/pineLiveFeed";
 import { createPineLiveRuntimeSession, type PineLiveRuntimeSession } from "../../lib/pineRuntime";
-import type { PineExecutionResult } from "../../lib/pineProtocol";
+import type { PineContext, PineExecutionResult } from "../../lib/pineProtocol";
 
-type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string };
+type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string };
 export type LivePineStudy = { sourceId: string; owner: Owner; bars: Candle[]; result?: PineExecutionResult; error?: string };
 type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; session?: PineLiveRuntimeSession; failed: boolean };
 function signature(indicator: ChartIndicatorInstance) {
@@ -17,6 +17,10 @@ function signature(indicator: ChartIndicatorInstance) {
 /** Each visible study owns its session; other studies and React batching cannot reset it. */
 export function useLivePineRuntime(options: {
   feed?: PineLiveFeed;
+  context?: PineContext;
+  contextLoading?: boolean;
+  contextError?: string | null;
+  metadataKey?: string;
   timeframe: ChartTimeframe;
   symbol: string;
   indicators: ChartIndicatorInstance[];
@@ -31,13 +35,13 @@ export function useLivePineRuntime(options: {
   useEffect(() => {
     const feed = options.feed;
     setStudies({});
-    if (!feed) return;
+    if (!feed || options.contextLoading) return;
     const entries = new Map<string, Entry>();
     let active = true, epoch = feed.getSnapshot().epoch;
     const ownsContext = () => {
       const current = latest.current, auth = getStoredAuthSession();
       return active && current.feed === feed && current.timeframe === options.timeframe && current.symbol === options.symbol
-        && current.userId === options.userId && current.token === options.token
+        && current.userId === options.userId && current.token === options.token && current.metadataKey === options.metadataKey
         && auth?.user.id === options.userId && auth?.token === options.token;
     };
     const visible = () => latest.current.indicators.filter(indicator => indicator.visible !== false && isPersistentPineIndicator(indicator));
@@ -78,7 +82,7 @@ export function useLivePineRuntime(options: {
         let entry = entries.get(indicator.id);
         if (!entry) {
           const key = signature(indicator);
-          entry = { key, owner: { feed, epoch, timeframe: options.timeframe, symbol: options.symbol, userId: options.userId, token: options.token, key }, sequence: -1, bars: [], failed: false };
+          entry = { key, owner: { feed, epoch, timeframe: options.timeframe, symbol: options.symbol, userId: options.userId, token: options.token, key, metadataKey: options.metadataKey }, sequence: -1, bars: [], failed: false };
           entries.set(indicator.id, entry);
         }
         if (entry.failed) continue;
@@ -86,10 +90,11 @@ export function useLivePineRuntime(options: {
           const chart = pineFeedChartSnapshot(snapshot, options.timeframe);
           if (!chart || !snapshot.event || snapshot.event.sequence <= entry.sequence) continue;
           if (!entry.session) {
+            if (options.contextError) throw new Error(options.contextError);
             if (!chart.history.length) throw new Error("There are no earlier closed candles for this timeframe. Choose a shorter timeframe or load more history.");
             entry.bars = chart.history;
             entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
-              context: pineContextForChart(options.symbol, options.timeframe), bars: chart.history });
+              context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: chart.history });
             const currentEntry = entry, initialBars = entry.bars;
             void entry.session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars))
               .catch(error => report(indicator.id, currentEntry, error));
@@ -111,18 +116,18 @@ export function useLivePineRuntime(options: {
       for (const entry of entries.values()) entry.session?.cancel();
       entries.clear();
     };
-  }, [options.feed, options.timeframe, options.symbol, options.userId, options.token]);
+  }, [options.feed, options.timeframe, options.symbol, options.userId, options.token, options.metadataKey, options.contextLoading, options.contextError]);
   useEffect(() => { reconcile.current?.(); }, [options.indicators]);
   const currentAuth = getStoredAuthSession(), currentEpoch = options.feed?.getSnapshot().epoch;
   return useMemo(() => {
     return Object.values(studies).filter(study => {
       const owner = study.owner;
       return owner.feed === options.feed && owner.epoch === currentEpoch
-        && owner.timeframe === options.timeframe && owner.symbol === options.symbol
+        && owner.timeframe === options.timeframe && owner.symbol === options.symbol && owner.metadataKey === options.metadataKey
         && owner.userId === options.userId && owner.token === options.token
         && currentAuth?.user.id === owner.userId && currentAuth?.token === owner.token
         && options.indicators.some(indicator => indicator.id === study.sourceId && indicator.visible !== false
           && isPersistentPineIndicator(indicator) && signature(indicator) === owner.key);
     });
-  }, [studies, options.feed, currentEpoch, options.timeframe, options.symbol, options.userId, options.token, options.indicators, currentAuth?.user.id, currentAuth?.token]);
+  }, [studies, options.feed, currentEpoch, options.timeframe, options.symbol, options.userId, options.token, options.indicators, options.metadataKey, currentAuth?.user.id, currentAuth?.token]);
 }

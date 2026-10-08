@@ -84,6 +84,9 @@ export type BarsResponse = {
 };
 
 export type BinanceInstrument = {
+  tick_size?: number | null;
+  min_quantity?: number | null;
+  quantity_step?: number | null;
   asset_class: string;
   base_asset: string;
   description: string;
@@ -1413,12 +1416,12 @@ export function getBars(offset = 0, limit = 300, sessionId?: number) {
   return request<BarsResponse>(`/market-data/bars?${query.toString()}`);
 }
 
-export function getBinanceInstruments(search = "", limit = 3000) {
+export function getBinanceInstruments(search = "", limit = 3000, signal?: AbortSignal) {
   const query = new URLSearchParams({ limit: String(limit) });
   if (search.trim()) {
     query.set("search", search.trim());
   }
-  return request<BinanceInstrumentsResponse>(`/live/binance/instruments?${query.toString()}`);
+  return request<BinanceInstrumentsResponse>(`/live/binance/instruments?${query.toString()}`, { signal });
 }
 
 export function getDukascopyInstruments(search = "", limit = 160) {

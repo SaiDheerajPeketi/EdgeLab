@@ -4998,6 +4998,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       </div>
       {indicatorEditorRequest && <Suspense fallback={<div role="status">Loading indicator editor…</div>}>
         <LiveIndicatorEditor bars={editorBars} symbol={editorSymbol} timeframe={activeChartPane.timeframe}
+          pineLiveFeed={!journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? pineLiveFeed : undefined}
           onAddToChart={addCustomIndicator} onClose={() => setIndicatorEditorRequest(null)}
           onScriptsChange={changeCustomIndicatorScripts} request={indicatorEditorRequest} scripts={allCustomIndicatorScripts} />
       </Suspense>}

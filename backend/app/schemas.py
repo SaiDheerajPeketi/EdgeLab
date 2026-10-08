@@ -50,6 +50,9 @@ class BinanceInstrument(BaseModel):
     base_asset: str
     quote_asset: str
     status: str
+    tick_size: float | None = None
+    min_quantity: float | None = None
+    quantity_step: float | None = None
 
 
 class BinanceInstrumentsResponse(BaseModel):

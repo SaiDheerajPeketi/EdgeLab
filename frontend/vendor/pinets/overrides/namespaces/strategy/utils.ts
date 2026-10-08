@@ -157,10 +157,15 @@ export function calculateOrderQty(context: any, specifiedQty: number | undefined
         qtyValue = (qtyValue as Function)();
     }
 
+    const entryQuantity = (quantity: number) => {
+        const floored = floorQty(context, quantity);
+        const minimum = context.pine?.syminfo?.mincontract;
+        return typeof minimum === 'number' && minimum > 0 && floored < minimum * (1 - 1e-10) ? 0 : floored;
+    };
     // Every path (explicit qty, fixed, cash, percent_of_equity) is floored to the symbol's
     // quantity step, as TradingView's broker emulator does. `qty = na` uses the default.
     if (specifiedQty !== undefined && specifiedQty !== null && !Number.isNaN(specifiedQty)) {
-        return floorQty(context, Math.abs(specifiedQty));
+        return entryQuantity(Math.abs(specifiedQty));
     }
 
     let rawQty: number;
@@ -185,7 +190,7 @@ export function calculateOrderQty(context: any, specifiedQty: number | undefined
         default:
             rawQty = qtyValue;
     }
-    return floorQty(context, rawQty);
+    return entryQuantity(rawQty);
 }
 
 /**
@@ -212,6 +217,8 @@ export function limitFillSlack(context: any): number {
  * 0.000001 when the provider does not report one.
  */
 export function qtyStep(context: any): number {
+    const ownedStep = context._edgelabQuantityStep;
+    if (typeof ownedStep === 'number' && Number.isFinite(ownedStep) && ownedStep > 0) return ownedStep;
     const mincontract = context.pine?.syminfo?.mincontract;
     return typeof mincontract === 'number' && mincontract > 0 ? mincontract : 1e-6;
 }
@@ -225,7 +232,8 @@ export function floorQty(context: any, qty: number): number {
     if (!Number.isFinite(qty) || qty <= 0) return 0;
     const step = qtyStep(context);
     const steps = Math.floor((qty / step) * (1 + 1e-10));
-    const decimals = Math.min(10, Math.max(0, Math.ceil(-Math.log10(step))));
+    const [coefficient, exponent = "0"] = step.toString().toLowerCase().split("e");
+    const decimals = Math.min(10, Math.max(0, (coefficient.split(".")[1]?.length ?? 0) - Number(exponent)));
     return Number((steps * step).toFixed(decimals));
 }
 

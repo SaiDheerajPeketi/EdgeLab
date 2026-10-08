@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
-import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, validatePineResponse } from "../lib/pineProtocol";
+import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse } from "../lib/pineProtocol";
 import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
@@ -85,8 +85,8 @@ function chartProvider(request: PineRequest) {
   const candles: Kline[] = request.bars!.map(candle);
   const symbol = context.symbol, ticker = symbol.split(":").slice(-1)[0];
   const info: ISymbolInfo = {
-    current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: "", country: "", currency: "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: 1,
-    minmove: 1, mintick: context.mintick ?? 0.01, pointvalue: context.pointvalue ?? 1, pricescale: 1 / (context.mintick ?? 0.01),
+    current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: context.basecurrency ?? "", country: "", currency: context.currency ?? "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: context.mincontract ?? 1,
+    ...pineTickRepresentation(context.mintick ?? 0.01), mintick: context.mintick ?? 0.01, pointvalue: context.pointvalue ?? 1,
     employees: 0, industry: "", sector: "", shareholders: 0, shares_outstanding_float: 0, shares_outstanding_total: 0, expiration_date: 0,
     recommendations_buy: 0, recommendations_buy_strong: 0, recommendations_date: 0, recommendations_hold: 0, recommendations_sell: 0, recommendations_sell_strong: 0, recommendations_total: 0,
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
@@ -595,7 +595,7 @@ function bindDeclarationLayer(context: Context, strategy: boolean) {
 }
 
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
-function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false) {
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number) {
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
@@ -603,6 +603,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   const barplots = new WeakMap<Context, ReturnType<typeof bindBarPlotOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
+      if (quantityStep !== undefined) Object.defineProperty(context, "_edgelabQuantityStep", { value: quantityStep });
       bindDeclarationLayer(context, strategyDeclaration);
       bindPlotOptions(context);
       barplots.set(context, bindBarPlotOptions(context));
@@ -712,7 +713,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request);
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
   const encounteredAlerts = new Set<string>();
-  bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts);
+  bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts, false, request.context?.quantityStep);
   const local = chartProvider(request);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -732,12 +733,13 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
 function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false): PineExecutionResult {
   const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
     warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
-      ? "Execution processes the received chart updates with UTC, a 24x7 session and USD currency. Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
-      : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable."),
+      ? "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
+      : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and the supplied quote currency (USD when omitted); exchange sessions, tick history and additional market data are unavailable."),
     ...(realtime ? [warning("REALTIME_STATE_BOUNDS", "Realtime execution retains at most 20,000 bars and bounded rollback state: 16,384 payload nodes, 262,144 mutable cells and 1,280,000 scoped Series slots. Exceeding a limit halts the session; these are not whole-engine heap limits.")] : []),
   ];
   if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));
-  if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
+  if (request.context!.mintick === undefined || request.context!.pointvalue === undefined || request.context!.mincontract === undefined || request.context!.quantityStep === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Unsupplied instrument details default to a price tick of 0.01, value per point of 1 and minimum quantity of 1; an omitted quantity increment uses the minimum. These assumptions can change fills and results."));
+  if (request.context!.quantityStep !== undefined) diagnostics.push(warning("SYMBOL_FILTER_SCOPE", "Trade quantities use the supplied minimum and increment. This simulation does not enforce exchange notional limits, separate market-order filters, currency conversion or live order acceptance."));
   for (const item of context.warnings ?? []) {
     if (diagnostics.length >= PINE_LIMITS.diagnostics) break;
     diagnostics.push(warning("ENGINE_WARNING", item.message));
@@ -787,7 +789,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request, true);
           if (declaration !== "indicator") error("LIVE_STRATEGY_UNAVAILABLE", "Persistent realtime execution is available only for indicators; strategy tick scheduling is unavailable.");
           const alerts = new Set<string>();
-          bindClosedSnapshot(prepared, false, alerts, true);
+          bindClosedSnapshot(prepared, false, alerts, true, request.context?.quantityStep);
           const local = chartProvider(request);
           const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
           engine.setMaxLoops(PINE_LIMITS.loops);
