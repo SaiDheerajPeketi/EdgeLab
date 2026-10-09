@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../lib/pineHigherTimeframe";
 import { aggregatePineCalculationBars, pineCalculationCanAggregate, pineCalculationEnd } from "../lib/pineCalculationTimeframe";
+import { preparePineCalculationPrefix, selectPineCalculationSnapshot, type PineCalculationSnapshot } from "../lib/pineCalculationSnapshot";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { PINE_ALERT_EVENT_LIMIT, PINE_ALERT_DROPPED_LIMIT, validatePineAlertEvent, type PineAlertEvents } from "../lib/pineAlertEvents";
 import { pineMarketChartTimeframe, pineMarketSymbol } from "../lib/pineMarketProtocol";
@@ -136,7 +137,6 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   const snapshots = new Map<string, Kline[]>([[timeframe, candles]]);
   let source = request.sourceSnapshot?.timeframe === timeframe ? undefined : request.sourceSnapshot;
   const initialSource = source ?? { timeframe, bars: request.bars! };
-  let calculationPrefix: readonly Candle[] | undefined;
   let revision = 0, chartConfirmed = initialConfirmed, sourceConfirmed = initialSourceConfirmed;
   if (realtime && request.sourceSnapshot && request.sourceSnapshot.timeframe === timeframe) error("UNAVAILABLE_DATA", "Live source history must use a lower chart timeframe.");
   if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
@@ -145,6 +145,18 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     const market = realtime && mainTimeframe !== timeframe ? liveMarket(symbol, mainTimeframe) : undefined;
     return market && pineCalculationCanAggregate(market.timeframe, tf)
       && (tf === mainTimeframe || !pineCalculationCanAggregate(source?.timeframe ?? timeframe, tf)) ? market : undefined;
+  };
+  const mainQualified = request.marketData && marketSymbol(symbol);
+  const mainHistory = mainQualified && marketSnapshots.get(`${mainQualified}:${mainTimeframe}`);
+  const calculationPrefix = mainTimeframe !== timeframe && mainTimeframe !== source?.timeframe && mainHistory
+    ? preparePineCalculationPrefix(initialSource, mainHistory) : undefined;
+  let mainSnapshot: PineCalculationSnapshot | undefined, mainCandles: Kline[] | undefined;
+  const mainState = () => mainSnapshot ??= selectPineCalculationSnapshot({ request: { ...request, sourceSnapshot: source },
+    timeframe: mainTimeframe, realtime, chartConfirmed, sourceConfirmed, revision, initialSource, marketLedger, prefix: calculationPrefix });
+  const mainData = () => {
+    const state = mainState();
+    return mainCandles ??= (state.authority === "chart" || state.authority === "source" ? snapshots.get(mainTimeframe) : undefined)
+      ?? state.bars.map(bar => candle(bar, mainTimeframe));
   };
   const dataFor = (tf: string, requestedSymbol = symbol, calcBarsCount?: number, ignoreInvalidSymbol = false): Kline[] => {
     const baseSymbol = pineHeikinAshiBase(requestedSymbol);
@@ -193,42 +205,9 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       snapshots.set(key, data);
       return data;
     }
+    if (tf === mainTimeframe) return mainData();
     const existing = snapshots.get(tf);
     if (existing) return existing;
-    if (tf === mainTimeframe && mainTimeframe !== timeframe) {
-      const base = source ?? { timeframe, bars: request.bars! };
-      const qualified = request.marketData && marketSymbol(symbol), snapshot = qualified && marketSnapshots.get(`${qualified}:${tf}`);
-      const market = calculationMarket();
-      let history: { timeframe: string; bars: readonly Candle[] } = base;
-      if (snapshot) {
-        if (snapshot.context.timeframe === initialSource.timeframe && !calculationPrefix) {
-          const owned = new Map(initialSource.bars.map(bar => [bar.time, bar]));
-          for (const bar of snapshot.bars) {
-            const known = owned.get(bar.time);
-            if (known && pineCalculationEnd(known.time, initialSource.timeframe) <= snapshot.asOf
-              && !["open", "high", "low", "close", "volume"].every(key => known[key as keyof Candle] === bar[key as keyof Candle]))
-              error("INVALID_LIVE_MARKET", "Calculation history conflicts with the primary native candles.");
-          }
-          calculationPrefix = snapshot.bars.filter(bar => bar.time < (initialSource.bars[0]?.time ?? Infinity));
-        }
-        if (market) history = { timeframe: market.timeframe, bars: market.bars };
-        else if (!realtime) history = { timeframe: snapshot.context.timeframe, bars: snapshot.bars };
-        else if (snapshot.context.timeframe === initialSource.timeframe) {
-          // Extra closed history is a prefix; future authority remains the real primary feed.
-          history = { timeframe: base.timeframe, bars: [...calculationPrefix!, ...base.bars] };
-        } else error("UNAVAILABLE_DATA", "This calculation needs an independently owned live source interval.");
-      }
-      if (history.bars.length > PINE_LIMITS.sourceBars) error("BAR_LIMIT", "Calculation source history exceeds 200,000 candles.");
-      let data: Kline[] = [];
-      if (pineCalculationCanAggregate(history.timeframe, tf))
-        data = aggregatePineCalculationBars(history.bars, history.timeframe, tf, realtime).map(bar => candle(bar, tf));
-      if (!data.length && !snapshot) {
-        if (qualified) error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: qualified, timeframe: tf }));
-        if (!pineCalculationCanAggregate(base.timeframe, tf)) error("UNAVAILABLE_DATA", "The indicator's calculation timeframe requires smaller loaded candles.");
-      }
-      snapshots.set(tf, data);
-      return data;
-    }
     const ownedMarket = calculationMarket(tf);
     if (ownedMarket) {
       const data = aggregatePineCalculationBars(ownedMarket.bars, ownedMarket.timeframe, tf, realtime).map(bar => candle(bar, tf));
@@ -284,6 +263,10 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     const data = dataFor(tf, requestedSymbol), tail = data.at(-1);
     const parentRealtime = ((parent.fullContext ?? parent) as RequestContext)._explicitBarstate?.isrealtime === true;
     const baseSymbol = pineHeikinAshiBase(requestedSymbol);
+    if (sameSymbol(baseSymbol) && tf === mainTimeframe) {
+      const state = mainState();
+      return { revision: state.revision, confirmed: state.confirmed, received: state.received, realtime: parentRealtime };
+    }
     const ownedMarket = sameSymbol(baseSymbol) ? calculationMarket(tf) : liveMarket(baseSymbol, tf);
     if (ownedMarket) {
       const market = ownedMarket;
@@ -508,25 +491,21 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
   return {
     provider, notices,
-    calculationState: () => {
-      const bars = dataFor(mainTimeframe), tail = bars.at(-1), market = calculationMarket();
-      const latest = market?.bars.at(-1) ?? source?.bars.at(-1) ?? request.bars!.at(-1)!;
-      const boundary = pineCalculationEnd(latest.time, market?.timeframe ?? source?.timeframe ?? timeframe) * 1000;
-      const confirmed = market ? market.confirmed : source ? sourceConfirmed : chartConfirmed;
-      return { bars, confirmed: !!tail && (tail.closeTime < boundary || tail.closeTime === boundary && confirmed) };
-    },
+    calculationState: () => ({ bars: mainData(), confirmed: mainState().confirmed }),
     unavailable: () => failure,
     reset() { calls = 0; requestedBars = 0; failure = undefined; if (realtime) staticSnapshots.clear(); },
     setMarkets(ledger: PineLiveMarketLedger) {
       marketLedger = ledger;
+      mainSnapshot = undefined; mainCandles = undefined;
       // Remote data acceptance never executes or invalidates primary state.
-      for (const key of snapshots.keys()) if (key.includes(":") || calculationMarket(key)) snapshots.delete(key);
+      for (const key of snapshots.keys()) if (key.includes(":") || key !== timeframe && key !== source?.timeframe && calculationMarket(key)) snapshots.delete(key);
     },
     update(bar: Candle, append: boolean, confirmed: boolean, sourceSnapshot = request.sourceSnapshot, confirmedSource = true) {
       if (append) candles.push(candle(bar)); else candles[candles.length - 1] = candle(bar);
       request = { ...request, bars: append ? [...request.bars!, bar] : [...request.bars!.slice(0, -1), bar], sourceSnapshot };
       source = sourceSnapshot;
       chartConfirmed = confirmed; sourceConfirmed = confirmedSource; revision++;
+      mainSnapshot = undefined; mainCandles = undefined;
       snapshots.clear(); snapshots.set(timeframe, candles);
       if (source) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
     },
