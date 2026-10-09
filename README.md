@@ -46,6 +46,8 @@ Legacy beta accounts without a Google identity can verify their exact email thro
 
 Google code exchange has separate admission limits before provider work. Nginx limits the exact `/api/auth/google/exchange` path to 10 requests per minute per connecting socket address, with a burst of three and JSON 429 responses with `Retry-After: 6`. Clients behind a NAT or upstream proxy share that address budget; forwarded headers do not change the key. The API also shares 120 admissions per 60 seconds through configured Redis, or uses one bounded process-local counter when Redis is unset, with at most eight concurrent exchanges per process. Configured Redis failure returns 503 with `Retry-After: 5`; concurrency refusal returns 429 with `Retry-After: 1`. Compose waits for Redis health before APIs start. These fixed limits require no new environment variables.
 
+Billing admission uses the same Redis URL with separate quotas: 30 subscription refreshes and six combined checkout/portal requests per verified account per minute, within 600 total admissions. Stale workspace and export verification shares the refresh budget; fresh verified access needs no extra provider request. Configured Redis failure refuses new billing work, while an unset URL uses bounded process memory. Each API process permits eight concurrent billing operations, at most two per account. Retryable refusals include `Retry-After`; expired verification never grants workspace or export access. Public prices use cached reads and one nonblocking provider refresh per process.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

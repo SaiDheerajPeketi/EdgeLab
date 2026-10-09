@@ -1,5 +1,6 @@
 """Billing routes authenticate identity; they do not require paid workspace access."""
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from contextlib import nullcontext
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -33,16 +34,32 @@ def get_billing_provider():
     return None
 
 
-def _transaction(db: Session, action):
+def _http_error(exc: billing.BillingError):
+    headers = {"Cache-Control": "no-store"}
+    if exc.retry_after_seconds is not None:
+        headers["Retry-After"] = str(exc.retry_after_seconds)
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message, headers=headers)
+
+
+def _transaction(db: Session, action, *, owner_id: int | None = None, family: str = "status"):
     try:
-        result = action()
-        db.commit()
-        return result
+        with billing.admit_billing_request(owner_id, family) if owner_id is not None else nullcontext():
+            try:
+                result = action()
+                db.commit()
+                return result
+            except Exception:
+                # Keep the admission slot until provider/storage failure cleanup
+                # completes, including checkout's separately persisted attempt.
+                db.rollback()
+                raise
     except billing.BillingError as exc:
-        db.rollback()
-        raise HTTPException(status_code=exc.status_code, detail=exc.public_message) from None
+        if db.in_transaction():
+            db.rollback()
+        raise _http_error(exc) from None
     except SQLAlchemyError:
-        db.rollback()
+        if db.in_transaction():
+            db.rollback()
         raise HTTPException(status_code=503, detail="Billing storage is temporarily unavailable.") from None
 
 
@@ -53,7 +70,10 @@ def read_catalog(
     provider=Depends(get_billing_provider),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return billing.catalog(config, provider)
+    try:
+        return billing.catalog(config, provider)
+    except billing.BillingError as exc:
+        raise _http_error(exc) from None
 
 
 @router.get("/status")
@@ -65,7 +85,7 @@ def read_status(
     provider=Depends(get_billing_provider),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return _transaction(db, lambda: billing.status(db, user.id, config, provider))
+    return _transaction(db, lambda: billing.status(db, user.id, config, provider), owner_id=user.id)
 
 
 @router.post("/checkout")
@@ -78,7 +98,7 @@ def checkout(
     provider=Depends(get_billing_provider),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return _transaction(db, lambda: billing.create_checkout(db, user.id, payload.plan, payload.cadence, config, provider))
+    return _transaction(db, lambda: billing.create_checkout(db, user.id, payload.plan, payload.cadence, config, provider), owner_id=user.id, family="actions")
 
 
 @router.post("/portal")
@@ -91,7 +111,7 @@ def portal(
     provider=Depends(get_billing_provider),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return _transaction(db, lambda: billing.create_portal(db, user.id, config, provider))
+    return _transaction(db, lambda: billing.create_portal(db, user.id, config, provider), owner_id=user.id, family="actions")
 
 
 @router.post("/webhook")

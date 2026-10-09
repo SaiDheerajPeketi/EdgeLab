@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -19,6 +20,10 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import BetaUser, BillingCustomer, BillingSubscription, BillingWebhookEvent, utcnow
+from app.services.billing_rate_limits import (
+    BillingRateLimitExceeded, BillingRateLimiterUnavailable,
+    build_billing_admission_limiter,
+)
 
 API_VERSION = "2026-09-30.endive"
 WEBHOOK_BYTES = 1_048_576
@@ -27,6 +32,8 @@ CADENCES = {"monthly": ("month", 2900), "annual": ("year", 29000)}
 OPEN_SUBSCRIPTIONS = {"active", "trialing", "past_due", "unpaid", "incomplete", "paused"}
 _catalog_cache: dict[str, tuple[float, dict]] = {}
 _catalog_lock = Lock()
+_catalog_refresh_lock = Lock()
+billing_limiter = build_billing_admission_limiter(settings.redis_url)
 EVENT_TYPES = {
     "checkout.session.completed", "checkout.session.async_payment_succeeded",
     "checkout.session.async_payment_failed", "customer.subscription.created",
@@ -36,10 +43,24 @@ EVENT_TYPES = {
 
 
 class BillingError(Exception):
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, *, retry_after_seconds: int | None = None):
         super().__init__(message)
         self.status_code = status_code
         self.public_message = message
+        self.retry_after_seconds = retry_after_seconds
+
+
+@contextmanager
+def admit_billing_request(user_id: int, family: str):
+    try:
+        with billing_limiter.admit(user_id, family):
+            yield
+    except BillingRateLimitExceeded as exc:
+        raise BillingError(429, "Too many billing requests. Try again shortly.",
+                           retry_after_seconds=exc.retry_after_seconds) from None
+    except BillingRateLimiterUnavailable:
+        raise BillingError(503, "Billing is temporarily unavailable. Try again shortly.",
+                           retry_after_seconds=5) from None
 
 
 @dataclass(frozen=True)
@@ -186,26 +207,38 @@ def catalog(config: BillingConfig | None = None, provider: Provider | None = Non
             entry = _catalog_cache.get(key)
             if entry and entry[0] > time.monotonic():
                 return json.loads(json.dumps(entry[1]))
-    available, reason = False, None
+    # Cold callers do not queue additional provider work or poison the cache.
+    # Warm public reads remain independent of authenticated billing quotas.
+    if not _catalog_refresh_lock.acquire(blocking=False):
+        raise BillingError(503, "Pricing is refreshing. Try again shortly.", retry_after_seconds=1)
     try:
-        config.require_ready()
-        provider = provider or StripeProvider(config)
-        for cadence in CADENCES:
-            validate_price(provider, config, cadence)
-        available = True
-    except BillingError as exc:
-        reason = exc.public_message
-    result = {
-        "provider": "stripe", "enabled": config.enabled, "mode": config.mode,
-        "checkout_available": available, "reason": reason,
-        "plans": [{"id": "pro", "name": "EdgeLab Pro", "currency": "usd", "monthly_amount": 2900, "annual_amount": 29000}],
-    }
-    if cached:
-        with _catalog_lock:
-            if len(_catalog_cache) >= 4:
-                _catalog_cache.clear()
-            _catalog_cache[key] = (time.monotonic() + (60 if available else 10), result)
-    return json.loads(json.dumps(result))
+        if cached:
+            with _catalog_lock:
+                entry = _catalog_cache.get(key)
+                if entry and entry[0] > time.monotonic():
+                    return json.loads(json.dumps(entry[1]))
+        available, reason = False, None
+        try:
+            config.require_ready()
+            provider = provider or StripeProvider(config)
+            for cadence in CADENCES:
+                validate_price(provider, config, cadence)
+            available = True
+        except BillingError as exc:
+            reason = exc.public_message
+        result = {
+            "provider": "stripe", "enabled": config.enabled, "mode": config.mode,
+            "checkout_available": available, "reason": reason,
+            "plans": [{"id": "pro", "name": "EdgeLab Pro", "currency": "usd", "monthly_amount": 2900, "annual_amount": 29000}],
+        }
+        if cached:
+            with _catalog_lock:
+                if len(_catalog_cache) >= 4:
+                    _catalog_cache.clear()
+                _catalog_cache[key] = (time.monotonic() + (60 if available else 10), result)
+        return json.loads(json.dumps(result))
+    finally:
+        _catalog_refresh_lock.release()
 
 
 def _lock_user(db: Session, user_id: int):
@@ -337,11 +370,14 @@ def _lease_fresh(customer: BillingCustomer, now: datetime):
 def refresh_workspace_access(db: Session, user_id: int, config: BillingConfig | None = None, provider: Provider | None = None):
     config = config or BillingConfig.from_settings()
     config.require_ready()
-    _lock_user(db, user_id)
-    customer = _customer(db, user_id, config)
-    if customer is not None:
-        reconcile(db, customer, config, provider or StripeProvider(config))
-    return workspace_access(db, user_id, config)
+    # Access enforcement uses this path directly, outside the billing routes.
+    # The caller retains ownership of its savepoint and outer transaction.
+    with admit_billing_request(user_id, "status"):
+        _lock_user(db, user_id)
+        customer = _customer(db, user_id, config)
+        if customer is not None:
+            reconcile(db, customer, config, provider or StripeProvider(config))
+        return workspace_access(db, user_id, config)
 
 
 def status(db: Session, user_id: int, config: BillingConfig | None = None, provider: Provider | None = None, *, refresh=True):
