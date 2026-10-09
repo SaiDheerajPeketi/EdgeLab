@@ -83,9 +83,11 @@ export function createPineLiveMarketLedger(request: PineRequest, bindings: PineL
   const checked = validatePineLiveMarketStreams(bindings), byKey = new Map(checked.map(item => [pineLiveMarketKey(item), item]));
   const states = new Map<string, PineLiveMarketState>();
   const main = request.marketData ? pineMarketSymbol(request.context!.symbol) : undefined;
+  const primary = main && pineLiveMarketKey({ symbol: main, timeframe: canonicalPineTimeframe(request.sourceSnapshot?.timeframe ?? request.context!.timeframe) });
+  if (primary && byKey.has(primary)) invalid("The primary native interval already owns its stream.");
   for (const snapshot of request.marketData?.snapshots ?? []) {
-    if (snapshot.context.symbol === main) continue;
     const key = pineLiveMarketKey(snapshot.context), binding = byKey.get(key);
+    if (key === primary) continue;
     if (!binding) invalid("Requested live history requires its explicitly owned stream epoch.");
     const previous = states.get(key);
     const bars = new Map((previous?.bars ?? []).map(bar => [bar.time, bar]));

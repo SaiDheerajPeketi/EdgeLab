@@ -25,7 +25,7 @@ export const PINE_MARKETS_RELOADING = "PINE_MARKETS_RELOADING";
 export function createPineLiveMarketCoordinator(input: PineRequest, scope: PineMarketDataScope, epoch: number,
   dependencies: Dependencies, inputMetadata?: PinePrepareResult) {
   const initial = validatePineRequest(input), saved = inputMetadata ? structuredClone(inputMetadata) : undefined;
-  scope = { ...scope, range: { ...scope.range } };
+  scope = { ...scope, range: { ...scope.range }, primaryTimeframe: initial.sourceSnapshot?.timeframe ?? initial.context?.timeframe };
   if (initial.action !== "run" || initial.mode !== "live" || !initial.bars?.length || !initial.context
     || pineMarketSymbol(initial.context.symbol) !== pineMarketSymbol(scope.chartSymbol) || scope.range.from !== initial.bars[0].time
     || scope.range.to !== scope.asOf - 1 || scope.asOf !== pineFeedNextSourceTime(initial.bars.at(-1)!.time, pineMarketChartTimeframe(initial.context.timeframe))) {
@@ -104,7 +104,7 @@ export function createPineLiveMarketCoordinator(input: PineRequest, scope: PineM
       bars: loaded.bars.map(bar => ({ ...bar })), asOf: scope.asOf };
     snapshots.set(key, snapshot);
     const nativeKey = pineLiveMarketKey(snapshot.context), stream = pair.transport.streams().find(item => pineLiveMarketKey(item.binding) === nativeKey);
-    if (!stream) return; // The primary symbol never gets a secondary transport.
+    if (!stream) return; // The already-owned primary native interval needs no duplicate transport.
     const first = stream.first!;
     requiredCutoff = Math.max(requiredCutoff, first.bar.time);
     const existing = states.get(nativeKey);

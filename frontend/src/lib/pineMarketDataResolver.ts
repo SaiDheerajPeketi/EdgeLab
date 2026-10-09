@@ -10,6 +10,8 @@ import { canonicalPineTimeframe, PINE_LIMITS, PineProtocolError, validatePineVie
 export const PINE_MARKET_DATA_LIMITS = Object.freeze({ contexts: 64, concurrent: 4, historyCandles: 16_000, candles: PINE_LIMITS.sourceBars, bytes: PINE_LIMITS.resultBytes });
 export type PineMarketDataScope = {
   provider: "binance"; chartSymbol: string; revision: string; range: PineViewport; asOf: number;
+  /** Trusted live coordinator supplies the chart's actual native source interval. */
+  primaryTimeframe?: string;
   owns(): boolean; signal?: AbortSignal;
 };
 export type PineMarketDataDemand = { symbol: string; timeframe: string; warmupPeriods?: number };

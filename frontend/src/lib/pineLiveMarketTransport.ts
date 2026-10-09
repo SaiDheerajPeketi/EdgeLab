@@ -5,7 +5,7 @@ import { advancePineLiveMarkets, pineLiveMarketKey, validatePineLiveMarketEvents
   PINE_LIVE_MARKET_BATCH_LIMIT, type PineLiveMarketEvent, type PineLiveMarketState, type PineLiveMarketStream } from "./pineLiveMarkets";
 import { pineMarketSymbol } from "./pineMarketProtocol";
 import { createPineMarketDataResolver, type PineMarketDataScope, type PineMarketHistoryAdmission } from "./pineMarketDataResolver";
-import { PineProtocolError } from "./pineProtocol";
+import { canonicalPineTimeframe, PineProtocolError } from "./pineProtocol";
 
 type Socket = Pick<WebSocket, "addEventListener" | "removeEventListener" | "close">;
 type Dependencies = { socket(url: string): Socket; deadlineMs: number };
@@ -17,10 +17,12 @@ const bytes = new TextEncoder();
 const abortError = () => new DOMException("Requested live markets retired.", "AbortError");
 
 /** Host-only native acquisition. It neither executes Pine nor fabricates history. */
-export function createPineLiveMarketTransport(owner: { chartSymbol: string; epoch: number; owns(): boolean; signal?: AbortSignal },
+export function createPineLiveMarketTransport(owner: { chartSymbol: string; epoch: number; owns(): boolean; signal?: AbortSignal; sourceTimeframe?: string },
   overrides: Partial<Dependencies> = {}) {
   const chartSymbol = pineMarketSymbol(owner.chartSymbol), epoch = owner.epoch, owns = owner.owns;
+  const sourceTimeframe = owner.sourceTimeframe === undefined ? undefined : canonicalPineTimeframe(owner.sourceTimeframe);
   validatePineLiveMarketStreams([{ symbol: chartSymbol, timeframe: "1", epoch }]);
+  if (sourceTimeframe) validatePineLiveMarketStreams([{ symbol: chartSymbol, timeframe: sourceTimeframe, epoch }]);
   const deps: Dependencies = { socket: url => { const socket = new WebSocket(url); trackDiagnosticWebSocket(socket, url); return socket; },
     deadlineMs: 10_000, ...overrides };
   const controller = new AbortController(), streams = new Map<string, Held>(), signals = new Map<AbortSignal, () => void>();
@@ -52,9 +54,10 @@ export function createPineLiveMarketTransport(owner: { chartSymbol: string; epoc
       const canonical = binanceChartPlan(plan.chartTimeframe);
       if (!canonical || JSON.stringify(canonical) !== JSON.stringify(plan) || context.symbol !== `BINANCE:${providerSymbol}`
         || !/^[A-Z0-9]{2,40}$/.test(providerSymbol)) throw new PineProtocolError("INVALID_LIVE_MARKET", "Requested live markets need validated provider instruments and native intervals.");
-      if (context.symbol === chartSymbol) return;
+      const nativeTimeframe = pineContextForChart(context.symbol, plan.sourceTimeframe).timeframe;
+      if (context.symbol === chartSymbol && (sourceTimeframe === undefined || nativeTimeframe === sourceTimeframe)) return;
       const binding = Object.freeze(validatePineLiveMarketStreams([{ symbol: context.symbol,
-        timeframe: pineContextForChart(context.symbol, plan.sourceTimeframe).timeframe, epoch }])[0]);
+        timeframe: nativeTimeframe, epoch }])[0]);
       const key = pineLiveMarketKey(binding), nativeContext = Object.freeze({ ...context, timeframe: binding.timeframe });
       const metadata = JSON.stringify(nativeContext), existing = streams.get(key);
       if (existing) {
@@ -126,7 +129,7 @@ export function createPineLiveMarketTransport(owner: { chartSymbol: string; epoc
 export function createPineLiveMarketDataResolver(scope: PineMarketDataScope, epoch: number, overrides: {
   resolver?: Parameters<typeof createPineMarketDataResolver>[1]; transport?: Partial<Dependencies>;
 } = {}) {
-  const transport = createPineLiveMarketTransport({ chartSymbol: scope.chartSymbol, epoch, owns: scope.owns, signal: scope.signal }, overrides.transport);
+  const transport = createPineLiveMarketTransport({ chartSymbol: scope.chartSymbol, sourceTimeframe: scope.primaryTimeframe, epoch, owns: scope.owns, signal: scope.signal }, overrides.transport);
   try {
     const resolver = createPineMarketDataResolver({ ...scope, signal: transport.signal }, { ...overrides.resolver, beforeHistory: transport.beforeHistory });
     resolver.signal.addEventListener("abort", transport.cancel, { once: true });

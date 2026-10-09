@@ -98,6 +98,8 @@ export function validatePineMarketData(value: unknown, chart: PineContext, chart
     if (identities.has(key)) invalid("Duplicate requested market context.");
     identities.add(key);
     const signature = JSON.stringify([context.mintick, context.mincontract, context.pointvalue, context.quantityStep, context.currency, context.basecurrency]);
+    if (symbol === pineMarketSymbol(chart.symbol)) for (const field of ["mintick", "mincontract", "pointvalue", "quantityStep", "currency", "basecurrency"] as const)
+      if (chart[field] !== undefined && chart[field] !== context[field]) invalid("Requested same-symbol instrument details conflict with the primary chart.");
     if (metadata.has(symbol) && metadata.get(symbol) !== signature) invalid("Requested symbol metadata conflicts across its timeframes.");
     metadata.set(symbol, signature);
     const asOf = snapshot.asOf;
