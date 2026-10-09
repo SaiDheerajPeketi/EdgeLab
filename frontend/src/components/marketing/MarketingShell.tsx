@@ -1,4 +1,4 @@
-import { ArrowRight, Menu, Waves, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -669,17 +669,6 @@ export function MarketingShell({
             </nav>
 
             <div className="flex shrink-0 items-center gap-2 sm:gap-3" data-shell-motion="cta">
-              <button
-                aria-label="Page animations"
-                aria-pressed={!reducedMotion}
-                className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-el-md px-2 text-sm transition-colors hover:text-edgelab-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${reducedMotion ? "text-edgelab-text-secondary" : "text-cyan-100"}`}
-                onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
-                title={reducedMotion ? "Enable page animations" : "Reduce page animations"}
-                type="button"
-              >
-                <Waves aria-hidden="true" size={18} />
-                <span className="hidden lg:inline">Animations</span>
-              </button>
               <Link
                 className="hidden min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none md:inline-flex"
                 to={primaryCta.href}

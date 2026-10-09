@@ -227,85 +227,58 @@ test("launch is default and beta presentation cannot mutate auth or operational 
   expect(await authState()).toEqual(before); await capture(page, info, "default-launch-presentation", { operationalHref, authState: before }, hero);
 });
 
-test("header page animations overrides OS reduced motion and preserves the explicit session choice", async ({ page }, info) => {
+test("footer motion preference preserves the session choice while the header stays clean", async ({ page }, info) => {
   await openLanding(page, "/", "reduce");
-  const shell = page.locator("[data-marketing-motion]"), animations = page.getByRole("button", { name: "Page animations", exact: true });
+  const shell = page.locator("[data-marketing-motion]");
   const reduce = page.getByRole("checkbox", { name: "Reduce motion", exact: true }), heading = page.locator("#how-it-works h2");
-  const buttonGeometry = async () => {
-    const geometry = await animations.evaluate(node => {
-      const rect = node.getBoundingClientRect(), header = node.closest("header")!;
-      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height,
-        viewportWidth: innerWidth, viewportHeight: innerHeight, headerWidth: header.clientWidth, headerScrollWidth: header.scrollWidth };
-    });
-    expect(geometry.width).toBeGreaterThanOrEqual(44); expect(geometry.height).toBeGreaterThanOrEqual(44);
-    expect(geometry.left).toBeGreaterThanOrEqual(0); expect(geometry.top).toBeGreaterThanOrEqual(0);
-    expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth); expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
-    expect(geometry.headerScrollWidth).toBeLessThanOrEqual(geometry.headerWidth + 1);
+  const header = page.locator(".marketing-shell header");
+  await expect(header.getByRole("button", { name: "Page animations", exact: true })).toHaveCount(0);
+  await expect(header).not.toContainText("Animations");
+  const headerGeometry = async () => {
+    const geometry = await header.evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth, viewport: innerWidth }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
     return geometry;
   };
   const preference = () => page.evaluate(() => ({ osReduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
     sessionChoice: sessionStorage.getItem("edgelab.marketing.motion.v1") }));
   await expect(shell).toHaveAttribute("data-marketing-motion", "reduced");
-  await expect(animations).toBeVisible(); await expect(animations).toHaveAttribute("aria-pressed", "false");
   await expect(reduce).toBeChecked(); expect(await preference()).toEqual({ osReduced: true, sessionChoice: null });
-  await position(heading, "below");
-  const defaultStatic = await pose(heading);
+  await position(heading, "below"); const defaultStatic = await pose(heading);
   expect(defaultStatic.opacity).toBe(1); expect(defaultStatic.y).toBe(0); expect(defaultStatic.owners).toBe(0);
 
-  const initialGeometry = await buttonGeometry(); await animations.click(); await expect(animations).toBeFocused();
-  await expect(animations).toHaveAttribute("aria-pressed", "true");
-  await expect(shell).toHaveAttribute("data-marketing-motion", "full"); await expect(reduce).not.toBeChecked();
+  await reduce.uncheck(); await expect(shell).toHaveAttribute("data-marketing-motion", "full");
   expect(await preference()).toEqual({ osReduced: true, sessionChoice: "full" });
   await position(heading, "below"); await finished(heading, false);
-  await heading.evaluate(node => {
-    const rect = node.getBoundingClientRect(), matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
-    scrollTo({ top: scrollY + rect.top - matrix.m42 - innerHeight * .90, behavior: "instant" });
-  });
-  await page.waitForTimeout(140);
-  const entering = await pose(heading);
-  expect(entering.top).toBeLessThan(entering.viewport); expect(entering.bottom).toBeGreaterThan(0);
-  expect(entering.opacity).toBeGreaterThan(0); expect(entering.opacity).toBeLessThan(.98); expect(entering.y).toBeGreaterThan(1);
-  const entered = await finished(heading, true); expect(entered.scrollY).toBe(entering.scrollY);
-
-  await buttonGeometry(); await animations.click(); await expect(animations).toBeFocused();
-  await expect(animations).toHaveAttribute("aria-pressed", "false");
-  await expect(shell).toHaveAttribute("data-marketing-motion", "reduced"); await expect(reduce).toBeChecked();
-  await position(heading, "below");
-  const restoredStatic = await pose(heading);
+  await position(heading, "entry"); const entered = await finished(heading, true);
+  await reduce.check(); await expect(shell).toHaveAttribute("data-marketing-motion", "reduced");
+  await position(heading, "below"); const restoredStatic = await pose(heading);
   expect(restoredStatic.opacity).toBe(1); expect(restoredStatic.y).toBe(0); expect(restoredStatic.owners).toBe(0);
-  await position(heading, "center"); await expect(heading).toBeVisible();
-  expect(await heading.innerText()).not.toBe("");
-  await buttonGeometry(); await animations.click(); await expect(animations).toBeFocused(); await expect(animations).toHaveAttribute("aria-pressed", "true");
-  await page.reload();
-  await expect(shell).toHaveAttribute("data-marketing-motion", "full"); await expect(animations).toHaveAttribute("aria-pressed", "true");
-  await expect(reduce).not.toBeChecked(); expect(await preference()).toEqual({ osReduced: true, sessionChoice: "full" });
+  await reduce.uncheck(); await page.reload();
+  await expect(shell).toHaveAttribute("data-marketing-motion", "full"); await expect(reduce).not.toBeChecked();
+  expect(await preference()).toEqual({ osReduced: true, sessionChoice: "full" });
   await position(heading, "below"); await finished(heading, false);
   await position(heading, "entry"); const reloadedEntry = await finished(heading, true);
   await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" })); await page.waitForTimeout(1500);
   const originalViewport = page.viewportSize()!, tabletGeometry = [];
-  const desktopNavigation = page.locator('.marketing-shell header nav[aria-label="Primary navigation"]');
+  const desktopNavigation = header.locator('nav[aria-label="Primary navigation"]');
   const compactMenu = page.getByRole("button", { name: "Open navigation menu", exact: true });
   await page.setViewportSize({ width: 768, height: originalViewport.height });
   await expect(desktopNavigation).toBeHidden(); await expect(compactMenu).toBeVisible();
-  const compactGeometry = await buttonGeometry();
+  const compactGeometry = await headerGeometry();
   await compactMenu.click(); await expect(page.locator("#marketing-mobile-menu")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(page.locator("#marketing-mobile-menu")).toHaveCount(0);
   await expect(compactMenu).toBeFocused(); await expect(compactMenu).toHaveAttribute("aria-expanded", "false");
   tabletGeometry.push({ width: 768, compactGeometry, escapeFocusReturned: true });
   await page.setViewportSize({ width: 1024, height: originalViewport.height });
   await expect(desktopNavigation).toBeVisible(); await expect(compactMenu).toBeHidden();
-  const desktopGeometry = await buttonGeometry();
+  const desktopGeometry = await headerGeometry();
   const navLines = await desktopNavigation.locator("a").evaluateAll(links => links.map(link => {
     const range = document.createRange(); range.selectNodeContents(link);
-    return { text: link.textContent, lines: new Set([...range.getClientRects()].map(rect => rect.top)).size,
-      height: link.getBoundingClientRect().height };
+    return { text: link.textContent, lines: new Set([...range.getClientRects()].map(rect => rect.top)).size };
   }));
-  expect(navLines.length).toBeGreaterThan(0);
-  for (const link of navLines) expect(link.lines).toBe(1);
+  expect(navLines.length).toBeGreaterThan(0); for (const link of navLines) expect(link.lines).toBe(1);
   tabletGeometry.push({ width: 1024, desktopGeometry, navLines });
-  await page.setViewportSize(originalViewport);
-  await expect(animations).toBeVisible();
-  const finalGeometry = await buttonGeometry();
-  await capture(page, info, "header-motion-choice150", { defaultStatic, entering, entered, restoredStatic, reloadedEntry,
-    initialGeometry, finalGeometry, tabletGeometry, preference: await preference() }, page.locator(".marketing-shell header"));
+  await page.setViewportSize(originalViewport); const finalGeometry = await headerGeometry();
+  await capture(page, info, "clean-header153", { defaultStatic, entered, restoredStatic, reloadedEntry,
+    finalGeometry, tabletGeometry, preference: await preference() }, header);
 });
