@@ -184,6 +184,7 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { PresetApplyDropdown } from "./PresetApplyDropdown";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
+import { pineMarketScopeForFeed } from "../lib/pineMarketScope";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
@@ -1011,6 +1012,7 @@ export function TradingChart({
           viewport: nativePine ? viewport : undefined,
           mode: indicatorRuntimeMode,
           source: indicator.customScriptSource,
+          marketDataScope: nativePine ? pineMarketScopeForFeed(pineLiveFeed, snapshot, symbol, timeframe, `${indicator.id}:${generation}`, ownsEntry) : undefined,
         });
       } catch (failure) {
         const error = failure instanceof Error ? failure.message : "Invalid chart script context.";

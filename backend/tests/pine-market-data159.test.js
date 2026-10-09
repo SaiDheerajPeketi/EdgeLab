@@ -54,11 +54,11 @@ test("qualified provider identity rejects exchange collisions, ticker modifiers 
   assert.equal(f.metadata.length, 0); assert.equal(f.transport.length, 0); f.cancel();
 });
 test("unknown and duplicate symbols never receive chart prices or generic default metadata", async () => {
-  for (const instruments of [[], [instrument("BTCUSDT")], [instrument("ETHUSDT"), instrument("ETHUSDT")], [{ ...instrument("ETHUSDT"), status: "HALT" }]]) {
+  for (const instruments of [[], [instrument("BTCUSDT")], [{ ...instrument("ETHUSDT"), status: "HALT" }]]) {
     let loads = 0; const f = fixture({ instruments: async () => ({ instruments }), history: async () => { loads++; } });
     await assert.rejects(f.resolve(eth), e => e.code === "INVALID_REQUEST_SYMBOL"); assert.equal(loads, 0); f.cancel();
   }
-  for (const response of [{}, { instruments: [{ ...instrument("ETHUSDT"), tick_size: null }] }]) {
+  for (const response of [{}, { instruments: [instrument("ETHUSDT"), instrument("ETHUSDT")] }, { instruments: [{ ...instrument("ETHUSDT"), tick_size: null }] }]) {
     let loads = 0; const f = fixture({ instruments: async () => response, history: async () => { loads++; } });
     await assert.rejects(f.resolve(eth)); assert.equal(loads, 0); f.cancel();
   }

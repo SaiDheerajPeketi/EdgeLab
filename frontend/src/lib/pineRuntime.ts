@@ -5,6 +5,8 @@ import type { Candle } from "./api";
 import { createSandboxWorkerJob, createSandboxWorkerSession } from "./pineSandbox";
 import { PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
 import { advancePineLiveSource, PINE_LIVE_PROTOCOL, PINE_LIVE_QUEUE_LIMIT, pineLiveRequestId, validatePineLiveRequest, validatePineLiveResponse, type PineLiveRequest, type PineLiveSourceEvent } from "./pineLiveProtocol";
+import { createPineMarketRuntimeJob } from "./pineMarketRuntime";
+import { createPineMarketDataResolver, type PineMarketDataScope } from "./pineMarketDataResolver";
 
 async function loadTrustedPineWorker(signal: AbortSignal) {
   const url = new URL(workerAsset, location.href);
@@ -14,17 +16,19 @@ async function loadTrustedPineWorker(signal: AbortSignal) {
   return response.text();
 }
 
-export function createPineRuntimeJob(input: Omit<PineRequest, "id">) {
+export function createPineRuntimeJob(input: Omit<PineRequest, "id">, options: { marketScope?: PineMarketDataScope } = {}) {
   const id = `pine-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   let request: PineRequest;
   try { request = validatePineRequest({ ...input, id }); }
   catch (error) { return { id, cancel: () => undefined, promise: Promise.reject(error) }; }
-  return createSandboxWorkerJob({
+  const createJob = (request: PineRequest) => createSandboxWorkerJob({
     request,
     timeoutMs: request.action === "prepare" ? 3_000 : request.mode === "live" ? 2_000 : 10_000,
     validate: value => validatePineResponse(value, request),
     loadWorker: loadTrustedPineWorker,
   });
+  if (options.marketScope && request.action === "run") return createPineMarketRuntimeJob(request, options.marketScope, { createJob, createResolver: createPineMarketDataResolver });
+  return createJob(request);
 }
 
 export type PineLiveRuntimeSession = {

@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
 import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../lib/pineHigherTimeframe";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
+import { pineMarketChartTimeframe, pineMarketSymbol } from "../lib/pineMarketProtocol";
+import { bucketTime } from "../lib/charting";
+import { pineFeedNextSourceTime } from "../lib/pineLiveFeed";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings } from "../lib/pineProtocol";
@@ -107,20 +110,60 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     return { openTime, closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, quoteAssetVolume: 0, numberOfTrades: 0, takerBuyBaseAssetVolume: 0, takerBuyQuoteAssetVolume: 0, ignore: 0 };
   };
   const candles: Kline[] = request.bars!.map(bar => candle(bar));
-  const symbol = context.symbol, ticker = symbol.split(":").slice(-1)[0];
-  const info: ISymbolInfo = {
-    current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: context.basecurrency ?? "", country: "", currency: context.currency ?? "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: context.mincontract ?? 1,
-    ...pineTickRepresentation(context.mintick ?? 0.01), mintick: context.mintick ?? 0.01, pointvalue: context.pointvalue ?? 1,
+  const symbol = context.symbol;
+  const marketSymbol = (value: string) => {
+    try { return pineMarketSymbol(value); } catch { return undefined; }
+  };
+  const sameSymbol = (value: string) => normalizeSymbol(value) === normalizeSymbol(symbol)
+    || !!request.marketData && marketSymbol(value) !== undefined && marketSymbol(value) === marketSymbol(symbol);
+  const marketSnapshots = new Map<string, NonNullable<PineRequest["marketData"]>["snapshots"][number]>(request.marketData?.snapshots.map(snapshot =>
+    [`${snapshot.context.symbol}:${snapshot.requestedTimeframe}`, snapshot] as const) ?? []);
+  const infoFor = (metadata = context): ISymbolInfo => {
+    const ownedSymbol = metadata.symbol, ticker = ownedSymbol.split(":").slice(-1)[0];
+    return {
+    current_contract: "", description: ownedSymbol, isin: "", main_tickerid: symbol, prefix: ownedSymbol.includes(":") ? ownedSymbol.split(":")[0] : "", root: ticker, ticker, tickerid: ownedSymbol, type: request.marketData?.provider === "binance" ? "crypto" : "", basecurrency: metadata.basecurrency ?? "", country: "", currency: metadata.currency ?? "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: metadata.mincontract ?? 1,
+    ...pineTickRepresentation(metadata.mintick ?? 0.01), mintick: metadata.mintick ?? 0.01, pointvalue: metadata.pointvalue ?? 1,
     employees: 0, industry: "", sector: "", shareholders: 0, shares_outstanding_float: 0, shares_outstanding_total: 0, expiration_date: 0,
     recommendations_buy: 0, recommendations_buy_strong: 0, recommendations_date: 0, recommendations_hold: 0, recommendations_sell: 0, recommendations_sell_strong: 0, recommendations_total: 0,
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
-  };
+  }; };
+  const info = infoFor();
   const snapshots = new Map<string, Kline[]>([[timeframe, candles]]);
   let source = request.sourceSnapshot?.timeframe === timeframe ? undefined : request.sourceSnapshot;
   let revision = 0, chartConfirmed = initialConfirmed, sourceConfirmed = initialSourceConfirmed;
   if (realtime && request.sourceSnapshot && request.sourceSnapshot.timeframe === timeframe) error("UNAVAILABLE_DATA", "Live source history must use a lower chart timeframe.");
   if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
-  const dataFor = (tf: string): Kline[] => {
+  const dataFor = (tf: string, requestedSymbol = symbol, calcBarsCount?: number, ignoreInvalidSymbol = false): Kline[] => {
+    if (!sameSymbol(requestedSymbol)) {
+      const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
+      if (!qualified) { reject(requestedSymbol, tf); throw failure!; }
+      if (realtime) error("UNAVAILABLE_DATA", "Independent requested-market live feeds are not connected yet.");
+      const key = `${qualified}:${tf}`;
+      const existing = snapshots.get(key);
+      if (existing) return existing;
+      const snapshot = marketSnapshots.get(key);
+      if (!snapshot) error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: qualified, timeframe: tf,
+        ...(calcBarsCount !== undefined ? { calcBarsCount } : {}), ...(ignoreInvalidSymbol ? { ignoreInvalidSymbol: true } : {}) }));
+      const sourceFrame = pineMarketChartTimeframe(snapshot.context.timeframe), targetFrame = pineMarketChartTimeframe(tf);
+      const groups = new Map<number, Candle[]>();
+      for (const bar of snapshot.bars) {
+        const start = bucketTime(bar.time, targetFrame), children = groups.get(start);
+        if (children) children.push(bar); else groups.set(start, [bar]);
+      }
+      const data: Kline[] = [];
+      for (const [time, children] of groups) {
+        const close = pineFeedNextSourceTime(time, targetFrame);
+        if (children[0].time !== time || close > snapshot.asOf
+          || children.some((bar, index) => index > 0 && bar.time !== pineFeedNextSourceTime(children[index - 1].time, sourceFrame))
+          || pineFeedNextSourceTime(children.at(-1)!.time, sourceFrame) !== close) continue;
+        let volume = 0, high = -Infinity, low = Infinity;
+        for (const child of children) { volume += child.volume; high = Math.max(high, child.high); low = Math.min(low, child.low); }
+        if (!Number.isFinite(volume)) error("UNAVAILABLE_DATA", "Aggregated requested-market volume exceeds the supported finite range.");
+        data.push(candle({ ...children[0], time, open: children[0].open, high, low, close: children.at(-1)!.close, volume }, tf));
+      }
+      snapshots.set(key, data);
+      return data;
+    }
     const existing = snapshots.get(tf);
     if (existing) return existing;
     const duration = pineHigherTimeframeDuration(tf), chartDuration = pineHigherTimeframeDuration(timeframe);
@@ -142,9 +185,8 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       if (++calls > 64) { failure ??= new PineProtocolError("REQUEST_LIMIT", "Pine requested too many data snapshots."); return []; }
       let tf: string;
       try { tf = canonicalPineTimeframe(requestedTimeframe); } catch { reject(requestedSymbol, requestedTimeframe); return []; }
-      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol)) { reject(requestedSymbol, requestedTimeframe); return []; }
       let data: Kline[];
-      try { data = dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; return []; }
+      try { data = dataFor(tf, requestedSymbol); } catch (cause) { failure ??= cause as PineProtocolError; return []; }
       let result = data.filter((bar) => (start === undefined || bar.openTime >= start) && (end === undefined || bar.openTime <= end));
       if (limit !== undefined) result = result.slice(-Math.min(data.length, Math.max(0, Math.floor(limit))));
       requestedBars += result.length;
@@ -152,8 +194,11 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       return result.map((bar) => ({ ...bar }));
     },
     async getSymbolInfo(requestedSymbol) {
-      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol)) reject(requestedSymbol);
-      return { ...info };
+      if (sameSymbol(requestedSymbol)) return { ...info };
+      const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
+      const snapshot = qualified && [...marketSnapshots.values()].find(item => item.context.symbol === qualified);
+      if (!snapshot) { reject(requestedSymbol); return { ...info }; }
+      return infoFor(snapshot.context);
     },
   };
   const captures = new WeakMap<Context, { id: string; values: unknown[]; costs: number[]; count: number }>();
@@ -205,7 +250,10 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     const depth = (parent._edgelabRequestDepth ?? 0) + 1;
     if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
     const prepared = { fn: slice } as PreparedScript;
-    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, context.quantityStep);
+    const childSymbol = (engine as unknown as { tickerId?: string }).tickerId;
+    const childMetadata = childSymbol && !sameSymbol(childSymbol)
+      ? [...marketSnapshots.values()].find(item => item.context.symbol === marketSymbol(childSymbol))?.context : context;
+    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, childMetadata?.quantityStep);
     const bound = prepared.fn;
     const fn = (child: Context) => {
       Object.assign(child, { _edgelabStaticPath: staticPath ?? parent._edgelabStaticPath, _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
@@ -242,16 +290,26 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   };
   // The provider owns immutable policies, captured before executing any authored script.
   Object.defineProperties(provider, {
-    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext, expression?: string, ignoreInvalidTimeframe = false, invalidTimeframe = false) => {
+    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext, expression?: string, ignoreInvalidTimeframe = false, invalidTimeframe = false, calcBarsCount?: number, ignoreInvalidSymbol = false) => {
       const rawTimeframe = String(requestedTimeframe ?? "");
       let tf: string | undefined;
       try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
-      if (typeof requested !== "string" || normalizeSymbol(requested) !== normalizeSymbol(symbol)) {
+      const qualified = typeof requested === "string" && request.marketData ? marketSymbol(requested) : undefined;
+      const ownedSymbol = typeof requested === "string" && sameSymbol(requested) ? symbol : qualified;
+      if (!ownedSymbol) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
-      if (kind === "security_lower_tf" && invalidTimeframe && ignoreInvalidTimeframe) return { symbol, timeframe: tf, invalidTimeframe: true };
+      if (realtime && ownedSymbol !== symbol) error("UNAVAILABLE_DATA", "Independent requested-market live feeds are not connected yet.");
+      if (kind === "security_lower_tf" && invalidTimeframe && ignoreInvalidTimeframe) return { symbol: ownedSymbol, timeframe: tf, invalidTimeframe: true };
       if (!tf || kind === "security_lower_tf" && invalidTimeframe) {
         reject(String(requested), rawTimeframe); throw failure!;
+      }
+      if (calcBarsCount !== undefined && (!Number.isSafeInteger(calcBarsCount) || calcBarsCount < 1 || calcBarsCount > PINE_LIMITS.sourceBars)) {
+        error("REQUEST_LIMIT", "Requested calculation depth must be a positive integer within 200,000 candles.");
+      }
+      if (ownedSymbol !== symbol && request.marketData?.invalidSymbols?.includes(ownedSymbol)) {
+        if (ignoreInvalidSymbol) return { symbol: ownedSymbol, timeframe: tf, ignoreInvalidSymbol: true };
+        reject(ownedSymbol, tf); throw failure!;
       }
       if (realtime) {
         const root = parent.fullContext ?? parent;
@@ -262,8 +320,14 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
         if (!identities.has(key) && identities.size >= 64) error("REQUEST_LIMIT", "Pine requested too many distinct contexts.");
         identities.add(key);
       }
-      try { dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
-      return { symbol, timeframe: tf };
+      try {
+        const data = dataFor(tf, ownedSymbol, calcBarsCount, ignoreInvalidSymbol);
+        if (ownedSymbol !== symbol && calcBarsCount !== undefined && data.length < calcBarsCount) {
+          error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: ownedSymbol, timeframe: tf, calcBarsCount,
+            ...(ignoreInvalidSymbol ? { ignoreInvalidSymbol: true } : {}) }));
+        }
+      } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
+      return { symbol: ownedSymbol, timeframe: tf };
     } },
     _edgelabRunRequest: { value: runRequest },
     ...(realtime ? {
@@ -1342,7 +1406,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
     warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
       ? "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
-      : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and the supplied quote currency (USD when omitted); exchange sessions, tick history and additional market data are unavailable."),
+      : request.marketData
+        ? "Execution uses the chart snapshot and requested Binance history through this run's cutoff, with UTC and a 24x7 session. Other exchanges, exchange sessions and tick history are unavailable."
+        : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and the supplied quote currency (USD when omitted); exchange sessions, tick history and additional market data are unavailable."),
     ...(realtime ? [warning("REALTIME_STATE_BOUNDS", "Realtime execution retains at most 20,000 bars and bounded rollback state: 16,384 payload nodes, 262,144 mutable cells and 1,280,000 scoped Series slots. Exceeding a limit halts the session; these are not whole-engine heap limits.")] : []),
   ];
   if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));

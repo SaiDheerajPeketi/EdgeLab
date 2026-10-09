@@ -139,8 +139,13 @@ export function security(context: any) {
         // providers strip it at their boundary).
         let rawSymbol = symbolSlot instanceof Series ? symbolSlot.get(0) : symbolSlot;
         let rawTimeframe = timeframeSlot instanceof Series ? timeframeSlot.get(0) : timeframeSlot;
+        const countSlot = resolveSlotValue(parsed.calc_bars_count);
+        const countValue = countSlot instanceof Series ? countSlot.get(0) : countSlot;
+        const ignoreSlot = resolveSlotValue(parsed.ignore_invalid_symbol);
+        const ignoreValue = ignoreSlot instanceof Series ? ignoreSlot.get(0) : ignoreSlot;
         if (typeof validateRequest === 'function') {
-            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security', context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression));
+            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security', context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression), false, false, countValue, ignoreValue === true);
+            if (owned.ignoreInvalidSymbol) return Array.isArray(expressionSlot) ? [expressionSlot.map(() => NaN)] : NaN;
             rawSymbol = owned.symbol;
             rawTimeframe = owned.timeframe;
         }
@@ -172,7 +177,7 @@ export function security(context: any) {
         // security TF — important when chart TF is much smaller than security TF
         // (e.g. 15m chart, daily security where 500 chart bars cover only ~5 daily bars).
         const _calc_bars_count = (() => {
-            const v = resolveSlotValue(parsed.calc_bars_count);
+            const v = countValue;
             return typeof v === 'number' && v > 0 ? v : undefined;
         })();
 

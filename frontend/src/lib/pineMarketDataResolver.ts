@@ -122,7 +122,8 @@ export function createPineMarketDataResolver(scope: PineMarketDataScope, overrid
             ensureActive();
             if (!Array.isArray(response?.instruments) || response.instruments.length > 5000) unavailable("Requested instrument details are unavailable. Retry the indicator.");
             const matches = response.instruments.filter(item => item?.symbol === requested.symbol);
-            if (matches.length !== 1 || matches[0].status !== "TRADING" || matches[0].asset_class !== "crypto") throw new PineProtocolError("INVALID_REQUEST_SYMBOL", "This symbol is unavailable from the chart's Binance provider.");
+            if (matches.length > 1) unavailable("Requested instrument details conflict. Retry the indicator.");
+            if (!matches.length || matches[0].status !== "TRADING" || matches[0].asset_class !== "crypto") throw new PineProtocolError("INVALID_REQUEST_SYMBOL", "This symbol is unavailable from the chart's Binance provider.");
             const validated = pineContextWithBinanceInstrument(`BINANCE:${requested.symbol}`, frame, requested.symbol, matches[0]);
             // Retain one validated scalar row, never the full search response.
             const item: BinanceInstrument = Object.freeze({ symbol: requested.symbol, label: requested.symbol, description: requested.symbol,
@@ -166,5 +167,5 @@ export function createPineMarketDataResolver(scope: PineMarketDataScope, overrid
       return job.then(result => { ensureActive(); return result; });
     } catch (error) { return Promise.reject(error); }
   };
-  return { resolve, cancel, stats: () => ({ contexts: cache.size, pending, candles: storedBars, bytes: storedBytes, retired }) };
+  return { resolve, cancel, signal: controller.signal, assertActive: ensureActive, stats: () => ({ contexts: cache.size, pending, candles: storedBars, bytes: storedBytes, retired }) };
 }

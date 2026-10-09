@@ -47,7 +47,7 @@ const hookBundle = await build({ bundle: true, format: "esm", platform: "node", 
       path === "react" ? 'const r=globalThis.__viewportHook140.react;export const useEffect=r.useEffect,useMemo=r.useMemo,useRef=r.useRef,useState=r.useState;' :
       path.endsWith("authSession") ? 'export const getStoredAuthSession=()=>globalThis.__viewportHook140.getAuth();' :
       path.endsWith("customIndicators") ? 'export const isPersistentPineIndicator=x=>!!x.customScriptSource;export const sanitizePinePrepared=(x,source)=>x?.source===source?x:undefined;export const pineContextForChart=(symbol,timeframe)=>({symbol,timeframe});' :
-      path.endsWith("pineLiveFeed") ? 'export const pineFeedChartSnapshot=x=>x.chart;' :
+      path.endsWith("pineLiveFeed") ? 'export const pineFeedChartSnapshot=x=>x.chart;export const pineFeedNextSourceTime=()=>{throw Error("Unexpected market snapshot validation in the controlled live hook");};' :
       'export const createPineLiveRuntimeSession=x=>globalThis.__viewportHook140.createSession(x);export const createPineRuntimeJob=x=>globalThis.__viewportHook140.createJob(x);', loader: "js" }));
   } }],
 });

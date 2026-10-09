@@ -41,6 +41,7 @@ import {
   type EdgeIndicatorInputValue,
 } from "../lib/indicatorDsl";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
+import { pineMarketScopeForFeed } from "../lib/pineMarketScope";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult, type PineSourceSnapshot } from "../lib/pineProtocol";
 import { pineAnchorActive, pineInputAnchors } from "../lib/pineInteractiveInputs";
@@ -434,7 +435,10 @@ export function IndicatorEditorPanel({
     try {
       if (pine && pineInstrument.loading) throw new Error("Instrument details are loading. Try Run again in a moment.");
       if (pine && pineInstrument.error) throw new Error(pineInstrument.error);
-      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), sourceSnapshot: pine && sourceSnapshot ? pineSourceSnapshotForChart(sourceSnapshot.bars, sourceSnapshot.timeframe, bars.slice(-20_000), timeframe) : undefined, inputs: pine ? effectivePineInputs.inputs : inputs, inputMetadata: pine && (currentPrepared ?? prepared)?.source === source ? currentPrepared ?? prepared ?? undefined : undefined, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined });
+      const snapshot = bars.slice(-20_000);
+      job = createCustomScriptRuntimeJob({ bars: snapshot, sourceSnapshot: pine && sourceSnapshot ? pineSourceSnapshotForChart(sourceSnapshot.bars, sourceSnapshot.timeframe, snapshot, timeframe) : undefined, inputs: pine ? effectivePineInputs.inputs : inputs, inputMetadata: pine && (currentPrepared ?? prepared)?.source === source ? currentPrepared ?? prepared ?? undefined : undefined, mode: "historical", source, context: pine ? pineInstrument.context : undefined, strategySettings: pine ? strategySettings : undefined,
+        marketDataScope: pine ? pineMarketScopeForFeed(pineLiveFeed, snapshot, symbol, timeframe, `editor-${request.nonce}-${attempt}`,
+          () => attempt === attemptRef.current && currentOwner() && currentContext(context)) : undefined });
     } catch (error) {
       setRunState({ detail: error instanceof Error ? error.message : "Script execution failed.", status: "error" }); return;
     }

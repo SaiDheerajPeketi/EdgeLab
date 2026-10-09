@@ -291,6 +291,8 @@ export function security_lower_tf(context: any) {
     const codecFor = (arity: number, expressionName: string | undefined) => ({
         encode(value: any): any {
             if (typeof value === 'number' && Number.isNaN(value)) return value;
+            if (arity && Array.isArray(value) && value.length === 1 && Array.isArray(value[0])
+                && value[0].length === arity && value[0].every((item: any) => typeof item === 'number' && Number.isNaN(item))) return NaN;
             if (!arity && value instanceof PineArrayObject) return value.array;
             if (arity && Array.isArray(value) && value.length === 1 && Array.isArray(value[0])
                 && value[0].length === arity && value[0].every((item: any) => item instanceof PineArrayObject)) {
@@ -299,7 +301,7 @@ export function security_lower_tf(context: any) {
             isolatedExpressionError('Unsupported intrabar array transport.');
         },
         decode(value: any): any {
-            if (typeof value === 'number' && Number.isNaN(value)) return value;
+            if (typeof value === 'number' && Number.isNaN(value)) return arity ? [Array.from({ length: arity }, () => NaN)] : value;
             const rows = value === undefined ? (arity ? Array.from({ length: arity }, () => []) : []) : value;
             if (!Array.isArray(rows) || arity && (rows.length !== arity || rows.some(item => !Array.isArray(item)))) {
                 isolatedExpressionError('Invalid intrabar array snapshot.');
@@ -317,12 +319,16 @@ export function security_lower_tf(context: any) {
 
         let rawSymbol = symbolSlot instanceof Series ? symbolSlot.get(0) : symbolSlot;
         let rawTimeframe = timeframeSlot instanceof Series ? timeframeSlot.get(0) : timeframeSlot;
+        const countSlot = resolveSlotValue(parsed.calc_bars_count);
+        const countValue = countSlot instanceof Series ? countSlot.get(0) : countSlot;
+        const ignoreSymbolSlot = resolveSlotValue(parsed.ignore_invalid_symbol);
+        const ignoreSymbolValue = ignoreSymbolSlot instanceof Series ? ignoreSymbolSlot.get(0) : ignoreSymbolSlot;
         if (typeof validateRequest === 'function') {
             const current = parseTimeframe(context.timeframe), requested = parseTimeframe(rawTimeframe === '' ? context.timeframe : rawTimeframe);
             const invalidTimeframe = !current || !requested || timeframeSeconds(requested) > timeframeSeconds(current);
             const ignore = resolveSlotValue(parsed.ignore_invalid_timeframe);
-            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security_lower_tf', context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), (ignore instanceof Series ? ignore.get(0) : ignore) === true, invalidTimeframe);
-            if (owned.invalidTimeframe) return NaN;
+            const owned = validateRequest(rawSymbol === '' ? context.tickerId : rawSymbol, rawTimeframe === '' ? context.timeframe : rawTimeframe, 'security_lower_tf', context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), (ignore instanceof Series ? ignore.get(0) : ignore) === true, invalidTimeframe, countValue, ignoreSymbolValue === true);
+            if (owned.invalidTimeframe || owned.ignoreInvalidSymbol) return Array.isArray(expressionSlot) ? [expressionSlot.map(() => NaN)] : NaN;
             rawSymbol = owned.symbol;
             rawTimeframe = owned.timeframe;
         }
@@ -341,7 +347,7 @@ export function security_lower_tf(context: any) {
         const _ignore_invalid_symbol = resolveSlotValue(parsed.ignore_invalid_symbol);
         const _ignore_invalid_timeframe = resolveSlotValue(parsed.ignore_invalid_timeframe);
         const _calc_bars_count = (() => {
-            const v = resolveSlotValue(parsed.calc_bars_count);
+            const v = countValue;
             return typeof v === 'number' && v > 0 ? v : undefined;
         })();
 
@@ -373,7 +379,8 @@ export function security_lower_tf(context: any) {
             throw new Error(`Timeframe ${_timeframe} is not lower than or equal to chart timeframe ${context.timeframe}`);
         }
 
-        if (formatTimeframe(reqTimeframe) === formatTimeframe(ctxTimeframe)) {
+        const isSameSymbol = validateRequest ? _symbol === context.tickerId : _symbol === plainTickerId(context.tickerId);
+        if (formatTimeframe(reqTimeframe) === formatTimeframe(ctxTimeframe) && isSameSymbol) {
             retainIntrabars?.(Array.isArray(_expression) ? _expression.length * 2 : 2, context, _expression_name);
             if (Array.isArray(_expression)) {
                 // Tuple: each element becomes a 1-element PineArrayObject

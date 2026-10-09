@@ -128,13 +128,13 @@
       "source": "src/namespaces/request/methods/security.ts",
       "file": "overrides/namespaces/request/methods/security.ts",
       "upstreamSha256": "06e8d41952b525ecf3285f9017441846f81701f12eb6275e5f9f12fd78d6425c",
-      "sha256": "31daf10410b40858d41f640d9bb811374e63d50f7c565d3ab4e012a70937b191"
+      "sha256": "9412ab76a3efc7947f489e9e6ddf87976a7098b6de25f75d464ac0b5bcd48e43"
     },
     {
       "source": "src/namespaces/request/methods/security_lower_tf.ts",
       "file": "overrides/namespaces/request/methods/security_lower_tf.ts",
       "upstreamSha256": "485ac978a33ae3b9101fd51d6acea92c8e465fa118c1f5434d13e2959fb9ed0a",
-      "sha256": "c917385ea0cbe1ce58d3eea1df91f250e54d54fca9d9ba964c2e427fae7c23b9"
+      "sha256": "cc38f35e20e16c672323cacab5b1e0a3eeefdc8d5cf4e94d1c6e7de871cbc981"
     },
     {
       "source": "src/namespaces/Ticker.ts",
@@ -217,6 +217,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "c9b8f2abb408b0ebf0f64c2d92dc32a4090246b4d60d64bf358133f15f673da8"
+    "sha256": "3060cfa59d6ac4e5c606c20e48a81ea23819ef8ae510df25acac579c574d42c0"
   }
 }
