@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "10da9d2716580769b96af7a32d69a071df74baf091aeb951d9dfbe3103baa194",
+  "namespaceSourcesSha256": "4fbc19964985f3b0e553c6f48c9359a52662a9bac72d1659f3cb69c60576213c",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -62,7 +62,7 @@
     },
     {
       "source": "src/namespaces/request/methods/security.ts",
-      "sha256": "c39a63d42774bce17a0b232cfaafeab5853883f2e9e31d8839b54d2a8f50c18c"
+      "sha256": "d1c09936f31a107b473ab674b0e600c7545bb72fa6bdb76461bb2863552be22a"
     },
     {
       "source": "src/namespaces/Str.ts",

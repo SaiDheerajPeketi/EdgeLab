@@ -128,7 +128,7 @@
       "source": "src/namespaces/request/methods/security.ts",
       "file": "overrides/namespaces/request/methods/security.ts",
       "upstreamSha256": "06e8d41952b525ecf3285f9017441846f81701f12eb6275e5f9f12fd78d6425c",
-      "sha256": "c39a63d42774bce17a0b232cfaafeab5853883f2e9e31d8839b54d2a8f50c18c"
+      "sha256": "d1c09936f31a107b473ab674b0e600c7545bb72fa6bdb76461bb2863552be22a"
     },
     {
       "source": "src/namespaces/request/methods/security_lower_tf.ts",
@@ -217,6 +217,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "c44b1f8ffe2a361d3fdc922d5ff12c5412d52febfd63b2d91a06bca4c9c18604"
+    "sha256": "9f07b58365750dd04990428974c0c0c8f08724d1f933b171c4aaf637c1254bb1"
   }
 }

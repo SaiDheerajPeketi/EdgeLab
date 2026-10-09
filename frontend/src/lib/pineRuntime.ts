@@ -8,6 +8,9 @@ import { advancePineLiveSource, PINE_LIVE_PROTOCOL, PINE_LIVE_QUEUE_LIMIT, pineL
 import { advancePineLiveMarkets, assertPineLiveMarketBudget, createPineLiveMarketLedger, validatePineLiveMarketEvents, validatePineLiveMarketStreams, type PineLiveMarketStream, type PineLiveMarketEvent, type PineLiveMarketLedger, type PineLiveMarketReceipt } from "./pineLiveMarkets";
 import { createPineMarketRuntimeJob } from "./pineMarketRuntime";
 import { createPineMarketDataResolver, type PineMarketDataScope } from "./pineMarketDataResolver";
+import { createPineLiveMarketCoordinator } from "./pineLiveMarketCoordinator";
+import { createPineLiveMarketDataResolver } from "./pineLiveMarketTransport";
+import { loadBinanceRequestHistory } from "./binanceChartFeed";
 
 async function loadTrustedPineWorker(signal: AbortSignal) {
   const url = new URL(workerAsset, location.href);
@@ -40,6 +43,12 @@ export type PineLiveRuntimeSession = {
   updateMarkets(events: PineLiveMarketEvent[]): Promise<PineLiveMarketReceipt>;
   cancel(): void;
 };
+
+export function createPineLiveMarketRuntime(input: Omit<PineRequest, "id" | "action" | "mode"> & { inputMetadata?: PinePrepareResult }, scope: PineMarketDataScope, epoch: number) {
+  return createPineLiveMarketCoordinator({ ...input, id: "pine-live-market-startup", action: "run", mode: "live" }, scope, epoch,
+    { createJob: request => createPineRuntimeJob(request), createSession: createPineLiveRuntimeSession,
+      createResolver: createPineLiveMarketDataResolver, history: loadBinanceRequestHistory }, input.inputMetadata);
+}
 
 /** Initial bars are confirmed history; every subsequent accepted event is ordered. */
 export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "action" | "mode"> & { inputMetadata?: PinePrepareResult; marketStreams?: PineLiveMarketStream[] }): PineLiveRuntimeSession {

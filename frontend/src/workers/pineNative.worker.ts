@@ -140,13 +140,13 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
       if (!qualified) { reject(requestedSymbol, tf); throw failure!; }
       const live = realtime ? liveMarket(qualified, tf) : undefined;
-      if (realtime && !live) error("UNAVAILABLE_DATA", "This requested market has no independently admitted live stream.");
       const key = `${qualified}:${tf}`;
       const existing = snapshots.get(key);
       if (existing) return existing;
       const snapshot = marketSnapshots.get(key);
       if (!snapshot) error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: qualified, timeframe: tf,
         ...(calcBarsCount !== undefined ? { calcBarsCount } : {}), ...(ignoreInvalidSymbol ? { ignoreInvalidSymbol: true } : {}) }));
+      if (realtime && !live) error("UNAVAILABLE_DATA", "This requested market has no independently admitted live stream.");
       const history = live ?? snapshot;
       const sourceFrame = pineMarketChartTimeframe(history.context.timeframe), targetFrame = pineMarketChartTimeframe(tf);
       const groups = new Map<number, Candle[]>();
@@ -367,7 +367,11 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       retainedSlots += slots - previous;
       costs?.set(key, slots);
     } },
-    _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>, codec?: { encode(value: unknown): unknown; decode(value: unknown): unknown }) => {
+    _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>, codec?: { encode(value: unknown): unknown; decode(value: unknown): unknown }, expression?: () => unknown) => {
+      // The child already owns the resolved symbol/timeframe of this call. Its
+      // terminal expression must not select a different context from child data.
+      // Original-chart static replay still executes the request it is capturing.
+      if (expression && parent.isSecondaryContext && parent._edgelabEnclosingExpression === expressionName && !captures.has(parent)) return expression();
       const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
         ?? parent.strategy?.config?.dynamic_requests ?? parent.pineVersion === 6;
       const dependency = expressionName?.match(/p\d+$/)?.[0] ?? expressionName;

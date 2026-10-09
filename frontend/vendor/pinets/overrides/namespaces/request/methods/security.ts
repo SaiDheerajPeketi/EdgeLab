@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified by EdgeLab, 2026-10-09: owned historical and persistent live request selection.
+// Modified by EdgeLab, 2026-10-09: owned requested expression and persistent live selection.
 
 import { PineTS } from '../../../PineTS.class';
 import { Series } from '../../../Series';
@@ -465,7 +465,10 @@ export function security(context: any) {
         const parsed = parseArgsForPineParams<any>(args, SECURITY_SIGNATURES, SECURITY_TYPES);
 
         return typeof staticRequest === 'function'
-            ? staticRequest(context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames))
+            ? staticRequest(context, resolveSlotName('expression', SECURITY_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames), undefined, () => {
+                const value = ownValue(resolveExprValue(resolveSlotValue(parsed.expression)));
+                return Array.isArray(value) ? [value] : value;
+            })
             : evaluate(parsed, argNames);
     };
 }

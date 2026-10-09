@@ -4,13 +4,16 @@ import { getStoredAuthSession } from "../../lib/authSession";
 import type { ChartIndicatorInstance, ChartTimeframe } from "../../lib/charting";
 import { isPersistentPineIndicator, pineContextForChart, sanitizePinePrepared } from "../../lib/customIndicators";
 import { pineFeedChartSnapshot, type PineFeedSnapshot, type PineLiveFeed } from "../../lib/pineLiveFeed";
-import { createPineLiveRuntimeSession, createPineRuntimeJob, type PineLiveRuntimeSession } from "../../lib/pineRuntime";
+import { createPineLiveMarketRuntime, createPineLiveRuntimeSession, createPineRuntimeJob, type PineLiveRuntimeSession } from "../../lib/pineRuntime";
+import { binanceChartSymbolMatches } from "../../lib/pineInstrumentContext";
+import { pineFeedNextSourceTime } from "../../lib/pineLiveFeed";
+import { PINE_MARKETS_RELOADING } from "../../lib/pineLiveMarketCoordinator";
 import { pineSourceSnapshotForChart } from "../../lib/pineSourceSnapshot";
-import { PINE_LIMITS, type PineContext, type PineExecutionResult, type PineViewport } from "../../lib/pineProtocol";
+import { PINE_LIMITS, PineProtocolError, type PineContext, type PineExecutionResult, type PineViewport } from "../../lib/pineProtocol";
 
 type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string };
 export type LivePineStudy = { sourceId: string; owner: Owner; bars: Candle[]; viewport?: PineViewport | null; usesVisibleRange?: boolean; result?: PineExecutionResult; error?: string };
-type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; sourceOwned?: boolean; session?: PineLiveRuntimeSession; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob> };
+type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; sourceOwned?: boolean; session?: PineLiveRuntimeSession; markets?: ReturnType<typeof createPineLiveMarketRuntime>; marketsReadyAfter?: number; startupMain?: PineFeedSnapshot[]; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob> };
 function sameViewport(a: PineViewport | null | undefined, b: PineViewport | null | undefined) {
   return a === b || (a != null && b != null && a.from === b.from && a.to === b.to);
 }
@@ -56,11 +59,18 @@ export function useLivePineRuntime(options: {
     const visible = () => latest.current.indicators.filter(indicator => indicator.visible !== false && isPersistentPineIndicator(indicator));
     const ownsStudy = (id: string, entry: Entry) => ownsContext() && entries.get(id) === entry
       && visible().some(indicator => indicator.id === id && signature(indicator) === entry.key);
-    const report = (id: string, entry: Entry, failure: unknown, viewport: PineViewport | null | undefined) => {
+    const report = (id: string, entry: Entry, failure: unknown, viewport: PineViewport | null | undefined, session?: PineLiveRuntimeSession) => {
       if (!ownsStudy(id, entry) || entry.failed) return;
+      if (session && entry.session !== session) return;
+      if (failure instanceof PineProtocolError && failure.code === PINE_MARKETS_RELOADING && entry.markets) {
+        entry.session = undefined;
+        entry.marketsReadyAfter = feed.getSnapshot().event?.sequence ?? entry.sequence;
+        return;
+      }
       entry.failed = true;
       entry.failedViewport = viewport ?? null;
       entry.session?.cancel();
+      entry.markets?.cancel();
       const error = failure instanceof Error ? failure.message : "Live study execution failed.";
       setStudies(current => ({ ...current, [id]: { sourceId: id, owner: entry.owner, bars: entry.bars,
         usesVisibleRange: entry.usesVisibleRange, viewport: entry.failedViewport, error } }));
@@ -98,8 +108,10 @@ export function useLivePineRuntime(options: {
       const bars = entry.bars;
       entry.viewport = viewport;
       entry.viewportInFlight = true;
-      void entry.session.setViewport(viewport).then(result => publish(id, entry, result, bars, viewport))
-        .catch(error => report(id, entry, error, viewport)).finally(() => {
+      const session = entry.session;
+      void session.setViewport(viewport).then(result => {
+        if (entry.session === session) publish(id, entry, result, bars, viewport);
+      }).catch(error => report(id, entry, error, viewport, session)).finally(() => {
           entry.viewportInFlight = false;
           rerange(id, entry);
         });
@@ -122,7 +134,7 @@ export function useLivePineRuntime(options: {
       if (!ownsContext()) return;
       if (snapshot.epoch !== epoch) {
         epoch = snapshot.epoch;
-        for (const entry of entries.values()) { entry.session?.cancel(); entry.preparation?.cancel(); }
+        for (const entry of entries.values()) { entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
         entries.clear();
         setStudies({});
       }
@@ -131,6 +143,7 @@ export function useLivePineRuntime(options: {
         const candidate = candidates.find(indicator => indicator.id === id);
         if (!candidate || signature(candidate) !== entry.key) {
           entry.session?.cancel();
+          entry.markets?.cancel();
           entry.preparation?.cancel();
           entries.delete(id);
           setStudies(current => { const next = { ...current }; delete next[id]; return next; });
@@ -142,6 +155,7 @@ export function useLivePineRuntime(options: {
         if (entry?.failed) {
           if (entry.usesVisibleRange !== true || sameViewport(entry.failedViewport, latest.current.viewport ?? null)) continue;
           entry.session?.cancel();
+          entry.markets?.cancel();
           entry.preparation?.cancel();
           entry = undefined;
           recovering = true;
@@ -166,16 +180,53 @@ export function useLivePineRuntime(options: {
             const sourceBars = snapshot.bars.filter(bar => recovering && chart.confirmed ? bar.time <= snapshot.event!.bar.time : bar.time < snapshot.event!.bar.time);
             const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, snapshot.sourceTimeframe ?? "1m", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
             entry.sourceOwned = sourceSnapshot !== undefined;
-            entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
+            const input = { source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
               strategySettings: indicator.settings.pineStrategySettings,
               inputMetadata: sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!),
               context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: entry.bars, viewport: entry.viewport,
               sourceSnapshot, ...(recovering && chart.confirmed ? {} : { liveObservation: {
                 bar: snapshot.event.bar, confirmed: snapshot.event.confirmed, eventTime: snapshot.event.eventTime, closeTime: snapshot.event.closeTime,
-              } }) });
+              } }) };
+            if (binanceChartSymbolMatches(options.symbol, snapshot.symbol)) {
+              if (!entry.markets) {
+                const currentEntry = entry, asOf = pineFeedNextSourceTime(entry.bars.at(-1)!.time, options.timeframe);
+                entry.startupMain = [snapshot];
+                entry.markets = createPineLiveMarketRuntime(input, { provider: "binance", chartSymbol: snapshot.symbol, revision: `pine-live:${indicator.id.slice(0, 192)}:${epoch}`,
+                  range: { from: entry.bars[0].time, to: asOf - 1 }, asOf,
+                  owns: () => ownsStudy(indicator.id, currentEntry) && feed.getSnapshot().epoch === epoch && !feed.getSnapshot().error }, epoch);
+                void entry.markets.promise.then(() => {
+                  if (!ownsStudy(indicator.id, currentEntry) || currentEntry.failed) return;
+                  currentEntry.marketsReadyAfter = feed.getSnapshot().event?.sequence ?? currentEntry.sequence;
+                  if (currentEntry.markets!.hasRequestedMarkets()) { currentEntry.startupMain = undefined; return; }
+                  // Without foreign data, the captured primary receipts remain
+                  // causal and can keep the ordinary study's first-tick behavior.
+                  const session = currentEntry.markets!.start({ ...input, id: "pine-live-primary-cutover", action: "run", mode: "live" });
+                  if (!session) return;
+                  currentEntry.session = session; currentEntry.bars = input.bars; currentEntry.sourceOwned = input.sourceSnapshot !== undefined;
+                  const initialBars = currentEntry.bars, viewport = currentEntry.viewport;
+                  void session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, viewport))
+                    .catch(error => report(indicator.id, currentEntry, error, viewport, session));
+                  const received = currentEntry.startupMain ?? []; currentEntry.startupMain = undefined;
+                  for (const item of received) accept(item);
+                }).catch(error => report(indicator.id, currentEntry, error, currentEntry.viewport));
+                void entry.markets.failure.catch(error => report(indicator.id, currentEntry, error, currentEntry.viewport));
+                continue;
+              }
+              if (entry.marketsReadyAfter === undefined) {
+                if (snapshot.event.sequence > (entry.startupMain?.at(-1)?.event?.sequence ?? -1)) {
+                  if ((entry.startupMain?.length ?? 0) >= 32) throw new PineProtocolError("LIVE_QUEUE_LIMIT", "Live indicator startup exceeded its update buffer. Reapply the indicator.");
+                  entry.startupMain?.push(snapshot);
+                }
+                continue;
+              }
+              if (snapshot.event.sequence <= entry.marketsReadyAfter) continue;
+              entry.session = entry.markets.start({ ...input, id: "pine-live-market-cutover", action: "run", mode: "live" });
+              if (!entry.session) continue;
+            } else entry.session = createPineLiveRuntimeSession(input);
+            const session = entry.session;
             const currentEntry = entry, initialBars = entry.bars, initialViewport = entry.viewport;
-            void entry.session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, initialViewport))
-              .catch(error => report(indicator.id, currentEntry, error, initialViewport));
+            void session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, initialViewport))
+              .catch(error => report(indicator.id, currentEntry, error, initialViewport, session));
           }
           entry.sequence = snapshot.event.sequence;
           // A completed tail belongs in historical warmup after a full reload;
@@ -183,8 +234,9 @@ export function useLivePineRuntime(options: {
           if (recovering && chart.confirmed) continue;
           entry.bars = entry.bars.at(-1)?.time === chart.bar.time ? [...entry.bars.slice(0, -1), chart.bar] : [...entry.bars, chart.bar];
           const currentEntry = entry, bars = entry.bars, viewport = entry.viewport;
-          void entry.session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined).then(result => publish(indicator.id, currentEntry, result, bars, viewport))
-            .catch(error => report(indicator.id, currentEntry, error, viewport));
+          const session = entry.session;
+          void session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined).then(result => publish(indicator.id, currentEntry, result, bars, viewport))
+            .catch(error => report(indicator.id, currentEntry, error, viewport, session));
         } catch (error) { report(indicator.id, entry, error, entry.viewport); }
       }
     };
@@ -194,7 +246,7 @@ export function useLivePineRuntime(options: {
       active = false;
       reconcile.current = null;
       unsubscribe();
-      for (const entry of entries.values()) { entry.session?.cancel(); entry.preparation?.cancel(); }
+      for (const entry of entries.values()) { entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
       entries.clear();
     };
   }, [options.feed, options.timeframe, options.symbol, options.userId, options.token, options.metadataKey, options.contextLoading, options.contextError]);

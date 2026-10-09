@@ -42,13 +42,14 @@ globalThis.__viewportHook140 = { react, getAuth: () => fixture.auth,
 const hookBundle = await build({ bundle: true, format: "esm", platform: "node", write: false, logLevel: "silent",
   stdin: { contents: 'export {useLivePineRuntime} from "./frontend/src/components/chart/useLivePineRuntime";', resolveDir: root, loader: "ts" },
   plugins: [{ name: "live-hook-boundaries", setup(plugin) {
-    plugin.onResolve({ filter: /^react$|authSession$|customIndicators$|pineRuntime$|pineLiveFeed$/ }, args => ({ path: args.path, namespace: "hook140" }));
+    plugin.onResolve({ filter: /^react$|authSession$|customIndicators$|pineRuntime$|pineLiveFeed$|pineInstrumentContext$/ }, args => ({ path: args.path, namespace: "hook140" }));
     plugin.onLoad({ filter: /.*/, namespace: "hook140" }, ({ path }) => ({ contents:
       path === "react" ? 'const r=globalThis.__viewportHook140.react;export const useEffect=r.useEffect,useMemo=r.useMemo,useRef=r.useRef,useState=r.useState;' :
       path.endsWith("authSession") ? 'export const getStoredAuthSession=()=>globalThis.__viewportHook140.getAuth();' :
+      path.endsWith("pineInstrumentContext") ? 'export const binanceChartSymbolMatches=()=>false;' :
       path.endsWith("customIndicators") ? 'export const isPersistentPineIndicator=x=>!!x.customScriptSource;export const sanitizePinePrepared=(x,source)=>x?.source===source?x:undefined;export const pineContextForChart=(symbol,timeframe)=>({symbol,timeframe});' :
       path.endsWith("pineLiveFeed") ? 'export const pineFeedChartSnapshot=x=>x.chart;export const pineFeedNextSourceTime=()=>{throw Error("Unexpected market snapshot validation in the controlled live hook");};' :
-      'export const createPineLiveRuntimeSession=x=>globalThis.__viewportHook140.createSession(x);export const createPineRuntimeJob=x=>globalThis.__viewportHook140.createJob(x);', loader: "js" }));
+      'export const createPineLiveMarketRuntime=()=>{throw Error("Unexpected Binance coordinator in the TEST chart fixture");};export const createPineLiveRuntimeSession=x=>globalThis.__viewportHook140.createSession(x);export const createPineRuntimeJob=x=>globalThis.__viewportHook140.createJob(x);', loader: "js" }));
   } }],
 });
 const { useLivePineRuntime } = await import('data:text/javascript;base64,' + Buffer.from(hookBundle.outputFiles[0].text).toString('base64'));
