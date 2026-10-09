@@ -3553,10 +3553,10 @@ export function TradingChart({
                   </div>
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-400">
                     <span
-                      aria-label={`Trading hours mode: ${chartSettings.tradingHoursMode === "regular" ? "Regular Trading Hours" : "Extended Trading Hours"}`}
-                      className="rounded border border-cyan-300/20 bg-cyan-300/[0.07] px-1.5 py-0.5 font-semibold text-cyan-100"
+                      aria-label={`Trading hours: ${chartSettings.tradingHoursMode === "regular" ? "Regular hours" : "All hours"}`}
+                      className="font-medium text-[var(--text-secondary)]"
                     >
-                      {chartSettings.tradingHoursMode === "regular" ? "RTH" : "ETH"}
+                      {chartSettings.tradingHoursMode === "regular" ? "Regular hours" : "All hours"}
                     </span>
                     <span
                       aria-label={`Session template: ${sessionTemplate.label}, ${sessionTemplate.scheduleLabel}, ${sessionTemplate.timeZone}`}
@@ -3912,8 +3912,8 @@ export function TradingChart({
                 role="status"
               >
                 <div className="max-w-sm rounded-md border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-slate-200 shadow-lg">
-                  No regular-session bars in this range. Switch this pane to ETH to view
-                  every published bar.
+                  No candles during regular hours in this range. Choose All hours in
+                  Chart settings to show every loaded candle.
                 </div>
               </div>
             ) : null}

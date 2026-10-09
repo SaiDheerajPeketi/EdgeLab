@@ -334,14 +334,14 @@ const TRADING_HOURS_MODES: Array<{
   label: string;
 }> = [
   {
-    description: "Regular Trading Hours only; indicators use the filtered bars",
+    description: "Regular hours only; indicators use the candles shown",
     id: "regular",
-    label: "RTH",
+    label: "Regular hours",
   },
   {
-    description: "Extended Trading Hours; retain every published source bar",
+    description: "All hours; includes every loaded candle",
     id: "extended",
-    label: "ETH",
+    label: "All hours",
   },
 ];
 
@@ -2389,7 +2389,7 @@ function ChartSettingsPanel({
                     })
                   }
                   options={TRADING_HOURS_MODES.map((mode) => ({
-                    label: `${mode.label} · ${mode.id === "regular" ? "Regular only" : "All source bars"}`,
+                    label: mode.label,
                     value: mode.id,
                   }))}
                   value={settings.tradingHoursMode}

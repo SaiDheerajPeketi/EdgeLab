@@ -8,6 +8,16 @@ export const historyFor = (symbol: string) => Array.from({ length: 600 }, (_, in
   const close = baseFor(symbol) + index / 10;
   return { time: historyStart + index * 60, open: close + 0.5, high: close + 2, low: close - 2, close, volume: 10 };
 });
+const fiveMinuteHistoryFor = (symbol: string) => {
+  const groups = new Map<number, ReturnType<typeof historyFor>>();
+  for (const bar of historyFor(symbol)) {
+    const time = Math.floor(bar.time / 300) * 300;
+    groups.set(time, [...(groups.get(time) ?? []), bar]);
+  }
+  return [...groups].filter(([, bars]) => bars.length === 5).map(([time, bars]) => ({ time, open: bars[0].open,
+    high: Math.max(...bars.map(bar => bar.high)), low: Math.min(...bars.map(bar => bar.low)), close: bars.at(-1)!.close,
+    volume: bars.reduce((total, bar) => total + bar.volume, 0) }));
+};
 
 const diagnostics = new WeakMap<Page, any>();
 
@@ -81,12 +91,19 @@ export async function setupContextProduct(page: Page) {
   const setup = await productSetup(page, {
     target: "/app/live", keepBinanceWebSocket: true,
     beforeNavigate: async () => {
+      await page.route("**/api/live/binance/instruments?**", route => route.fulfill({ json: {
+        instruments: ["BTCUSDT", "ETHUSDT"].map(symbol => ({ symbol, label: symbol, description: symbol, status: "TRADING", asset_class: "crypto",
+          base_asset: symbol.slice(0, -4), quote_asset: "USDT", tick_size: symbol === "ETHUSDT" ? .001 : .01,
+          min_quantity: symbol === "ETHUSDT" ? .001 : .00001, quantity_step: symbol === "ETHUSDT" ? .001 : .00001 })),
+      } }));
       await page.route("https://data-api.binance.vision/**", route => {
         const url = new URL(route.request().url());
         if (url.pathname.endsWith("/klines")) {
           const symbol = url.searchParams.get("symbol")!;
           if (failureSymbol === symbol) return route.fulfill({ status: 503, json: { message: "Controlled source unavailable" } });
-          const rows = url.searchParams.has("endTime") ? [] : historyFor(symbol).map(bar => [bar.time * 1000, String(bar.open), String(bar.high), String(bar.low), String(bar.close), String(bar.volume), bar.time * 1000 + 59_999]);
+          const interval = url.searchParams.get("interval") ?? "1m", seconds = interval === "5m" ? 300 : 60;
+          const bars = interval === "5m" ? fiveMinuteHistoryFor(symbol) : historyFor(symbol);
+          const rows = url.searchParams.has("endTime") ? [] : bars.map(bar => [bar.time * 1000, String(bar.open), String(bar.high), String(bar.low), String(bar.close), String(bar.volume), (bar.time + seconds) * 1000 - 1]);
           return route.fulfill({ json: rows });
         }
         if (url.pathname.endsWith("/ticker/24hr")) {
@@ -110,6 +127,13 @@ export async function setupContextProduct(page: Page) {
       events.push(payload);
       for (const socket of sockets) if (socket.url().includes(`${symbol.toLowerCase()}@kline_1m`)) socket.send(JSON.stringify(payload));
       return bar;
+    },
+    emitFiveMinute(symbol: string, bar: ReturnType<typeof historyFor>[number]) {
+      expect(bar.time % 300).toBe(0);
+      const payload = { e: "kline", E: ++eventTime, s: symbol, k: { t: bar.time * 1000, T: (bar.time + 300) * 1000 - 1,
+        i: "5m", s: symbol, o: String(bar.open), h: String(bar.high), l: String(bar.low), c: String(bar.close), v: String(bar.volume), x: false } };
+      const owners = sockets.filter(socket => socket.url().includes(`${symbol.toLowerCase()}@kline_5m`));
+      expect(owners).toHaveLength(1); events.push(payload); owners[0].send(JSON.stringify(payload));
     },
   };
 }
