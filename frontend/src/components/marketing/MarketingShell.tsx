@@ -1,4 +1,4 @@
-import { ArrowRight, Menu, X } from "lucide-react";
+import { ArrowRight, Menu, Pause, Play, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -770,10 +770,14 @@ export function MarketingShell({
                   Source code
                 </a>
               </div>
-              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 sm:justify-end">
-                <input className="h-4 w-4 accent-cyan-200" type="checkbox" checked={reducedMotion} onChange={(event) => setMarketingMotionChoice(event.target.checked ? "reduced" : "full")} />
-                Pause animations
-              </label>
+              <button
+                className="inline-flex min-h-11 items-center gap-2 justify-self-start text-sm transition-colors hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:justify-self-end"
+                type="button"
+                onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
+              >
+                {reducedMotion ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}
+                {reducedMotion ? "Resume animations" : "Pause animations"}
+              </button>
             </nav>
           </div>
         </footer>

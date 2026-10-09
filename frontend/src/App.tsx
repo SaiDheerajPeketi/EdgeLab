@@ -48,6 +48,7 @@ import { WorkspaceContextHeader } from "./components/WorkspaceContextHeader";
 import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
+import { useSidePaneHover } from "./components/ui/useSidePaneHover";
 import { usePaneMarketData } from "./components/chart/usePaneMarketData";
 import { getStoredAuthSession, subscribeAuthSession } from "./lib/authSession";
 import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
@@ -476,6 +477,12 @@ export function WorkspaceApp() {
   });
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
+  const sidePaneContext = `${activeWorkspace}:${state?.session.id ?? ""}:${isChartFullscreen}`;
+  const ticketPane = useSidePaneHover({ open: isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen,
+    onOpenChange: (open) => isChartFullscreen ? setFullscreenOrderPanelOpen(open) : setLeftPaneOpen(open),
+    label: "Ticket", contextKey: sidePaneContext });
+  const objectsPane = useSidePaneHover({ open: layersPanelOpen, onOpenChange: setLayersPanelOpen,
+    label: "Objects", contextKey: sidePaneContext, width: 720 });
   const [backtestHeaderVisible, setBacktestHeaderVisible] = useState(true);
   const [replayOverlayOpen, setReplayOverlayOpen] = useState(false);
   const [timeframeShortcutFeedback, setTimeframeShortcutFeedback] =
@@ -2903,7 +2910,8 @@ export function WorkspaceApp() {
         </button>
         <button
           className={`workspace-tab inline-flex items-center justify-center gap-2 ${leftPaneOpen ? "workspace-tab-active" : ""}`}
-          onClick={() => setLeftPaneOpen((value) => !value)}
+          {...ticketPane.triggerProps}
+          onClick={ticketPane.toggle}
           type="button"
         >
           {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
@@ -2911,7 +2919,8 @@ export function WorkspaceApp() {
         </button>
         <button
           className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}
-          onClick={() => setLayersPanelOpen((value) => !value)}
+          {...objectsPane.triggerProps}
+          onClick={objectsPane.toggle}
           type="button"
         >
           {layersPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
@@ -2996,7 +3005,8 @@ export function WorkspaceApp() {
     >
       <button
         className={`chart-quick-action ${quickOrderPanelOpen ? "chart-quick-action-active" : ""}`}
-        onClick={toggleOrderPanel}
+        {...ticketPane.triggerProps}
+        onClick={ticketPane.toggle}
         type="button"
       >
         {quickOrderPanelOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
@@ -3004,7 +3014,8 @@ export function WorkspaceApp() {
       </button>
       <button
         className={`chart-quick-action ${layersPanelOpen ? "chart-quick-action-active" : ""}`}
-        onClick={() => setLayersPanelOpen((value) => !value)}
+        {...objectsPane.triggerProps}
+        onClick={objectsPane.toggle}
         type="button"
       >
         {layersPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
@@ -3237,10 +3248,11 @@ export function WorkspaceApp() {
           {isLoading && <BacktestLoadingPanel />}
 
           <div className="space-y-3">
-            {leftPaneOpen && (
+            {!isChartFullscreen && ticketPane.shown && ticketPane.panel(
               <aside
                 className="focus-side-drawer"
                 style={{
+                  ...(ticketPane.preview ? { position: "relative", inset: "auto", width: "100%", zIndex: "auto" } : {}),
                   "--edge-sidebar-width": `${
                     sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH
                   }px`,
@@ -3257,7 +3269,7 @@ export function WorkspaceApp() {
                   </div>
                   <button
                     className="icon-button h-8 w-8 shrink-0"
-                    onClick={() => setLeftPaneOpen(false)}
+                    onClick={ticketPane.close}
                     title="Close order ticket"
                     type="button"
                   >
@@ -3590,31 +3602,33 @@ export function WorkspaceApp() {
                       ) : null}
                     </div>
                   </div>
-                  {layersPanelOpen ? (
-                    <ChartObjectsPanel
-                      chartStyle={chartStyle}
-                      drawings={drawings}
-                      indicatorInstances={indicatorInstances}
-                      onClearDrawings={clearDrawings}
-                      onCollapse={() => setLayersPanelOpen(false)}
-                      onDeleteDrawing={deleteDrawing}
-                      onMoveDrawingLayer={moveDrawingLayer}
-                      onReorderDrawing={reorderDrawing}
-                      onSelectDrawing={setSelectedDrawingId}
-                      onRemoveIndicator={removeIndicator}
-                      onToggleIndicatorVisibility={toggleIndicatorVisibility}
-                      onUpdateDrawing={(updatedDrawing) => updateDrawing(updatedDrawing, false)}
-                      onUpdateIndicatorSettings={updateIndicatorSettings}
-                      onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
-                      orderOverlaysVisible={showOrderOverlays}
-                      selectedDrawingId={selectedDrawingId}
-                      smoothCandles={smoothCandles}
-                    />
-                  ) : null}
+                  <Suspense fallback={null}>
+                    {objectsPane.shown ? objectsPane.panel(
+                      <ChartObjectsPanel
+                        chartStyle={chartStyle}
+                        drawings={drawings}
+                        indicatorInstances={indicatorInstances}
+                        onClearDrawings={clearDrawings}
+                        onCollapse={objectsPane.close}
+                        onDeleteDrawing={deleteDrawing}
+                        onMoveDrawingLayer={moveDrawingLayer}
+                        onReorderDrawing={reorderDrawing}
+                        onSelectDrawing={setSelectedDrawingId}
+                        onRemoveIndicator={removeIndicator}
+                        onToggleIndicatorVisibility={toggleIndicatorVisibility}
+                        onUpdateDrawing={(updatedDrawing) => updateDrawing(updatedDrawing, false)}
+                        onUpdateIndicatorSettings={updateIndicatorSettings}
+                        onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                        orderOverlaysVisible={showOrderOverlays}
+                        selectedDrawingId={selectedDrawingId}
+                        smoothCandles={smoothCandles}
+                      />
+                    ) : null}
+                  </Suspense>
                   </div>
                 </Suspense>
-                {isChartFullscreen && fullscreenOrderPanelOpen && (
-                  <div className="chart-fullscreen-dock">
+                {isChartFullscreen && ticketPane.shown && ticketPane.panel(
+                  <div className={ticketPane.preview ? "bg-[var(--ui-surface)] p-3" : "chart-fullscreen-dock"}>
                     <div className="chart-fullscreen-dock-header">
                       <div className="min-w-0">
                         <div className="text-xs uppercase tracking-[0.16em] text-cyan-200/70">
@@ -3626,7 +3640,7 @@ export function WorkspaceApp() {
                       </div>
                       <button
                         className="icon-button h-8 w-8 shrink-0"
-                        onClick={() => setFullscreenOrderPanelOpen(false)}
+                        onClick={ticketPane.close}
                         title="Close order ticket"
                         type="button"
                       >

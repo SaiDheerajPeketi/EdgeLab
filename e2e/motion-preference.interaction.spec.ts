@@ -169,10 +169,10 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await journalStep.click();
   await expect(journalStep).toHaveAttribute("aria-current", "step");
 
-  const motionPreference = page.getByRole("checkbox", { name: "Pause animations", exact: true });
+  const motionPreference = page.getByRole("button", { name: "Resume animations", exact: true });
   await motionPreference.scrollIntoViewIfNeeded();
-  await expect(motionPreference).toBeChecked();
-  await motionPreference.uncheck();
+  await expect(motionPreference).toBeVisible();
+  await motionPreference.click();
   await expect(page.locator("[data-marketing-motion]")).toHaveAttribute("data-marketing-motion", "full");
   await hero.scrollIntoViewIfNeeded();
   await replayStep.click();
