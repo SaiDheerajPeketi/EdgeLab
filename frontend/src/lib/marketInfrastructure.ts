@@ -102,16 +102,16 @@ export function listMarketInstruments(search = "", options: { signal?: AbortSign
   return apiRequest<MarketInstrument[]>(`/market-data/instruments${query.toString() ? `?${query.toString()}` : ""}`, { signal: options.signal });
 }
 
-export async function resolveMarketInstrument(symbol: string) {
+export async function resolveMarketInstrument(symbol: string, options: { signal?: AbortSignal } = {}) {
   const normalized = normalizeMarketSymbol(symbol);
-  const instruments = await listMarketInstruments(symbol);
+  const instruments = await listMarketInstruments(symbol, options);
   return instruments.find((instrument) => instrumentSymbols(instrument).some((candidate) => normalizeMarketSymbol(candidate) === normalized)) ?? null;
 }
 
-export function getOrderBook(instrumentId: number, options: { aggregationTicks?: number; depth?: number; provider?: string | null } = {}) {
+export function getOrderBook(instrumentId: number, options: { aggregationTicks?: number; depth?: number; provider?: string | null; signal?: AbortSignal } = {}) {
   const query = new URLSearchParams({ aggregation_ticks: String(options.aggregationTicks ?? 1), depth: String(options.depth ?? 20) });
   if (options.provider) query.set("provider", options.provider);
-  return apiRequest<OrderBookSnapshot>(`/market-data/instruments/${instrumentId}/order-book?${query.toString()}`);
+  return apiRequest<OrderBookSnapshot>(`/market-data/instruments/${instrumentId}/order-book?${query.toString()}`, { signal: options.signal });
 }
 
 export function listMarketFootprints(instrumentId: number, options: { from?: Date; to?: Date; intervalSeconds?: number; provider?: string | null; limit?: number; signal?: AbortSignal } = {}) {
@@ -127,10 +127,10 @@ export function listMarketFootprints(instrumentId: number, options: { from?: Dat
   return apiRequest<MarketFootprint[]>(`/market-data/instruments/${instrumentId}/footprints?${query.toString()}`, { signal: options.signal });
 }
 
-export function listMarketAlerts() { return apiRequest<MarketAlertRule[]>("/market-data/alerts"); }
+export function listMarketAlerts(options: { signal?: AbortSignal } = {}) { return apiRequest<MarketAlertRule[]>("/market-data/alerts", options); }
 export function createMarketAlert(payload: { instrument_id?: number | null; name: string; alert_type: MarketAlertType; threshold?: number | null; provider?: string | null; cooldown_seconds?: number }) { return apiRequest<MarketAlertRule>("/market-data/alerts", { method: "POST", body: JSON.stringify(payload) }); }
 export function deleteMarketAlert(ruleId: number) { return apiRequest<{ ok: boolean }>(`/market-data/alerts/${ruleId}`, { method: "DELETE" }); }
-export function listMarketAlertEvents(acknowledged?: boolean) { const query = acknowledged == null ? "" : `?acknowledged=${acknowledged ? "true" : "false"}`; return apiRequest<MarketAlertEvent[]>(`/market-data/alert-events${query}`); }
+export function listMarketAlertEvents(acknowledged?: boolean, options: { signal?: AbortSignal } = {}) { const query = acknowledged == null ? "" : `?acknowledged=${acknowledged ? "true" : "false"}`; return apiRequest<MarketAlertEvent[]>(`/market-data/alert-events${query}`, options); }
 export function acknowledgeMarketAlertEvent(eventId: number) { return apiRequest<MarketAlertEvent>(`/market-data/alert-events/${eventId}/acknowledge`, { method: "POST" }); }
 
 export function createMarketSubscription(payload: { pane_id: string; instrument_id: number; channels: Array<"CANDLES" | "TRADES" | "DEPTH" | "FOOTPRINT" | "DIAGNOSTICS"> }) { return apiRequest<MarketSubscription>("/market-data/subscriptions", { method: "POST", body: JSON.stringify(payload) }); }

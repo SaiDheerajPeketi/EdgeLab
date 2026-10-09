@@ -1,44 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bell, BellRing, Check, LoaderCircle, RefreshCw, Trash2, Volume2, VolumeX } from "lucide-react";
-import {
-  acknowledgeMarketAlertEvent,
-  createMarketAlert,
-  deleteMarketAlert,
-  getOrderBook,
-  listMarketAlertEvents,
-  listMarketAlerts,
-  resolveMarketInstrument,
-  type MarketAlertEvent,
-  type MarketAlertRule,
-  type MarketAlertType,
-  type MarketInstrument,
-  type OrderBookSnapshot,
-} from "../../lib/marketInfrastructure";
+import { type MarketAlertEvent, type MarketAlertRule, type MarketAlertType, type OrderBookSnapshot } from "../../lib/marketInfrastructure";
+import { useMarketAlertsData, useOrderBookData } from "./useMarketToolsData";
 import { JournalButton, journalFieldClass } from "../journal/JournalControls";
 import { ThemedSelect } from "../ThemedSelect";
 import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
 export function OrderBookPanel({ symbol }: { symbol: string }) {
-  const [instrument, setInstrument] = useState<MarketInstrument | null>(null);
-  const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
   const [aggregation, setAggregation] = useState(1);
   const [depth, setDepth] = useState(20);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setError(null);
-    try {
-      const resolved = instrument ?? await resolveMarketInstrument(symbol);
-      if (!resolved) { setInstrument(null); setSnapshot(null); setState("ready"); return; }
-      setInstrument(resolved);
-      setSnapshot(await getOrderBook(resolved.id, { aggregationTicks: aggregation, depth }));
-      setState("ready");
-    } catch (caught) { setState("error"); setError(caught instanceof Error ? caught.message : "Order book could not be loaded."); }
-  }, [aggregation, depth, instrument, symbol]);
-
-  useEffect(() => { setInstrument(null); setSnapshot(null); setState("loading"); }, [symbol]);
-  useEffect(() => { let active = true; const run = () => { if (active) void refresh(); }; run(); const timer = window.setInterval(run, 2_000); return () => { active = false; window.clearInterval(timer); }; }, [refresh]);
+  const { instrument, snapshot, state, error, refresh } = useOrderBookData(symbol, aggregation, depth);
 
   const asks = useMemo(() => snapshot?.levels.filter((level) => level.side === "ASK").sort((a, b) => Number(b.price) - Number(a.price)) ?? [], [snapshot]);
   const bids = useMemo(() => snapshot?.levels.filter((level) => level.side === "BID").sort((a, b) => Number(b.price) - Number(a.price)) ?? [], [snapshot]);
@@ -48,49 +19,61 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
   const spread = bestAsk && bestBid ? Number(bestAsk.price) - Number(bestBid.price) : null;
 
   return <section aria-labelledby="order-book-panel-title" className="min-h-full bg-[var(--ui-surface)]"><header className="border-b border-[var(--ui-border-subtle)] px-3 py-3"><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><h2 id="order-book-panel-title" className="truncate text-sm font-semibold text-[var(--text-primary)]">Order Book · {instrument?.canonical_symbol ?? symbol}</h2><p className="mt-0.5 truncate text-[11px] text-[var(--text-secondary)]">{snapshot?.provider ?? "Normalized market infrastructure"} · {snapshot?.captured_at ? `updated ${new Date(snapshot.captured_at).toLocaleTimeString()}` : "waiting for depth"}</p></div><button type="button" onClick={() => void refresh()} aria-label="Refresh order book" className="grid h-10 w-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 place-items-center rounded text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${state === "loading" ? "animate-spin motion-reduce:animate-none" : ""}`} /></button></div><div className="mt-3 grid grid-cols-2 gap-2"><label className="text-[11px] text-[var(--text-secondary)]">Aggregate ticks<ThemedSelect ariaLabel="Aggregate ticks" portal value={String(aggregation)} onChange={(value) => setAggregation(Number(value))} className="mt-1 h-10 w-full [@media(pointer:coarse)]:h-11" options={[1, 2, 5, 10, 25].map((ticks) => ({ value: String(ticks), label: `${ticks} tick${ticks === 1 ? "" : "s"}` }))} /></label><label className="text-[11px] text-[var(--text-secondary)]">Depth<ThemedSelect ariaLabel="Depth" portal value={String(depth)} onChange={(value) => setDepth(Number(value))} className="mt-1 h-10 w-full [@media(pointer:coarse)]:h-11" options={[10, 20, 50, 100].map((levels) => ({ value: String(levels), label: `${levels} levels` }))} /></label></div></header>
-    {error ? <PanelMessage tone="error" title="Depth unavailable" detail={error} /> : !instrument && state === "ready" ? <PanelMessage title="Symbol is not normalized" detail="Add or backfill this instrument in Data & providers before requesting depth." /> : snapshot?.status !== "AVAILABLE" ? <PanelMessage tone={snapshot?.status === "STALE" || snapshot?.status === "INCOMPLETE" ? "warning" : "neutral"} title={statusTitle(snapshot?.status)} detail={snapshot?.message ?? "No order-book snapshot has arrived for this provider and symbol."} /> : <div className="font-mono text-xs"><div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_3rem] border-b border-[var(--ui-border-subtle)] px-3 py-2 text-[10px] uppercase tracking-wide text-[var(--text-secondary)]"><span>Price</span><span className="text-right">Size</span><span className="text-right">Orders</span></div><div>{asks.map((level, index) => <DepthRow key={`ask-${index}-${level.price}`} side="ASK" price={Number(level.price)} size={Number(level.size)} orders={level.order_count} fraction={Number(level.size) / maxSize} />)}</div><div className="flex items-center justify-between border-y border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 py-2 text-[11px]"><span className="text-[var(--text-secondary)]">Spread</span><span className="tabular-nums text-[var(--text-primary)]">{spread == null ? "—" : spread.toLocaleString(undefined, { maximumFractionDigits: 8 })} · {snapshot.aggregation_tick_size} tick step</span></div><div>{bids.map((level, index) => <DepthRow key={`bid-${index}-${level.price}`} side="BID" price={Number(level.price)} size={Number(level.size)} orders={level.order_count} fraction={Number(level.size) / maxSize} />)}</div></div>}
+    {error ? <PanelMessage tone="error" title="Depth unavailable" detail={error} /> : state === "loading" && !snapshot ? <CriticalStateSurface state="loading" title="Loading order book" detail="Fetching depth for the selected market." actionLabel={null} /> : !instrument && state === "ready" ? <PanelMessage title="Symbol is not normalized" detail="Add or backfill this instrument in Data & providers before requesting depth." /> : snapshot?.status !== "AVAILABLE" ? <PanelMessage tone={snapshot?.status === "STALE" || snapshot?.status === "INCOMPLETE" ? "warning" : "neutral"} title={statusTitle(snapshot?.status)} detail={snapshot?.message ?? "No order-book snapshot has arrived for this provider and symbol."} /> : <div className="font-mono text-xs"><div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_3rem] border-b border-[var(--ui-border-subtle)] px-3 py-2 text-[10px] uppercase tracking-wide text-[var(--text-secondary)]"><span>Price</span><span className="text-right">Size</span><span className="text-right">Orders</span></div><div>{asks.map((level, index) => <DepthRow key={`ask-${index}-${level.price}`} side="ASK" price={Number(level.price)} size={Number(level.size)} orders={level.order_count} fraction={Number(level.size) / maxSize} />)}</div><div className="flex items-center justify-between border-y border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 py-2 text-[11px]"><span className="text-[var(--text-secondary)]">Spread</span><span className="tabular-nums text-[var(--text-primary)]">{spread == null ? "—" : spread.toLocaleString(undefined, { maximumFractionDigits: 8 })} · {snapshot.aggregation_tick_size} tick step</span></div><div>{bids.map((level, index) => <DepthRow key={`bid-${index}-${level.price}`} side="BID" price={Number(level.price)} size={Number(level.size)} orders={level.order_count} fraction={Number(level.size) / maxSize} />)}</div></div>}
   </section>;
 }
 
 export function AlertsPanel({ symbol }: { symbol: string }) {
-  const [instrument, setInstrument] = useState<MarketInstrument | null>(null);
-  const [rules, setRules] = useState<MarketAlertRule[]>([]);
-  const [events, setEvents] = useState<MarketAlertEvent[]>([]);
-  const [draft, setDraft] = useState({ name: "", type: "PRICE_CROSSES_ABOVE" as MarketAlertType, threshold: "", cooldown: "60" });
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const { generation, owns, instrument, rules, events, eventsReady, loading, busy, error, setError, create: createAlert, remove, acknowledge } = useMarketAlertsData(symbol);
+  const defaultDraft = useMemo(() => ({ name: "", type: "PRICE_CROSSES_ABOVE" as MarketAlertType, threshold: "", cooldown: "60" }), [generation]);
+  const [draftRecord, setDraftRecord] = useState({ generation, value: defaultDraft });
+  const draft = draftRecord.generation === generation ? draftRecord.value : defaultDraft;
+  const setDraft = (change: (current: typeof defaultDraft) => typeof defaultDraft) => setDraftRecord(current => ({ generation, value: change(current.generation === generation ? current.value : defaultDraft) }));
+  const [confirmation, setConfirmation] = useState<{ generation: typeof generation; id: number } | null>(null);
+  const confirmDelete = confirmation?.generation === generation ? confirmation.id : null;
+  const setConfirmDelete = (id: number | null) => setConfirmation(id == null ? null : { generation, id });
   const [channels, setChannels] = useState(() => readAlertChannels());
+  const currentChannels = useRef(channels);
+  currentChannels.current = channels;
+  const channelRequest = useRef({ mounted: false, serial: 0 });
+  useEffect(() => {
+    channelRequest.current.mounted = true;
+    return () => { channelRequest.current.mounted = false; channelRequest.current.serial++; };
+  }, []);
   const [channelError, setChannelError] = useState<string | null>(null);
   const deliveredEventIds = useRef<Set<number> | null>(null);
-
-  const load = useCallback(async () => {
-    try { const [resolved, nextRules, nextEvents] = await Promise.all([resolveMarketInstrument(symbol), listMarketAlerts(), listMarketAlertEvents(false)]); setInstrument(resolved); setRules(nextRules); setEvents(nextEvents); deliverNewAlertEvents(nextEvents, deliveredEventIds, channels, setChannelError); setError(null); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Alerts could not be loaded."); }
-  }, [channels, symbol]);
-  useEffect(() => { void load(); const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 10_000); return () => window.clearInterval(timer); }, [load]);
+  const deliveryGeneration = useRef(generation);
+  if (deliveryGeneration.current !== generation) { deliveryGeneration.current = generation; deliveredEventIds.current = null; }
+  useEffect(() => {
+    if (eventsReady && owns()) deliverNewAlertEvents(events, deliveredEventIds, channels, setChannelError);
+  }, [channels, events, eventsReady, generation, owns]);
 
   async function create() {
-    const needsThreshold = !["PROVIDER_STALE", "SEQUENCE_GAP"].includes(draft.type);
-    if (!draft.name.trim() || (needsThreshold && (!Number.isFinite(Number(draft.threshold)) || Number(draft.threshold) <= 0))) { setError("Name the alert and enter a positive threshold for this condition."); return; }
-    setBusy("create"); setError(null);
-    try { await createMarketAlert({ instrument_id: instrument?.id ?? null, name: draft.name.trim(), alert_type: draft.type, threshold: needsThreshold ? Number(draft.threshold) : null, cooldown_seconds: Math.max(0, Math.min(86400, Number(draft.cooldown) || 0)) }); setDraft({ name: "", type: "PRICE_CROSSES_ABOVE", threshold: "", cooldown: "60" }); await load(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Alert could not be created."); } finally { setBusy(null); }
+    if (busy != null) return;
+    const submitted = draft;
+    const needsThreshold = !["PROVIDER_STALE", "SEQUENCE_GAP"].includes(submitted.type);
+    if (!submitted.name.trim() || (needsThreshold && (!Number.isFinite(Number(submitted.threshold)) || Number(submitted.threshold) <= 0))) { setError("Name the alert and enter a positive threshold for this condition."); return; }
+    if (needsThreshold && !instrument) { setError("Wait for the selected market to load before creating this alert."); return; }
+    const created = await createAlert({ instrument_id: instrument?.id ?? null, name: submitted.name.trim(), alert_type: submitted.type, threshold: needsThreshold ? Number(submitted.threshold) : null, cooldown_seconds: Math.max(0, Math.min(86400, Number(submitted.cooldown) || 0)) });
+    if (created) setDraftRecord(current => current.generation === generation && current.value === submitted ? { generation, value: defaultDraft } : current);
   }
 
   function updateChannels(next: AlertChannels) {
-    setChannels(next);
-    window.localStorage.setItem(ALERT_CHANNELS_KEY, JSON.stringify(next));
-    setChannelError(null);
+    try { window.localStorage.setItem(ALERT_CHANNELS_KEY, JSON.stringify(next)); currentChannels.current = next; setChannels(next); setChannelError(null); }
+    catch { setChannelError("This preference could not be saved. Check browser storage settings and retry."); }
   }
 
   async function enableBrowserNotifications() {
+    if (!owns() || !channelRequest.current.mounted) return;
+    const serial = ++channelRequest.current.serial;
+    const current = () => owns() && channelRequest.current.mounted && channelRequest.current.serial === serial;
     if (!("Notification" in window)) { setChannelError("This browser does not support system notifications. In-app alerts remain available."); return; }
     try {
       const permission = await Notification.requestPermission();
-      if (permission === "granted") updateChannels({ ...channels, browser: true });
-      else { updateChannels({ ...channels, browser: false }); setChannelError(permission === "denied" ? "Notifications are blocked in browser settings. Allow them for this site, then retry." : "Notification permission was not granted."); }
-    } catch { setChannelError("Notification permission could not be requested. Check browser privacy settings and retry."); }
+      if (!current()) return;
+      if (permission === "granted") updateChannels({ ...currentChannels.current, browser: true });
+      else { updateChannels({ ...currentChannels.current, browser: false }); setChannelError(permission === "denied" ? "Notifications are blocked in browser settings. Allow them for this site, then retry." : "Notification permission was not granted."); }
+    } catch { if (current()) setChannelError("Notification permission could not be requested. Check browser privacy settings and retry."); }
   }
 
   function testSound() {
@@ -109,9 +92,9 @@ export function AlertsPanel({ symbol }: { symbol: string }) {
       { value: "DELTA_BELOW", label: "Delta below" },
       { value: "PROVIDER_STALE", label: "Provider becomes stale" },
       { value: "SEQUENCE_GAP", label: "Sequence gap detected" },
-    ]} /></label><div className="grid grid-cols-2 gap-2"><label className="text-[11px] text-[var(--text-secondary)]">Threshold<input inputMode="decimal" disabled={["PROVIDER_STALE", "SEQUENCE_GAP"].includes(draft.type)} value={draft.threshold} onChange={(event) => setDraft((current) => ({ ...current, threshold: event.target.value }))} className={`${journalFieldClass} mt-1`} /></label><label className="text-[11px] text-[var(--text-secondary)]">Cooldown · seconds<input inputMode="numeric" min={0} max={86400} value={draft.cooldown} onChange={(event) => setDraft((current) => ({ ...current, cooldown: event.target.value }))} className={`${journalFieldClass} mt-1`} /></label></div><JournalButton type="submit" tone="primary" disabled={busy === "create" || (!instrument && !["PROVIDER_STALE", "SEQUENCE_GAP"].includes(draft.type))}>{busy === "create" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <BellRing aria-hidden="true" className="h-4 w-4" />}Create alert</JournalButton>{!instrument ? <p className="text-[11px] leading-5 text-[var(--warning-text)]">Price, volume, and delta alerts need a normalized instrument. Provider-health alerts can still be global.</p> : null}</form>
-    <div><div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Active rules</div><div className="divide-y divide-[var(--ui-border-subtle)] border-y border-[var(--ui-border-subtle)]">{rules.map((rule) => <div key={rule.id} className="px-3 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[var(--text-primary)]">{rule.name}</p><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{conditionLabel(rule)} · cooldown {rule.cooldown_seconds}s</p><p className="mt-1 text-[10px] text-[var(--text-secondary)]">{rule.last_triggered_at ? `Last triggered ${new Date(rule.last_triggered_at).toLocaleString()}` : "Not triggered yet"}</p></div>{confirmDelete === rule.id ? <div className="flex gap-1"><button type="button" onClick={() => setConfirmDelete(null)} className="min-h-9 [@media(pointer:coarse)]:min-h-11 px-2 text-xs text-[var(--text-secondary)]">Keep</button><button type="button" onClick={() => { setBusy(`delete-${rule.id}`); void deleteMarketAlert(rule.id).then(load).finally(() => { setBusy(null); setConfirmDelete(null); }); }} className="min-h-9 [@media(pointer:coarse)]:min-h-11 px-2 text-xs font-semibold text-[var(--loss-text)]">Delete</button></div> : <button type="button" onClick={() => setConfirmDelete(rule.id)} aria-label={`Delete ${rule.name}`} className="grid h-10 w-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 place-items-center rounded text-[var(--text-secondary)] hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><Trash2 aria-hidden="true" className="h-4 w-4" /></button>}</div></div>)}{!rules.length ? <p className="px-3 py-6 text-center text-xs leading-5 text-[var(--text-secondary)]">No alert rules. Create a price, activity, or provider-health rule above.</p> : null}</div></div>
-    {events.length ? <div><div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Needs attention</div><div className="divide-y divide-[var(--ui-border-subtle)] border-y border-[var(--ui-border-subtle)]">{events.map((item) => <div key={item.id} className="px-3 py-3"><p className="text-xs leading-5 text-[var(--warning-text)]">{item.message}</p><div className="mt-1 flex items-center justify-between gap-2"><time className="text-[10px] text-[var(--text-secondary)]">{new Date(item.observed_at).toLocaleString()}</time><button type="button" onClick={() => { setBusy(`ack-${item.id}`); void acknowledgeMarketAlertEvent(item.id).then(load).finally(() => setBusy(null)); }} disabled={busy === `ack-${item.id}`} className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-11 items-center gap-1 text-xs font-semibold text-[var(--text-accent)] hover:underline"><Check aria-hidden="true" className="h-3.5 w-3.5" />Acknowledge</button></div></div>)}</div></div> : null}
+    ]} /></label><div className="grid grid-cols-2 gap-2"><label className="text-[11px] text-[var(--text-secondary)]">Threshold<input inputMode="decimal" disabled={["PROVIDER_STALE", "SEQUENCE_GAP"].includes(draft.type)} value={draft.threshold} onChange={(event) => setDraft((current) => ({ ...current, threshold: event.target.value }))} className={`${journalFieldClass} mt-1`} /></label><label className="text-[11px] text-[var(--text-secondary)]">Cooldown · seconds<input inputMode="numeric" min={0} max={86400} value={draft.cooldown} onChange={(event) => setDraft((current) => ({ ...current, cooldown: event.target.value }))} className={`${journalFieldClass} mt-1`} /></label></div><JournalButton type="submit" tone="primary" disabled={busy != null || (!instrument && !["PROVIDER_STALE", "SEQUENCE_GAP"].includes(draft.type))}>{busy === "create" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <BellRing aria-hidden="true" className="h-4 w-4" />}Create alert</JournalButton>{!instrument ? <p className="text-[11px] leading-5 text-[var(--warning-text)]">Price, volume, and delta alerts need a normalized instrument. Provider-health alerts can still be global.</p> : null}</form>
+    <div><div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Active rules</div><div className="divide-y divide-[var(--ui-border-subtle)] border-y border-[var(--ui-border-subtle)]">{rules.map((rule) => <div key={rule.id} className="px-3 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[var(--text-primary)]">{rule.name}</p><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{conditionLabel(rule)} · cooldown {rule.cooldown_seconds}s</p><p className="mt-1 text-[10px] text-[var(--text-secondary)]">{rule.last_triggered_at ? `Last triggered ${new Date(rule.last_triggered_at).toLocaleString()}` : "Not triggered yet"}</p></div>{confirmDelete === rule.id ? <div className="flex gap-1"><button type="button" onClick={() => setConfirmDelete(null)} disabled={busy != null} className="min-h-9 [@media(pointer:coarse)]:min-h-11 px-2 text-xs text-[var(--text-secondary)]">Keep</button><button type="button" onClick={() => { void remove(rule.id).then(removed => { if (removed) setConfirmation(current => current?.generation === generation && current.id === rule.id ? null : current); }); }} disabled={busy != null} className="min-h-9 [@media(pointer:coarse)]:min-h-11 px-2 text-xs font-semibold text-[var(--loss-text)]">Delete</button></div> : <button type="button" onClick={() => setConfirmDelete(rule.id)} disabled={busy != null} aria-label={`Delete ${rule.name}`} className="grid h-10 w-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 place-items-center rounded text-[var(--text-secondary)] hover:bg-[var(--loss-soft)] hover:text-[var(--loss-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><Trash2 aria-hidden="true" className="h-4 w-4" /></button>}</div></div>)}{loading && !rules.length ? <CriticalStateSurface state="loading" title="Loading alert rules" detail="Fetching your rules and recent events." actionLabel={null} /> : !rules.length && !error ? <p className="px-3 py-6 text-center text-xs leading-5 text-[var(--text-secondary)]">No alert rules. Create a price, activity, or provider-health rule above.</p> : null}</div></div>
+    {events.length ? <div><div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Needs attention</div><div className="divide-y divide-[var(--ui-border-subtle)] border-y border-[var(--ui-border-subtle)]">{events.map((item) => <div key={item.id} className="px-3 py-3"><p className="text-xs leading-5 text-[var(--warning-text)]">{item.message}</p><div className="mt-1 flex items-center justify-between gap-2"><time className="text-[10px] text-[var(--text-secondary)]">{new Date(item.observed_at).toLocaleString()}</time><button type="button" onClick={() => { void acknowledge(item.id); }} disabled={busy != null} className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-11 items-center gap-1 text-xs font-semibold text-[var(--text-accent)] hover:underline"><Check aria-hidden="true" className="h-3.5 w-3.5" />Acknowledge</button></div></div>)}</div></div> : null}
   </section>;
 }
 
