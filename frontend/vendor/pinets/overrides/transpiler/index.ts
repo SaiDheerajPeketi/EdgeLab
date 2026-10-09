@@ -66,13 +66,92 @@ import {
 } from './transformers/MainTransformer';
 import { extractPineScriptVersion, pineToJS } from './pineToJS/pineToJS.index';
 import { buildLtfSlices } from './slicing/buildLtfSlices';
+import { evalConst, finalizeConst, dottedName, type ConstValue } from './pineToJS/inputs/constEval';
+
+/** Inspect the actual Pine AST before lowering, including parameter presence. */
+function declarationCalculation(ast: any, version: number) {
+    const bindings = new Map<string, ConstValue>(), mutated = new Set<string>();
+    const types = new Set((ast.body ?? []).filter((node: any) => node.type === 'TypeDefinition').map((node: any) => node.name));
+    let effects = false, visits = 0;
+    const walk = (node: any, shadowed = new Set<string>()) => {
+        if (!node?.type) return;
+        if (++visits > 65536) throw new Error('Declaration AST exceeds 65,536 nodes.');
+        if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'BlockStatement', 'ForStatement', 'ForOfStatement'].includes(node.type)) {
+            shadowed = new Set(shadowed);
+            for (const param of node.params ?? []) {
+                const id = param.left ?? param;
+                if (id.type === 'Identifier') shadowed.add(id.name);
+            }
+            const bindLocals = (declaration: any) => {
+                if (declaration?.type === 'VariableDeclaration')
+                for (const binding of declaration.declarations ?? []) if (binding.id?.type === 'Identifier') shadowed.add(binding.id.name);
+            };
+            if (node.type === 'BlockStatement') {
+                // Pine bindings enter scope after their initializer, not at block entry.
+                for (const statement of node.body ?? []) { walk(statement, shadowed); bindLocals(statement); }
+                return;
+            }
+            if (node.type === 'ForStatement' || node.type === 'ForOfStatement') {
+                walk(node.init, shadowed); walk(node.right, shadowed); walk(node.left, shadowed);
+                bindLocals(node.init); bindLocals(node.left);
+            }
+        }
+        if (node.type === 'AssignmentExpression' && node.left?.type === 'Identifier' && !shadowed.has(node.left.name)) mutated.add(node.left.name);
+        if (node.type === 'CallExpression') {
+            const name = dottedName(node.callee);
+            const custom = node._pineOverloadTarget || node._pineMethodCall || node.callee?._pineUdtReceiver || node.callee?._pinePrimitiveReceiver
+                || types.has(node.callee?.object?.name) && ['new', 'copy'].includes(node.callee?.property?.name);
+            if (!custom && (name === 'alert' || name && /^(line|linefill|box|label|polyline|table)\./.test(name))) effects = true;
+        }
+        for (const [key, child] of Object.entries(node)) {
+            if (key === 'parent' || key.startsWith('_')) continue;
+            if ((node.type === 'ForStatement' || node.type === 'ForOfStatement') && ['init', 'right', 'left'].includes(key)) continue;
+            if (Array.isArray(child)) child.forEach(value => walk(value, shadowed));
+            else if (child && typeof child === 'object' && (child as any).type) walk(child, shadowed);
+        }
+    };
+    walk(ast);
+    const env = { lookup: (name: string) => bindings.get(name), enums: new Map<string, unknown>(), truncatingIntDivision: version < 6 };
+    let result: { timeframe?: string; gaps?: boolean; hasTimeframe: boolean; hasGaps: boolean } | undefined;
+    for (const node of ast.body ?? []) {
+        if (node.type === 'VariableDeclaration' && node.kind !== 'var' && node.kind !== 'varip') {
+            for (const binding of node.declarations ?? []) {
+                const qualifier = binding.id?.varType ?? binding.varType ?? node.varType ?? '';
+                if (binding.id?.type !== 'Identifier' || mutated.has(binding.id.name) || /\b(input|simple|series)\b/.test(qualifier)) continue;
+                const value = evalConst(binding.init, env);
+                if (value?.exact) bindings.set(binding.id.name, value);
+            }
+        }
+        const call = node.type === 'ExpressionStatement' ? node.expression : node.declarations?.[0]?.init;
+        if (call?.type !== 'CallExpression' || call.callee?.name !== 'indicator') continue;
+        const args = call.arguments ?? [], named = args.at(-1)?.type === 'ObjectExpression' ? args.at(-1) : undefined;
+        // The positional order matches indicator's public declaration signature.
+        const fields = ['title', 'shorttitle', 'overlay', 'format', 'precision', 'scale', 'max_bars_back', 'timeframe', 'timeframe_gaps'];
+        const supplied = new Map<string, any>();
+        args.slice(0, named ? -1 : args.length).forEach((arg: any, index: number) => { if (fields[index]) supplied.set(fields[index], arg); });
+        for (const property of named?.properties ?? []) if (property.type === 'Property') supplied.set(property.key?.name ?? property.key?.value, property.value);
+        const hasTimeframe = supplied.has('timeframe'), hasGaps = supplied.has('timeframe_gaps');
+        if (hasGaps && !hasTimeframe) throw new Error('timeframe_gaps requires an explicitly supplied timeframe.');
+        result = { hasTimeframe, hasGaps };
+        if (hasTimeframe) {
+            if (effects) throw new Error('An indicator with a timeframe argument cannot use drawing objects or alert().');
+            const timeframe = evalConst(supplied.get('timeframe'), env);
+            if (!timeframe?.exact || timeframe.type !== 'string') throw new Error('indicator timeframe must be a constant string.');
+            result.timeframe = String(finalizeConst(timeframe));
+            const gaps = hasGaps ? evalConst(supplied.get('timeframe_gaps'), env) : { value: true, type: 'bool', exact: true };
+            if (!gaps?.exact || gaps.type !== 'bool') throw new Error('indicator timeframe_gaps must be a constant boolean.');
+            result.gaps = gaps.value as boolean;
+        }
+    }
+    return result ?? { hasTimeframe: false, hasGaps: false };
+}
 
 /**
  * Resolve the input into PineTS code plus the Pine Script version it came from.
  * `version` is null for PineTS-syntax / function input (no //@version marker):
  * such code is JavaScript-like and follows JS semantics, not a Pine version.
  */
-function getPineTSFromSource(source: string | Function): { code: string; version: number | null } {
+function getPineTSFromSource(source: string | Function): { code: string; version: number | null; calculation?: ReturnType<typeof declarationCalculation> } {
     if (typeof source === 'function') {
         return { code: source.toString(), version: null };
     } else {
@@ -85,7 +164,7 @@ function getPineTSFromSource(source: string | Function): { code: string; version
             //assume it's Pine Script syntax ==> use pineToJS to transpile it
             const pineToJSResult = pineToJS(source);
             if (pineToJSResult.success) {
-                return { code: pineToJSResult.code, version: pineScriptVersion };
+                return { code: pineToJSResult.code, version: pineScriptVersion, calculation: declarationCalculation(pineToJSResult.ast, pineScriptVersion) };
             } else {
                 throw new Error(`Failed to transpile Pine Script version ${pineScriptVersion}: ${pineToJSResult.error}`);
             }
@@ -521,7 +600,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
 
     const { debug } = options;
 
-    const { code: sourceCode, version: pineVersion } = getPineTSFromSource(source);
+    const { code: sourceCode, version: pineVersion, calculation } = getPineTSFromSource(source);
     let code = sourceCode;
 
     // Pre-process: Wrap in context function if not already wrapped
@@ -820,6 +899,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
         }
     }
     Object.defineProperty(mainFn, '_edgelabUsesVisibleRange', { value: usesVisibleRange });
+    Object.defineProperty(mainFn, '_edgelabCalculation', { value: calculation && Object.freeze(calculation) });
     (mainFn as any)._pineVersion = pineVersion;
     if (slices && Object.keys(slices).length > 0) {
         for (const slice of Object.values(slices)) (slice as any)._pineVersion = pineVersion;

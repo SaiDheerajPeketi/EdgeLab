@@ -328,8 +328,8 @@ export class PineTS {
         }
         if (selected.initialTail !== undefined && selected.initialTail !== 'open' && selected.initialTail !== 'historical' && selected.initialTail !== 'deferred')
             throw new Error('Invalid realtime initial tail.');
-        if (selected.initialTail === 'deferred' && !this._isSecondaryContext)
-            throw new Error('Deferred realtime tails require an owned secondary engine.');
+        // A declaration-timeframe main calculation can also own an unreceived
+        // forming tail. Defer it without suppressing its native plot outputs.
         const limits = selected.limits === undefined ? {} : selected.limits;
         if (!limits || Object.getPrototypeOf(limits) !== Object.prototype)
             throw new Error('Invalid realtime limits.');
