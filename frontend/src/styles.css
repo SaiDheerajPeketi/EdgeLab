@@ -1891,7 +1891,7 @@ button:disabled {
     @apply min-h-11 w-full min-w-0;
   }
 
-  .native-study-inputs :is(input, select, button) {
+  .native-study-inputs :is(input, select, button, textarea) {
     scroll-margin-block: 6rem;
   }
 

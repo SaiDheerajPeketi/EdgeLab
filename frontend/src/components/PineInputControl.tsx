@@ -34,6 +34,8 @@ export function PineInputControl({ definition, definitions = [definition], input
       : numeric ? <NumericDraftInput label={label} disabled={disabled} value={current} onChange={onChange}
           integer={["int", "time"].includes(definition.type)} min={definition.minval} max={definition.maxval}
           className="input-control min-h-11 w-full min-w-0 text-xs" step={definition.step ?? (["int", "time"].includes(definition.type) ? 1 : "any")} resetKey={JSON.stringify([scopeKey, definition])} />
+      : definition.type === "text_area" ? <textarea aria-label={label} className="input-control min-h-28 max-h-64 w-full min-w-0 resize-y py-2 text-sm leading-6" disabled={disabled}
+          onChange={(event) => onChange(event.target.value)} rows={4} value={current === null ? "" : String(current)} />
       : <input aria-label={label} className="input-control min-h-11 w-full min-w-0 text-xs" disabled={disabled} onChange={(event) => onChange(event.target.value)} type="text" value={current === null ? "" : String(current)} />}
 
     {showRecovery ? <span id={recoveryId} role="alert" className="break-words text-[11px] leading-4 text-[var(--loss-text)]">Saved choice “{recoveryLabel}” needs reselection. Choose a valid option.</span> : null}
