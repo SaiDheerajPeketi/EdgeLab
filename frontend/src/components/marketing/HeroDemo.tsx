@@ -753,12 +753,10 @@ const SCENARIOS: DemoScenario[] = [
 function MarketingCandleSurface({
   currentBarIndex,
   firstIndex,
-  onReview,
   scenario,
 }: {
   currentBarIndex: number;
   firstIndex: number;
-  onReview: () => void;
   scenario: DemoScenario;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -984,7 +982,7 @@ function MarketingCandleSurface({
       </div>
 
       <div className="mt-3 overflow-hidden bg-[#0b1017]">
-        <div ref={containerRef} onPointerDown={onReview} onWheel={onReview} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
+        <div ref={containerRef} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
       </div>
       <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-xs leading-5 text-slate-400">
         <p>{scenario.markerNote}</p>
@@ -1543,7 +1541,7 @@ export function HeroDemo({
       <div className="p-4 sm:p-5" ref={stageRef}>
         {scenario.id === "replay" ? (
           <div>
-            <MarketingCandleSurface currentBarIndex={currentBarIndex} firstIndex={replay.firstIndex} onReview={() => setAutoplayActive(false)} scenario={scenario} />
+            <MarketingCandleSurface currentBarIndex={currentBarIndex} firstIndex={replay.firstIndex} scenario={scenario} />
             <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center" aria-label="Replay controls" role="group">
               <div className="flex flex-wrap gap-2">
                 <button aria-label={autoplayActive ? "Pause replay" : "Play replay"} className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-medium text-cyan-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-400" disabled={reducedMotion} onClick={() => { if (!autoplayActive) setCurrentBarIndex(replay.firstIndex + replay.bars.length - 1); setAutoplayActive((active) => !active); }} type="button">{reducedMotion ? "Autoplay off" : autoplayActive ? "Pause" : "Play"}</button>

@@ -29,12 +29,23 @@ type MarketingShellProps = {
   pageTitle: string;
 };
 
-const MARKETING_FLOW_SELECTOR = "[data-marketing-reveal], [data-marketing-flow], .landing-story h2, .landing-story h3, .landing-story p";
+const MARKETING_EXPLICIT_OWNER_SELECTOR = "[data-marketing-reveal], [data-marketing-flow], [data-flow-row]";
+const MARKETING_OWNER_SELECTOR = `${MARKETING_EXPLICIT_OWNER_SELECTOR}, .landing-story [data-scene-content]`;
+const MARKETING_FLOW_SELECTOR = `${MARKETING_OWNER_SELECTOR}, .landing-story h2, .landing-story h3, .landing-story p`;
 
 function flowNodes(shell: HTMLElement) {
-  return Array.from(shell.querySelectorAll<HTMLElement>(MARKETING_FLOW_SELECTOR)).filter((node) =>
-    !node.parentElement?.closest("[data-marketing-reveal], [data-marketing-flow], [data-landing-stage], [data-market-sculpture]"),
-  );
+  // Explicit cards and rows own their text. A scene only owns an undivided group.
+  const owners = new Set(Array.from(shell.querySelectorAll<HTMLElement>(MARKETING_OWNER_SELECTOR)).filter((node) =>
+    !node.hasAttribute("data-scene-content") || node.matches(MARKETING_EXPLICIT_OWNER_SELECTOR)
+      || !node.querySelector(MARKETING_EXPLICIT_OWNER_SELECTOR),
+  ));
+  return Array.from(shell.querySelectorAll<HTMLElement>(MARKETING_FLOW_SELECTOR)).filter((node) => {
+    if (node.hasAttribute("data-scene-content") && !owners.has(node)) return false;
+    for (let parent = node.parentElement; parent && parent !== shell; parent = parent.parentElement) {
+      if (owners.has(parent) || parent.matches("[data-landing-stage], [data-market-sculpture]")) return false;
+    }
+    return true;
+  });
 }
 
 export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem[] {
@@ -339,11 +350,14 @@ export function MarketingShell({
               } else {
                 revealNodes.forEach((node) => {
                   const targets = [node];
-                  const offsetY = node.hasAttribute("data-marketing-flow") ? 40 : 28;
+                  const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 40 : 28;
+                  const authoredDelay = Number(node.dataset.revealDelay ?? 0);
+                  const delay = Number.isFinite(authoredDelay) ? Math.min(0.4, Math.max(0, authoredDelay)) : 0;
 
                   if (plugins.ScrollTrigger) {
                     // Play/reverse are finite tweens: a stopped scroll never leaves half-revealed text.
                     gsap.fromTo(targets, { opacity: 0, y: offsetY }, {
+                      delay,
                       duration: 0.72,
                       ease: revealEase,
                       opacity: 1,
@@ -360,6 +374,7 @@ export function MarketingShell({
 
                   gsap.to(targets, {
                     clearProps: "opacity,transform,willChange",
+                    delay,
                     duration: 0.82,
                     ease: revealEase,
                     opacity: 1,

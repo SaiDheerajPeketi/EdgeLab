@@ -1,4 +1,3 @@
-import { CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const VERIFIED_EVIDENCE = [
@@ -11,11 +10,11 @@ const VERIFIED_EVIDENCE = [
     title: "Keep your process together",
   },
   {
-    body: "Import market datasets for replay. Footprint and TPO need trade-level data; the Quant assistant needs a connected model provider.",
+    body: "Import market datasets and replay the sessions you want to study, at your own pace.",
     title: "Bring the market history you use",
   },
   {
-    body: "Export your application records, trade CSVs, and chart images with an active paid subscription. Market-data files stay separate from the application-data bundle.",
+    body: "Export your records, trade CSVs, and chart images with an active paid subscription.",
     title: "Keep a copy of your work",
   },
 ] as const;
@@ -53,21 +52,16 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
         <div className="mt-14 border-y border-edgelab-border">
           {VERIFIED_EVIDENCE.map((item) => (
             <article
-              className="grid gap-4 border-b border-edgelab-border py-7 last:border-b-0 sm:grid-cols-[190px_minmax(0,1fr)] sm:gap-8 sm:py-8"
+              className="grid gap-4 border-b border-edgelab-border py-7 last:border-b-0 sm:grid-cols-[minmax(220px,0.7fr)_minmax(0,1fr)] sm:gap-10 sm:py-8"
+              data-marketing-flow
               key={item.title}
             >
-              <div className="flex items-center gap-2 self-start text-xs font-semibold text-cyan-100" data-marketing-flow>
-                <CheckCircle2 aria-hidden="true" size={16} />
-                In your workspace
-              </div>
-              <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1fr)] lg:gap-10">
-                <h3 className="text-xl font-medium leading-7 tracking-[-0.02em] text-edgelab-text-primary">
-                  {item.title}
-                </h3>
-                <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
-                  {item.body}
-                </p>
-              </div>
+              <h3 className="text-xl font-medium leading-7 tracking-[-0.02em] text-edgelab-text-primary">
+                {item.title}
+              </h3>
+              <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
+                {item.body}
+              </p>
             </article>
           ))}
         </div>

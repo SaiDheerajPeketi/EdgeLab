@@ -9,21 +9,19 @@
 .landing-motion-content:focus-within,
 [data-marketing-reveal]:focus-within,
 [data-marketing-flow]:focus-within,
+.landing-story [data-flow-row]:focus-within,
+.landing-story [data-scene-content]:focus-within,
 .landing-story :is(h2, h3, p):focus-within {
   opacity: 1 !important;
   transform: none !important;
-}
-
-@media (max-width: 767px) {
-  .landing-story [data-flow-content] {
-    transform: none !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .landing-motion-content,
   [data-marketing-reveal],
   [data-marketing-flow],
+  .landing-story [data-flow-row],
+  .landing-story [data-scene-content],
   .landing-story :is(h2, h3, p) {
     opacity: 1 !important;
     transform: none !important;

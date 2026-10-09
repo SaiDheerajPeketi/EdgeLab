@@ -35,7 +35,7 @@ const betaFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
-      "Approved users can use replay, journaling, analytics, and review in the current beta workspace. Connected providers and qualified market data are required for the tools that use them.",
+      "Approved users can practice replay, journal trades, review reports, and build playbooks in the beta workspace.",
   },
   {
     question: "Can I bring my own CSV data?",
@@ -58,14 +58,14 @@ const betaFaqItems: FaqItem[] = [
       "Imported datasets work without a broker connection. Live connections depend on a supported adapter, configured credentials, and provider permissions. The workspace shows connection availability and errors.",
   },
   {
-    question: "Are Quant, footprint, and TPO available now?",
+    question: "Can I use my own indicators?",
     answer:
-      "The interfaces are implemented. Quant depends on configured models and permissions; footprint and TPO require qualified trade-level data. Candle-only feeds do not unlock order flow.",
+      "Yes. Choose from the indicator library or run supported Pine scripts with custom inputs on loaded chart data. The script editor shows supported outputs and any limitations for your script.",
   },
 ];
 
 const publicFaqItems: FaqItem[] = [
-  { question: "What is included in Pro?", answer: "Pro connects charting, manual replay and simulated orders, journaling, reports, playbooks, and backtest trade imports. Native Pine execution is experimental. Live feeds, broker connections, AI models, footprint, and TPO depend on supported providers, credentials, permissions, and suitable data." },
+  { question: "What is included in Pro?", answer: "Pro connects charting, manual replay and simulated orders, journaling, reports, playbooks, backtest trade imports, and supported Pine scripts with custom inputs." },
   { question: "How does billing work?", answer: "Choose a monthly or yearly Pro subscription. The current price and renewal cadence are shown before you continue to Stripe checkout. There is no free trial. Access starts after EdgeLab verifies an active paid subscription; a checkout return page alone does not activate a plan." },
   { question: "Can I change or cancel my subscription?", answer: "Open Account and choose Manage billing to use Stripe’s customer portal. When cancellation is scheduled for the end of a billing period, access continues until that period ends. Signing out does not cancel a subscription." },
   { question: "Can I bring my own CSV data?", answer: "Yes. Import market datasets with instrument and timeframe metadata, or import backtest trades with preview, column mapping, and skipped-row reporting. Market-data rights and provider licences remain your responsibility." },

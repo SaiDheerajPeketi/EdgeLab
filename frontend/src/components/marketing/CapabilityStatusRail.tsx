@@ -1,57 +1,34 @@
-import { Check, Clock3 } from "lucide-react";
-
-type CapabilityStatus = "available" | "data-required" | "provider-required" | "experimental";
-
 type Capability = {
   description: string;
   name: string;
-  status: CapabilityStatus;
 };
 
 const CAPABILITIES: Capability[] = [
   {
-    name: "4 × 4 chart grid",
+    name: "Charts side by side",
     description: "Arrange and inspect as many as sixteen charts in one responsive workspace.",
-    status: "available",
   },
   {
-    name: "Circular chart toolbox",
-    description: "Open a favorite drawing wheel from the active chart with Alt or Option.",
-    status: "available",
+    name: "Drawing tools within reach",
+    description: "Mark levels and setups, and keep your favorite drawing tools close to the chart.",
+  },
+  {
+    name: "Replay with order controls",
+    description: "Step through a session and practice with simulated market, limit, and stop orders.",
   },
   {
     name: "Chart-integrated Journal",
     description: "Open active-symbol trade history and the review queue beside the chart, with review notes attached to each trade.",
-    status: "available",
-  },
-  {
-    name: "Footprint and TPO",
-    description: "Read footprint and auction structure from qualified trade-level data. Candle-only feeds show an explicit unavailable state.",
-    status: "data-required",
   },
   {
     name: "Account comparison",
     description: "Compare two account scopes; monetary results remain in each account’s own currency.",
-    status: "available",
   },
   {
-    name: "Quant assistant",
-    description: "Explore chart-aware research and generated indicators with configured models, permissions, and consent for external requests.",
-    status: "provider-required",
-  },
-  {
-    name: "Native Pine scripts",
-    description: "Run native Pine v5/v6 indicators and strategy orders on loaded chart data. PineTS support is experimental and results may differ from TradingView.",
-    status: "experimental",
+    name: "Custom indicators",
+    description: "Add indicators from the library or run supported Pine scripts with your own inputs on loaded chart data.",
   },
 ];
-
-const STATUS_COPY: Record<CapabilityStatus, string> = {
-  available: "Available now",
-  "data-required": "Qualified data required",
-  "provider-required": "Provider dependent",
-  experimental: "Experimental",
-};
 
 export function CapabilityStatusRail() {
   return (
@@ -74,44 +51,24 @@ export function CapabilityStatusRail() {
           </div>
           <p className="max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8 lg:justify-self-end">
             Replay, chart, journal, and review in one workspace.
-            See which tools need connected providers or trade-level data.
           </p>
         </div>
 
         <div className="mt-14 border-y border-edgelab-border">
-          {CAPABILITIES.map((capability) => {
-            const isAvailable = capability.status === "available";
-            const StatusIcon = isAvailable ? Check : Clock3;
-
-            return (
-              <article
-                className="grid gap-4 border-b border-edgelab-border py-6 last:border-b-0 sm:grid-cols-[160px_minmax(200px,0.72fr)_minmax(0,1fr)] sm:items-center sm:gap-8 sm:py-7"
-                key={capability.name}
-              >
-                <div
-                  data-marketing-flow
-                  className={`inline-flex w-fit items-center gap-2 text-xs font-semibold ${
-                    isAvailable ? "text-cyan-200" : "text-amber-200"
-                  }`}
-                >
-                  <span
-                    className={`grid h-6 w-6 place-items-center rounded-full ${
-                      isAvailable ? "bg-cyan-300/15" : "bg-amber-300/15"
-                    }`}
-                  >
-                    <StatusIcon aria-hidden="true" size={13} strokeWidth={2.4} />
-                  </span>
-                  {STATUS_COPY[capability.status]}
-                </div>
-                <h3 className="text-lg font-medium tracking-[-0.02em] text-edgelab-text-primary sm:text-xl">
-                  {capability.name}
-                </h3>
-                <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
-                  {capability.description}
-                </p>
-              </article>
-            );
-          })}
+          {CAPABILITIES.map((capability) => (
+            <article
+              className="grid gap-4 border-b border-edgelab-border py-6 last:border-b-0 sm:grid-cols-[minmax(200px,0.72fr)_minmax(0,1fr)] sm:items-center sm:gap-8 sm:py-7"
+              data-marketing-flow
+              key={capability.name}
+            >
+              <h3 className="text-lg font-medium tracking-[-0.02em] text-edgelab-text-primary sm:text-xl">
+                {capability.name}
+              </h3>
+              <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
+                {capability.description}
+              </p>
+            </article>
+          ))}
         </div>
       </div>
     </section>

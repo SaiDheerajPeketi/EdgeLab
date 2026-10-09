@@ -15,7 +15,7 @@ const features = [
   "Charts, drawing tools, and technical indicators",
   "Journal, reports, and playbook review",
   "Backtest trade imports and strategy review",
-  "Native Pine scripts, with experimental compatibility",
+  "Supported Pine scripts with custom inputs",
 ];
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: cents % 100 ? 2 : 0 }).format(cents / 100);
 
@@ -128,7 +128,7 @@ export function ProPricing({ betaMode = false }: { betaMode?: boolean }) {
         <ul className="mt-8 space-y-4 text-sm leading-6 text-edgelab-text-primary">
           {features.map(feature => <li key={feature} className="flex items-start gap-3"><Check aria-hidden="true" size={18} className="mt-1 shrink-0 text-cyan-200" /><span>{feature}</span></li>)}
         </ul>
-        <p className="mt-7 max-w-xl text-sm leading-6 text-edgelab-text-secondary">Bring your own market data. Live feeds, broker connections, AI providers, and order-flow data require separate credentials and permissions. Pine compatibility is experimental; supported outputs and limitations are shown in the editor.</p>
+        <p className="mt-7 max-w-xl text-sm leading-6 text-edgelab-text-secondary">Bring your own market data. Live feeds, broker connections, AI providers, and order-flow data require separate credentials and permissions. The script editor shows supported Pine outputs and any limitations for your script.</p>
         <p className="mt-3 text-sm leading-6 text-edgelab-text-secondary">Data exports require an active paid subscription.</p>
         {betaMode && <p className="mt-3 text-sm leading-6 text-edgelab-text-secondary">Pro enables paid exports. Beta workspace access still requires approval; purchasing Pro does not reserve or unlock a beta seat.</p>}
       </div>
