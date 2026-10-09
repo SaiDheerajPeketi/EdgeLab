@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { getApiBearerToken, type Candle } from "../../lib/api";
 import { getStoredAuthSession, subscribeAuthSession } from "../../lib/authSession";
-import { binanceChartCandle, binanceChartEvent, binanceChartInterval } from "../../lib/binanceChartFeed";
+import { binanceChartEvent, binanceChartPlan, loadBinanceChartHistory, type BinanceChartPlan } from "../../lib/binanceChartFeed";
 import { trackDiagnosticWebSocket } from "../../lib/browserDiagnostics";
 import { normalizeChartTimeframe, type ChartTimeframe } from "../../lib/charting";
-import { createPineLiveFeed, pineFeedNextSourceTime, type PineLiveFeed } from "../../lib/pineLiveFeed";
+import { trimChartSourceWindow } from "../../lib/chartSourceWindow";
+import { createPineLiveFeed, type PineLiveFeed } from "../../lib/pineLiveFeed";
 
-export type BinanceChartData = { bars: Candle[]; feed: PineLiveFeed; status: "loading" | "available" | "error"; detail: string };
-type Entry = { key: string; timeframe: ChartTimeframe; data: BinanceChartData; dispose(): void };
+export type BinanceChartData = { bars: Candle[]; sourceTimeframe: ChartTimeframe; requestedBars: number; feed: PineLiveFeed; status: "loading" | "available" | "error"; detail: string };
+type Entry = { key: string; targetBars: number; data: BinanceChartData; dispose(): void };
 
 /** Distinct visible intervals own independent, shared-per-pane provider streams. */
 export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[], contextKey: string, enabled: boolean) {
@@ -18,27 +19,38 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
   const entries = useRef(new Map<string, Entry>());
   const [values, setValues] = useState<Record<string, { key: string; data: BinanceChartData }>>({});
   const frames = [...new Set(timeframes.map(normalizeChartTimeframe).filter((frame): frame is string =>
-    Boolean(frame && frame !== "1m" && binanceChartInterval(frame))))].sort();
+    Boolean(frame && frame !== "1m" && binanceChartPlan(frame))))].sort();
   const signature = JSON.stringify(frames);
+  const plans = useMemo(() => frames.map(frame => binanceChartPlan(frame)!), [signature]);
+  const sourcePlans = useMemo(() => {
+    const groups = new Map<string, BinanceChartPlan>();
+    for (const plan of plans) {
+      const previous = groups.get(plan.sourceTimeframe);
+      if (!previous || previous.targetBars < plan.targetBars) groups.set(plan.sourceTimeframe, plan);
+    }
+    return [...groups.values()];
+  }, [plans]);
 
   useEffect(() => {
-    const wanted = enabled && /^[A-Z0-9]{1,40}$/.test(symbol) ? frames : [];
+    const wanted = enabled && /^[A-Z0-9]{1,40}$/.test(symbol) ? sourcePlans : [];
     for (const [frame, entry] of entries.current) {
-      if (entry.key !== JSON.stringify([owner, frame]) || !wanted.includes(frame)) {
+      const plan = wanted.find(plan => plan.sourceTimeframe === frame);
+      if (entry.key !== JSON.stringify([owner, frame]) || !plan || plan.targetBars > entry.targetBars) {
         entry.dispose();
         entries.current.delete(frame);
       }
     }
-    for (const frame of wanted) {
+    for (const plan of wanted) {
+      const frame = plan.sourceTimeframe;
       if (entries.current.has(frame)) continue;
-      const key = JSON.stringify([owner, frame]), interval = binanceChartInterval(frame)!;
+      const key = JSON.stringify([owner, frame]), interval = plan.interval;
       const controller = new AbortController(), feed = createPineLiveFeed(symbol, frame);
       const socketUrl = `wss://data-stream.binance.vision/ws/${symbol.toLowerCase()}@kline_${interval}`;
       const socket = new WebSocket(socketUrl);
       trackDiagnosticWebSocket(socket, socketUrl);
       let active = true;
-      const entry: Entry = { key, timeframe: frame,
-        data: { feed, bars: [], status: "loading", detail: "Loading chart history…" },
+      const entry: Entry = { key, targetBars: plan.targetBars,
+        data: { feed, bars: [], sourceTimeframe: frame, requestedBars: plan.targetBars, status: "loading", detail: "Loading chart history…" },
         dispose: () => { active = false; controller.abort(); unsubscribe(); socket.close(); },
       };
       entries.current.set(frame, entry);
@@ -49,7 +61,7 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
       };
       const unsubscribe = feed.subscribe(snapshot => {
         if (!owns()) return;
-        entry.data = { feed, bars: [...snapshot.bars], status: snapshot.error ? "error" : snapshot.bars.length ? "available" : "loading",
+        entry.data = { feed, sourceTimeframe: frame, requestedBars: plan.targetBars, bars: [...snapshot.bars], status: snapshot.error ? "error" : snapshot.bars.length ? "available" : "loading",
           detail: snapshot.error ?? (snapshot.bars.length ? "Live provider candles." : "Loading chart history…") };
         publish();
       });
@@ -63,20 +75,8 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
           feed.receive(tick.bar, tick.confirmed, tick.eventTime, tick.closeTime);
         } catch { fail("The provider returned an invalid candle update. Retry the feed."); }
       };
-      const query = new URLSearchParams({ symbol, interval, limit: "1000" });
-      void fetch(`https://data-api.binance.vision/api/v3/klines?${query}`, { signal: controller.signal })
-        .then(async response => {
-          if (!response.ok) throw new Error("Chart history could not be loaded. Retry the feed.");
-          const rows: unknown = await response.json();
-          if (!Array.isArray(rows) || !rows.length || rows.length > 1000) throw new Error("No valid chart history was returned for this interval.");
-          if (owns()) feed.seed(rows.map(row => {
-            const bar = binanceChartCandle(row);
-            if (!Array.isArray(row) || row[6] !== pineFeedNextSourceTime(bar.time, frame) * 1000 - 1) {
-              throw new Error("The provider returned history for an invalid candle interval.");
-            }
-            return bar;
-          }));
-        }).catch(error => {
+      void loadBinanceChartHistory(symbol, plan, { signal: controller.signal, owns })
+        .then(history => { if (owns()) feed.seed(history); }).catch(error => {
           if (!controller.signal.aborted) fail(error instanceof Error ? error.message : "Chart history could not be loaded. Retry the feed.");
         });
     }
@@ -89,8 +89,14 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
     entries.current.clear();
   }, []);
 
-  return Object.fromEntries(frames.map(frame => {
-    const value = values[frame];
-    return [frame, value?.key === JSON.stringify([owner, frame]) && enabled ? value.data : undefined];
-  })) as Record<string, BinanceChartData | undefined>;
+  return useMemo(() => Object.fromEntries(plans.map(plan => {
+    const value = values[plan.sourceTimeframe];
+    const data = value?.key === JSON.stringify([owner, plan.sourceTimeframe]) && enabled
+      && value.data.requestedBars >= plan.targetBars ? value.data : undefined;
+    if (!data) return [plan.chartTimeframe, undefined];
+    const bars = trimChartSourceWindow(data.bars, plan.chartTimeframe) as Candle[];
+    return [plan.chartTimeframe, bars === data.bars ? data : { ...data, bars,
+      status: bars.length || data.status === "error" ? data.status : "loading",
+      detail: bars.length || data.status === "error" ? data.detail : "Waiting for the candle's opening data…" }];
+  })) as Record<string, BinanceChartData | undefined>, [plans, values, owner, enabled]);
 }

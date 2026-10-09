@@ -1,6 +1,7 @@
 import type { Candle } from "./api";
 import { aggregateBars, bucketTime, canAggregateTimeframe, getTimeframeSeconds, normalizeChartTimeframe, type ChartTimeframe } from "./charting";
 import { PINE_LIMITS, PineProtocolError, validatePineBar } from "./pineProtocol";
+import { trimChartSourceWindow } from "./chartSourceWindow";
 
 export type PineFeedEvent = { sequence: number; bar: Candle; confirmed: boolean; eventTime: number; closeTime: number };
 export type PineFeedSnapshot = { epoch: number; symbol: string; sourceTimeframe?: ChartTimeframe; bars: readonly Candle[]; event: PineFeedEvent | null; error: string | null };
@@ -120,7 +121,9 @@ export function pineFeedChartSnapshot(snapshot: PineFeedSnapshot, timeframe: Cha
   const sourceTimeframe = snapshot.sourceTimeframe ?? "1m";
   if (!canAggregateTimeframe(timeframe, sourceTimeframe)) throw new PineProtocolError("LIVE_TIMEFRAME", `This ${sourceTimeframe === "1m" ? "one-minute" : sourceTimeframe} feed cannot run live Pine on a shorter or incompatible chart interval.`);
   const currentTime = bucketTime(snapshot.event.bar.time, timeframe);
-  const bars = aggregateBars([...snapshot.bars], timeframe);
+  const sourceBars = trimChartSourceWindow(snapshot.bars, timeframe);
+  if (!sourceBars.length) return null;
+  const bars = aggregateBars([...sourceBars], timeframe);
   const current = bars.find(bar => bar.time === currentTime);
   if (!current) throw new PineProtocolError("LIVE_FEED_ERROR", "The current live chart candle is unavailable.");
   return {

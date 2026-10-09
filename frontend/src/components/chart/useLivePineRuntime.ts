@@ -160,7 +160,8 @@ export function useLivePineRuntime(options: {
           if (!chart || !snapshot.event || snapshot.event.sequence <= entry.sequence) continue;
           if (!entry.session) {
             if (options.contextError) throw new Error(options.contextError);
-            if (!chart.history.length) throw new Error("There are no earlier closed candles for this timeframe. Choose a shorter timeframe or load more history.");
+            // Wait for a closed warmup candle; a shallow feed can gain history live.
+            if (!chart.history.length) continue;
             entry.bars = recovering && chart.confirmed ? [...chart.history, chart.bar] : chart.history;
             const sourceBars = snapshot.bars.filter(bar => recovering && chart.confirmed ? bar.time <= snapshot.event!.bar.time : bar.time < snapshot.event!.bar.time);
             const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, snapshot.sourceTimeframe ?? "1m", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
