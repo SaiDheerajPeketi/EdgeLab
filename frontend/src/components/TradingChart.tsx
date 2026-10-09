@@ -1265,7 +1265,8 @@ export function TradingChart({
   );
   useEffect(() => { setInputAnchorPick(null); }, [selectedIndicatorId, selectedIndicator?.customScriptSource, selectedIndicator?.visible, inputOverlayContext, drawingControlsActive, captureMode]);
   useEffect(() => { restoreInputPickFocus(); }, [inputAnchorPick, pineInputHosts, selectedIndicatorId, selectedIndicator?.customScriptSource,
-    selectedIndicator?.visible, indicatorToolbarPosition, inputOverlayContext, drawingControlsActive, captureMode]);
+    selectedIndicator?.visible, selectedIndicator?.settings.customInputs, selectedIndicator?.settings.pineInputPrepared,
+    selectedIndicator?.settings.pineInputRecovery, indicatorToolbarPosition, inputOverlayContext, drawingControlsActive, captureMode]);
   useEffect(() => {
     const cancel = () => { inputFocusReturnRef.current = null; };
     document.addEventListener("pointerdown", cancel, true);
@@ -2312,6 +2313,8 @@ export function TradingChart({
 
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     event.stopPropagation();
+    const inputAnchors = event.target instanceof Element ? event.target.closest("[data-pine-input-anchors]") : null;
+    if (inputAnchors && stageRef.current?.contains(inputAnchors)) return;
     if (event.button !== 0) {
       return;
     }
@@ -2965,11 +2968,27 @@ export function TradingChart({
     if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement && active !== stageRef.current && active.isConnected) {
       inputFocusReturnRef.current = null; return;
     }
-    const button = Array.from(stageRef.current?.querySelectorAll<HTMLButtonElement>(".indicator-floating-toolbar [data-pine-pick-input]") ?? [])
-      .find(element => element.dataset.pinePickInput === pending.inputId && !element.disabled && element.getClientRects().length);
-    if (!button) return; // A native pane reports its replacement scale after the worker returns.
+    const toolbar = stageRef.current?.querySelector<HTMLElement>(".indicator-floating-toolbar");
+    if (!toolbar) return;
+    const canFocus = (element: HTMLElement) => element.isConnected && element.getClientRects().length > 0
+      && element.tabIndex >= 0 && element.getAttribute("aria-hidden") !== "true" && !element.matches(":disabled, [aria-disabled='true']");
+    const button = Array.from(toolbar.querySelectorAll<HTMLButtonElement>("[data-pine-pick-input]"))
+      .find(element => element.dataset.pinePickInput === pending.inputId);
+    let target: HTMLElement | undefined;
+    if (button && canFocus(button)) target = button;
+    else {
+      // Replacing a native pane is temporary; an inactive input is not.
+      if (button ? !["inactive", "unavailable"].includes(button.dataset.pinePickStatus ?? "")
+        : toolbar.dataset.pineInputControlsReady !== "true") return;
+      const row = Array.from(toolbar.querySelectorAll<HTMLElement>("[data-pine-input-id]"))
+        .find(element => element.dataset.pineInputId === pending.inputId);
+      target = Array.from(row?.querySelectorAll<HTMLElement>("input:not([type='hidden']), select, textarea, button:not([data-pine-pick-input])") ?? [])
+        .find(canFocus) ?? Array.from(toolbar.querySelectorAll<HTMLButtonElement>("button[aria-label='Close indicator settings']")).find(canFocus);
+    }
+    if (!target) return;
     inputFocusReturnRef.current = null;
-    button.focus({ preventScroll: true });
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   function closeIndicatorToolbar() {
@@ -3114,8 +3133,13 @@ export function TradingChart({
       return;
     }
 
+    function isOwnedPineInputTarget(target: EventTarget | null) {
+      const anchors = target instanceof Element ? target.closest("[data-pine-input-anchors]") : null;
+      return !!anchors && !!stageRef.current?.contains(anchors);
+    }
+
     function closeIndicatorToolbarOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || isOwnedPineInputTarget(event.target)) return;
       event.preventDefault();
       closeIndicatorToolbar();
     }
@@ -3126,6 +3150,7 @@ export function TradingChart({
         return;
       }
       if (
+        isOwnedPineInputTarget(target) ||
         target.closest(".indicator-floating-toolbar") ||
         target.closest(".chart-study-pill") ||
         target.closest(".indicator-pane-title") ||
@@ -3931,6 +3956,7 @@ export function TradingChart({
           position={indicatorToolbarPosition}
           onPickInput={inputId => setInputAnchorPick({ indicatorId: selectedIndicator.id, inputId })}
           onMoveInputs={moveIndicatorInputsOnChart}
+          onInputsRendered={restoreInputPickFocus}
           pineInputHost={pineInputHosts[selectedIndicator.id]?.plots === pinePaneGroups.get(selectedIndicator.id)
             && pineInputHosts[selectedIndicator.id]?.contextKey === inputOverlayContext ? pineInputHosts[selectedIndicator.id] : undefined}
           chartInputsEnabled={drawingControlsActive && !captureMode}
@@ -5831,6 +5857,7 @@ function FloatingIndicatorToolbar({
   position,
   onPickInput,
   onMoveInputs,
+  onInputsRendered,
   pineInputHost,
   chartInputsEnabled,
 }: {
@@ -5843,6 +5870,7 @@ function FloatingIndicatorToolbar({
   position: { x: number; y: number };
   onPickInput: (inputId: string) => void;
   onMoveInputs: (inputId: string) => void;
+  onInputsRendered?: () => void;
   pineInputHost?: PineInputHost;
   chartInputsEnabled: boolean;
 }) {
@@ -5868,6 +5896,7 @@ function FloatingIndicatorToolbar({
   const inputAnchors = pineInputAnchors(pineInputs);
   const movableAnchors = inputAnchors.filter(anchor => chartInputsEnabled && isVisible && pineAnchorActive(anchor, pineInputs, effectivePineInputs.inputs)
     && (pinePrepared?.overlay || pineInputHost && (!anchor.priceId || pineInputHost.price) && (!anchor.timeId || pineInputHost.time)));
+  useEffect(() => { onInputsRendered?.(); }, [onInputsRendered, pinePrepared, effectivePineInputs.inputs, pineInputHost, chartInputsEnabled, isVisible]);
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
@@ -5900,6 +5929,7 @@ function FloatingIndicatorToolbar({
   return (
     <div
       aria-label="Indicator settings"
+      data-pine-input-controls-ready={nativePine && pinePrepared ? "true" : undefined}
       className={`chart-object-floating-toolbar indicator-floating-toolbar overflow-y-auto overscroll-contain ${isGapStudy ? "indicator-floating-toolbar-gap" : ""}`}
       ref={toolbarRef}
       onClick={(event) => event.stopPropagation()}
@@ -5999,9 +6029,11 @@ function FloatingIndicatorToolbar({
         {pineInputs.map((definition) => {
           const anchor = inputAnchors.find(item => item.priceId === definition.id || item.timeId === definition.id);
           const canPick = anchor && movableAnchors.some(item => item.id === anchor.id);
-          return <div key={definition.id} className="grid gap-2">
+          const pickStatus = canPick ? "ready" : anchor && !pineAnchorActive(anchor, pineInputs, effectivePineInputs.inputs) ? "inactive"
+            : !pinePrepared?.overlay && !pineInputHost ? "waiting" : "unavailable";
+          return <div key={definition.id} data-pine-input-id={definition.id} className="grid gap-2">
           <PineInputControl scopeKey={`${indicator.id}:${indicator.customScriptSource}`} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />
-          {anchor && <button type="button" data-pine-pick-input={definition.id} disabled={!canPick}
+          {anchor && <button type="button" data-pine-pick-input={definition.id} data-pine-pick-status={pickStatus} disabled={!canPick}
             className="min-h-11 rounded border border-[var(--ui-border-subtle)] px-3 text-xs text-[var(--text-primary)] hover:bg-[var(--ui-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] disabled:opacity-50"
             onClick={() => onPickInput(definition.id)}>Pick {definition.title || definition.name} on chart</button>}
         </div>;
