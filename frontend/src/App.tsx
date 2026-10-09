@@ -1506,19 +1506,20 @@ export function WorkspaceApp() {
       return;
     }
 
-    const headerTarget = backtestHeaderActionsRef.current ?? backtestHeaderRef.current;
+    // The action row can scroll horizontally; observe its viewport-sized header.
+    const headerTarget = backtestHeaderRef.current;
     if (!headerTarget || typeof IntersectionObserver === "undefined") {
       setBacktestHeaderVisible(true);
       return;
     }
 
     const observer = new IntersectionObserver(
-      ([entry]) => setBacktestHeaderVisible(isEntryMoreThanHalfVisible(entry)),
-      { threshold: [0, 0.5, 1] },
+      ([entry]) => setBacktestHeaderVisible(isEntryVisible(entry)),
+      { threshold: [0, 1] },
     );
 
     observer.observe(headerTarget);
-    setBacktestHeaderVisible(isElementMoreThanHalfVisible(headerTarget));
+    setBacktestHeaderVisible(isElementVisible(headerTarget));
     return () => observer.disconnect();
   }, [activeWorkspace, isChartFullscreen, sessionGateOpen]);
 
@@ -4180,16 +4181,13 @@ function formatTimeframeShortcutDescription(timeframe: ChartTimeframe) {
   return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
-function isEntryMoreThanHalfVisible(entry: IntersectionObserverEntry) {
-  return entry.isIntersecting && entry.intersectionRatio > 0.5;
+function isEntryVisible(entry: IntersectionObserverEntry) {
+  return entry.isIntersecting;
 }
 
-function isElementMoreThanHalfVisible(element: HTMLElement) {
+function isElementVisible(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
-  const visibleTop = Math.max(rect.top, 0);
-  const visibleBottom = Math.min(rect.bottom, window.innerHeight);
-  const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-  return rect.height > 0 && visibleHeight / rect.height > 0.5;
+  return rect.height > 0 && rect.bottom >= 0 && rect.top <= window.innerHeight;
 }
 
 type StoredChartLayout = {

@@ -192,6 +192,7 @@ import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import { useLivePineRuntime } from "./chart/useLivePineRuntime";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
+import { useChartViewportHeight } from "../lib/useChartViewportHeight";
 import { paneSubscriptionKey } from "../lib/paneSubscriptions";
 
 const RADIAL_TOOLBOX_RADIUS = 88;
@@ -550,6 +551,7 @@ export function TradingChart({
   const authSession = useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, () => null);
   const stageRef = useRef<HTMLElement | null>(null);
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
+  const viewportSizedPricePlot = useChartViewportHeight(chartFrameRef);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const pineInstallationsRef = useRef(new Set<{ dispose(): void }>());
@@ -3360,7 +3362,9 @@ export function TradingChart({
         </div>
       </div>
 
-      <PineChartNotices studies={customNoticeStudies} />
+      <div className="chart-stage-notices">
+        <PineChartNotices studies={customNoticeStudies} include={viewportSizedPricePlot ? "warnings" : "all"} />
+      </div>
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
@@ -3725,6 +3729,7 @@ export function TradingChart({
               />
             )}
           </div>
+          {viewportSizedPricePlot && <PineChartNotices studies={customNoticeStudies} include="assumptions" />}
           {rsiStudies.map((study) => (
             <RsiPanel
               color={study.color}
