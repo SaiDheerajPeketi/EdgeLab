@@ -6,7 +6,7 @@
     "routeChunk": 184320,
     "chartWorkspaceGraph": 563200,
     "stylesheetTotal": 71680,
-    "pineWorker": 236500
+    "pineWorker": 237500
   },
   "rawBytes": {
     "initialEntry": 600000,
@@ -18,7 +18,7 @@
     "fontCount": 30,
     "image": 500000,
     "productDemoMediaTotal": 1000000,
-    "pineWorker": 881000
+    "pineWorker": 885000
   },
   "runtime": {
     "lcpMs": 2500,

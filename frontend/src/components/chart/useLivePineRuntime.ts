@@ -170,7 +170,9 @@ export function useLivePineRuntime(options: {
               strategySettings: indicator.settings.pineStrategySettings,
               inputMetadata: sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!),
               context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: entry.bars, viewport: entry.viewport,
-              sourceSnapshot });
+              sourceSnapshot, ...(recovering && chart.confirmed ? {} : { liveObservation: {
+                bar: snapshot.event.bar, confirmed: snapshot.event.confirmed, eventTime: snapshot.event.eventTime, closeTime: snapshot.event.closeTime,
+              } }) });
             const currentEntry = entry, initialBars = entry.bars, initialViewport = entry.viewport;
             void entry.session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, initialViewport))
               .catch(error => report(indicator.id, currentEntry, error, initialViewport));

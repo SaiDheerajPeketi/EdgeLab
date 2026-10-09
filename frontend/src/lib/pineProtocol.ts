@@ -4,6 +4,7 @@ import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 import { validatePineMarketData, type PineMarketDataConfig } from "./pineMarketProtocol";
+import { pineLiveObservationCutoff, validatePineLiveObservation, type PineLiveObservation } from "./pineLiveObservation";
 
 export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500, boxes: 500, labels: 500, polylines: 100, polylinePoints: 10_000, polylineTotalPoints: 32_000, tables: 9, tableCells: 4096, tablePercent: 1_000_000 });
 export type PineInputValue = boolean | number | string;
@@ -29,7 +30,7 @@ export type PineViewport = { from: number; to: number };
 export type PineSourceSnapshot = { timeframe: string; bars: readonly Candle[] };
 export type PineRequest = {
   id: string; action: "prepare" | "run"; source: string; bars?: Candle[]; sourceSnapshot?: PineSourceSnapshot; viewport?: PineViewport | null;
-  strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext; marketData?: PineMarketDataConfig;
+  strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext; marketData?: PineMarketDataConfig; liveObservation?: PineLiveObservation;
 };
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
@@ -306,14 +307,22 @@ export function validatePineRequest(value: unknown): PineRequest {
     if (raw.action !== "run" || !context || !bars?.length) fail("Intrabar source snapshots require an owned chart execution.", "UNAVAILABLE_DATA");
     sourceSnapshot = validateSourceSnapshot(sourceDescriptor.value, bars, context, mode === "live");
   }
+  let liveObservation: PineLiveObservation | undefined;
+  const observationDescriptor = Object.getOwnPropertyDescriptor(raw, "liveObservation");
+  if (observationDescriptor && (!("value" in observationDescriptor) || !observationDescriptor.enumerable)) fail("Live observations require an ordinary request field.", "INVALID_LIVE_OBSERVATION");
+  if (observationDescriptor?.value !== undefined) {
+    if (raw.action !== "run" || mode !== "live" || !context || !bars?.length) fail("Live observations require an owned live chart execution.", "INVALID_LIVE_OBSERVATION");
+    liveObservation = validatePineLiveObservation(observationDescriptor.value, context, bars, sourceSnapshot);
+  }
   let marketData: PineMarketDataConfig | undefined;
   const marketDescriptor = Object.getOwnPropertyDescriptor(raw, "marketData");
   if (marketDescriptor && (!("value" in marketDescriptor) || !marketDescriptor.enumerable)) fail("Requested data requires an ordinary request field.", "INVALID_MARKET_DATA");
   if (marketDescriptor?.value !== undefined) {
     if (raw.action !== "run" || !context || !bars?.length) fail("Requested market data requires its owned chart execution.", "INVALID_MARKET_DATA");
-    marketData = validatePineMarketData(marketDescriptor.value, context, bars, sourceSnapshot?.bars.length ?? 0);
+    marketData = validatePineMarketData(marketDescriptor.value, context, bars, sourceSnapshot?.bars.length ?? 0,
+      mode === "live" ? pineLiveObservationCutoff(context, bars, sourceSnapshot, liveObservation) : undefined);
   }
-  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}), ...(marketData ? { marketData } : {}), ...(viewport !== undefined ? { viewport } : {}) };
+  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}), ...(marketData ? { marketData } : {}), ...(liveObservation ? { liveObservation } : {}), ...(viewport !== undefined ? { viewport } : {}) };
 }
 
 // Bound cumulative text before JSON allocation; binary is permitted only in the packed buffer list.

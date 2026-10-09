@@ -63,7 +63,9 @@ export function parsePineMarketDemand(error: unknown): PineMarketDemand | null {
 }
 
 /** Validate independently owned, closed secondary history before it reaches an isolated worker. */
-export function validatePineMarketData(value: unknown, chart: PineContext, chartBars: Candle[], sourceBars = 0): PineMarketDataConfig {
+// observationCutoff is an internal seam: validatePineRequest derives it only
+// from validated primary events/confirmed source prefixes, never a raw cutoff.
+export function validatePineMarketData(value: unknown, chart: PineContext, chartBars: Candle[], sourceBars = 0, observationCutoff?: number): PineMarketDataConfig {
   const raw = ordinary(value); fields(raw, ["provider", "snapshots", "invalidSymbols"]);
   if (raw.provider !== "binance") invalid("Unsupported requested-data provider.");
   pineMarketSymbol(chart.symbol);
@@ -74,7 +76,7 @@ export function validatePineMarketData(value: unknown, chart: PineContext, chart
     return symbol;
   });
   if (new Set(invalidSymbols).size !== invalidSymbols.length || input.length + invalidSymbols.length > 64) invalid("Requested data exceeds its unique context limit.");
-  const chartEnd = pineFeedNextSourceTime(chartBars.at(-1)!.time, pineMarketChartTimeframe(chart.timeframe));
+  const chartEnd = observationCutoff ?? pineFeedNextSourceTime(chartBars.at(-1)!.time, pineMarketChartTimeframe(chart.timeframe));
   let total = chartBars.length + sourceBars;
   const identities = new Set<string>(), metadata = new Map<string, string>();
   const snapshots = input.map(value => {

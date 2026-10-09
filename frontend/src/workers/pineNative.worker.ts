@@ -1545,7 +1545,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
               if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
             } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
             const sourceSnapshot = advancePineLiveSource(owner.request.sourceSnapshot, owner.sourceConfirmed, command, owner.request.context!.timeframe);
-            const nextRequest = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), sourceSnapshot, bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+            const nextRequest = { ...owner.request, liveObservation: undefined, id: pineLiveRequestId(owner.sessionId, command.sequence), sourceSnapshot, bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
             assertPineLiveMarketBudget(owner.marketLedger, nextRequest);
             owner.local.reset();
             owner.local.update(command.bar, append, command.confirmed, sourceSnapshot, command.source?.confirmed ?? true);

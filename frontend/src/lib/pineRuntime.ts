@@ -89,6 +89,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
   const expected = new Map<number, PineRequest>([[0, request]]);
   let bars = request.bars!;
   let sourceSnapshot = request.sourceSnapshot, sourceConfirmed = true;
+  let liveObservation = request.liveObservation;
   let viewport = request.viewport;
   let sequence = 0, confirmedTail = true, halted = false;
   const session = createSandboxWorkerSession<PineLiveRequest, PineExecutionResult | PineLiveMarketReceipt>({
@@ -123,7 +124,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "viewport", viewport: value });
         if (next.action !== "viewport") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Expected a viewport event.");
         viewport = next.viewport;
-        expected.set(next.sequence, { ...request, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
+        expected.set(next.sequence, { ...request, liveObservation, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
         return session.send(next).then(chartResult).catch(error => { cancel(); throw error; }).finally(() => expected.delete(next.sequence));
       } catch (error) {
         cancel();
@@ -136,7 +137,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "markets", events });
         if (next.action !== "markets") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Expected a requested-market event.");
         const ledger = advancePineLiveMarkets(marketLedger, next.events, { bars, sourceSnapshot });
-        expected.set(next.sequence, { ...request, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
+        expected.set(next.sequence, { ...request, liveObservation, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
         expectedMarkets.set(next.sequence, ledger);
         marketLedger = ledger;
         return session.send(next).then(result => {
@@ -167,7 +168,8 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         sourceSnapshot = nextSource;
         if (next.source) sourceConfirmed = next.source.confirmed;
         confirmedTail = next.confirmed;
-        expected.set(next.sequence, { ...request, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
+        liveObservation = undefined;
+        expected.set(next.sequence, { ...request, liveObservation, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
         return session.send(next).then(chartResult).catch(error => { cancel(); throw error; }).finally(() => expected.delete(next.sequence));
       } catch (error) {
         cancel();
