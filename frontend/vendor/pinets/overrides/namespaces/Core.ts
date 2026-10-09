@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-10: validate alert frequencies and retire old bar gates.
+// EdgeLab modification, 2026-10-10: validate alerts and observe native conditions before delivery gates.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Series } from '../Series';
@@ -315,6 +315,12 @@ export class Core {
             this._acLastExecTick = execTick;
         }
         const callsiteId = `alertcondition_${this._acCounter++}`;
+
+        // An owning host may observe every evaluated condition, including false
+        // values, independently of the native once-per-bar notification gate.
+        const observer = Object.getOwnPropertyDescriptor(this.context, '_edgelabObserveAlertCondition');
+        if (observer && 'value' in observer && typeof observer.value === 'function')
+            observer.value(callsiteId, !!cond);
 
         if (!cond) return;
 

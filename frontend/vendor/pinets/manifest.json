@@ -152,7 +152,7 @@
       "source": "src/namespaces/Core.ts",
       "file": "overrides/namespaces/Core.ts",
       "upstreamSha256": "8095474eed00cc181fae18b5ed1f71cf0956a9a84fe46fd672ffc96014455d63",
-      "sha256": "4eb0df6976cc25a483f849dbfa67d0a1bdb0e099eb25080fb59c13faf829b65b"
+      "sha256": "35836f6b3aa87385f94b7f1fa68231aea522be74adc20417f9389fe3d15a5240"
     },
     {
       "source": "src/namespaces/request/methods/param.ts",
@@ -229,6 +229,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "519faa302df6bdd5a15313e8da4b7f27b82b0aa7ab8d1fcaed28a8d8319344d1"
+    "sha256": "0d30b1ae0a9b9102a9c5321ff5173e27d9e98bafdffaa5f62bb3de2454211642"
   }
 }

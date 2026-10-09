@@ -3,7 +3,10 @@ import { migratePineEnumInputs } from "./pineInputMigration";
 import type { PinePrepareResult } from "./pineProtocol";
 import type { Candle } from "./api";
 import { createSandboxWorkerJob, createSandboxWorkerSession } from "./pineSandbox";
-import { PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
+import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, validatePineRequest, validatePineResponse, type PineAlertConditionDefinition, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
+import { preparePineCalculationPrefix, selectPineCalculationSnapshot, type PineCalculationPrefix } from "./pineCalculationSnapshot";
+import type { PineConditionSampleProof } from "./pineConditionSamples";
+import { pineMarketSymbol } from "./pineMarketProtocol";
 import { advancePineLiveSource, PINE_LIVE_PROTOCOL, PINE_LIVE_QUEUE_LIMIT, pineLiveRequestId, validatePineLiveRequest, validatePineLiveResponse, validatePineLiveMarketResponse, type PineLiveRequest, type PineLiveSourceEvent } from "./pineLiveProtocol";
 import { advancePineLiveMarkets, assertPineLiveMarketBudget, createPineLiveMarketLedger, validatePineLiveMarketEvents, validatePineLiveMarketStreams, type PineLiveMarketStream, type PineLiveMarketEvent, type PineLiveMarketLedger, type PineLiveMarketReceipt } from "./pineLiveMarkets";
 import { createPineMarketRuntimeJob } from "./pineMarketRuntime";
@@ -38,7 +41,7 @@ export function createPineRuntimeJob(input: Omit<PineRequest, "id">, options: { 
 export type PineLiveRuntimeSession = {
   id: string;
   promise: Promise<PineExecutionResult>;
-  update(bar: Candle, confirmed: boolean, source?: PineLiveSourceEvent, collectAlerts?: boolean): Promise<PineExecutionResult>;
+  update(bar: Candle, confirmed: boolean, source?: PineLiveSourceEvent, collectAlerts?: boolean, collectConditions?: boolean): Promise<PineExecutionResult>;
   setViewport(viewport: PineViewport | null): Promise<PineExecutionResult>;
   updateMarkets(events: PineLiveMarketEvent[]): Promise<PineLiveMarketReceipt>;
   cancel(): void;
@@ -82,7 +85,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         return run(owned);
       }).catch((error) => { cancel(); throw error; }).finally(() => { pending--; });
     };
-    return { id: preparation.id, promise, cancel, update: (bar, confirmed, source, collectAlerts) => enqueue(owned => owned.update(bar, confirmed, source, collectAlerts)),
+    return { id: preparation.id, promise, cancel, update: (bar, confirmed, source, collectAlerts, collectConditions) => enqueue(owned => owned.update(bar, confirmed, source, collectAlerts, collectConditions)),
       setViewport: viewport => enqueue(owned => owned.setViewport(viewport)), updateMarkets: events => {
         try { const ownedEvents = validatePineLiveMarketEvents(events); return enqueue(owned => owned.updateMarkets(ownedEvents)); }
         catch (error) { cancel(); return Promise.reject(error); }
@@ -96,6 +99,10 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
   let marketLedger = command.marketStreams === undefined ? Object.freeze([]) : createPineLiveMarketLedger(request, command.marketStreams);
   const expectedMarkets = new Map<number, PineLiveMarketLedger>();
   const expected = new Map<number, PineRequest>([[0, request]]);
+  const expectedConditions = new Map<number, { ledger: PineLiveMarketLedger; sourceConfirmed: boolean; revision: number }>();
+  const initialSource = request.sourceSnapshot ?? { timeframe: canonicalPineTimeframe(request.context!.timeframe), bars: request.bars! };
+  let conditionOwner: { conditions: readonly PineAlertConditionDefinition[]; timeframe: string; prefix?: PineCalculationPrefix } | undefined;
+  let revision = 0;
   let bars = request.bars!;
   let sourceSnapshot = request.sourceSnapshot, sourceConfirmed = true;
   let liveObservation = request.liveObservation;
@@ -109,15 +116,41 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
       const owner = expected.get(pending.sequence);
       if (!owner) throw new PineProtocolError("LIVE_SEQUENCE", "Live Pine response has no active command.");
       if (pending.action === "markets" && !expectedMarkets.has(pending.sequence)) throw new PineProtocolError("LIVE_SEQUENCE", "Requested-market response has no owned history.");
+      let proof: PineConditionSampleProof | undefined;
+      if (pending.action === "update" && pending.collectConditions === true) {
+        const captured = expectedConditions.get(pending.sequence);
+        if (!conditionOwner || !captured) throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Condition collection has no fresh compiled owner or captured update.");
+        proof = { conditions: conditionOwner.conditions, calculation: selectPineCalculationSnapshot({
+          request: owner, timeframe: conditionOwner.timeframe, realtime: true, chartConfirmed: pending.confirmed,
+          sourceConfirmed: captured.sourceConfirmed, revision: captured.revision, initialSource,
+          marketLedger: captured.ledger, prefix: conditionOwner.prefix,
+        }) };
+      }
       const result = pending.action === "markets"
         ? validatePineLiveMarketResponse(value, pending, owner, expectedMarkets.get(pending.sequence)!)
-        : validatePineLiveResponse(value, pending, owner);
+        : validatePineLiveResponse(value, pending, owner, proof);
+      if (pending.action === "start" && result.kind === "run" && result.declaration === "indicator") {
+        const binding = result.calculationInputs;
+        const value = binding ? result.inputs[binding.timeframeInputId] ?? binding.defaultTimeframe : "";
+        if (typeof value !== "string") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Calculation timeframe input has no fresh string value.");
+        const timeframe = canonicalPineTimeframe(value || request.context!.timeframe);
+        let prefix: PineCalculationPrefix | undefined;
+        if (timeframe !== canonicalPineTimeframe(request.context!.timeframe) && timeframe !== canonicalPineTimeframe(initialSource.timeframe)) {
+          let symbol: string | undefined;
+          try { symbol = pineMarketSymbol(request.context!.symbol); } catch { /* Legacy chart identities have no provider snapshot. */ }
+          const snapshot = request.marketData?.snapshots.find(item => item.context.symbol === symbol && item.requestedTimeframe === timeframe);
+          if (snapshot) prefix = preparePineCalculationPrefix(initialSource, snapshot);
+        }
+        // Capture before resolving the caller's promise: UI/cache mutation cannot change this owner.
+        conditionOwner = { timeframe, prefix, conditions: Object.freeze((result.alertConditions ?? []).map(item => Object.freeze({ ...item }))) };
+      }
       expected.delete(pending.sequence);
       expectedMarkets.delete(pending.sequence);
+      expectedConditions.delete(pending.sequence);
       return result;
     },
   });
-  const cancel = () => { halted = true; expected.clear(); expectedMarkets.clear(); marketLedger = Object.freeze([]); session.cancel(); };
+  const cancel = () => { halted = true; expected.clear(); expectedMarkets.clear(); expectedConditions.clear(); conditionOwner = undefined; marketLedger = Object.freeze([]); session.cancel(); };
   void session.promise.catch(cancel);
   const chartResult = (result: PineExecutionResult | PineLiveMarketReceipt): PineExecutionResult => {
     if (result.kind === "market-update") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "A chart command returned a market acknowledgement.");
@@ -155,10 +188,10 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         }).catch(error => { cancel(); throw error; }).finally(() => { expected.delete(next.sequence); expectedMarkets.delete(next.sequence); });
       } catch (error) { cancel(); return Promise.reject(error); }
     },
-    update: (bar, confirmed, source, collectAlerts) => {
+    update: (bar, confirmed, source, collectAlerts, collectConditions) => {
       if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped. Reapply the indicator to restart."));
       try {
-        const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "update", bar, confirmed, ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}) });
+        const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "update", bar, confirmed, ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}), ...(collectConditions !== undefined ? { collectConditions } : {}) });
         if (next.action !== "update") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Expected an update event.");
         const nextSource = advancePineLiveSource(sourceSnapshot, sourceConfirmed, next, request.context!.timeframe);
         const last = bars.at(-1)!;
@@ -178,8 +211,10 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         if (next.source) sourceConfirmed = next.source.confirmed;
         confirmedTail = next.confirmed;
         liveObservation = undefined;
+        revision++;
         expected.set(next.sequence, { ...request, liveObservation, viewport, sourceSnapshot, id: pineLiveRequestId(id, next.sequence), bars });
-        return session.send(next).then(chartResult).catch(error => { cancel(); throw error; }).finally(() => expected.delete(next.sequence));
+        if (next.collectConditions === true) expectedConditions.set(next.sequence, { ledger: marketLedger, sourceConfirmed, revision });
+        return session.send(next).then(chartResult).catch(error => { cancel(); throw error; }).finally(() => { expected.delete(next.sequence); expectedConditions.delete(next.sequence); });
       } catch (error) {
         cancel();
         return Promise.reject(error);

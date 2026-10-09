@@ -1,5 +1,6 @@
 import { validatePineInputCondition, pineInputConditionReferences, pineInputActive } from "./pineInputActivation";
 import { validatePineAlertEvents, type PineAlertEvents } from "./pineAlertEvents";
+import { validatePineConditionSamples, type PineConditionSamples } from "./pineConditionSamples";
 import type { PineInputCondition } from "./pineInputActivation";
 import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
@@ -95,6 +96,7 @@ export type PineStrategyResult = {
 };
 export type PineExecutionResult = Omit<PinePrepareResult, "kind"> & {
   alertEvents?: PineAlertEvents;
+  conditionSamples?: PineConditionSamples;
   kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; boxes?: PineBoxDrawing[]; labels?: PineLabelDrawing[]; polylines?: PinePolylineDrawing[]; tables?: PineTableDrawing[]; strategy?: PineStrategyResult;
   audit: { engine: "PineTS"; engineVersion: "0.11.0"; bars: number; sourceBytes: number; mode: "historical" | "live"; elapsedMs: number };
 };
@@ -531,11 +533,14 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions", "calculationInputs"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions", "calculationInputs", "conditionSamples"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.alertEvents !== undefined && (request.action !== "run" || request.mode !== "live")) fail("Pine alerts require an owned live update.");
   const alertEvents = raw.alertEvents === undefined ? undefined : validatePineAlertEvents(raw.alertEvents);
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
+  const alertConditions = raw.alertConditions === undefined ? undefined : validatePineAlertConditions(raw.alertConditions);
+  if (raw.conditionSamples !== undefined && (request.action !== "run" || request.mode !== "live" || raw.declaration !== "indicator")) fail("Condition samples require an owned live indicator update.");
+  const conditionSamples = raw.conditionSamples === undefined ? undefined : validatePineConditionSamples(raw.conditionSamples, alertConditions?.length ?? 0);
   if (raw.calculationInputs !== undefined && raw.declaration !== "indicator") fail("Calculation inputs require an indicator declaration.");
   const calculationInputs = raw.calculationInputs === undefined ? undefined : validatePineCalculationInputs(raw.calculationInputs, inputDefinitions);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -550,7 +555,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(raw.alertConditions !== undefined ? { alertConditions: validatePineAlertConditions(raw.alertConditions) } : {}), ...(calculationInputs ? { calculationInputs } : {}) };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(alertConditions !== undefined ? { alertConditions } : {}), ...(calculationInputs ? { calculationInputs } : {}) };
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);
@@ -712,5 +717,5 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     strategy = { config: scalarRecord(state.config), metrics: scalarRecord(state.metrics), closedTrades, openTrades, pendingOrders };
     for (const [key, value] of Object.entries(request.strategySettings ?? {})) if (strategy.config[key] !== value) fail("Pine result changed a requested strategy setting.", "INVALID_STRATEGY_SETTINGS");
   } else if (base.declaration === "strategy") fail("Strategy execution is missing its engine ledger.");
-  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(polylines ? { polylines } : {}), ...(tables ? { tables } : {}), ...(strategy ? { strategy } : {}), ...(alertEvents ? { alertEvents } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
+  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(polylines ? { polylines } : {}), ...(tables ? { tables } : {}), ...(strategy ? { strategy } : {}), ...(alertEvents ? { alertEvents } : {}), ...(conditionSamples ? { conditionSamples } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
 }

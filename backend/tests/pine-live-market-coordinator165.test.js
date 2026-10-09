@@ -89,7 +89,8 @@ async function harness(run) {
       const result = chain.then(() => { if (cancelled) throw new DOMException("Cancelled actual session", "AbortError"); return executor.execute(next); });
       chain = result; void chain.catch(() => {}); return result.then(value => { record.results.push(value); return value; });
     };
-    return { id, promise, cancel() { cancelled = true; executor.dispose(); }, update: (bar, confirmed, source) => send({ action: "update", bar, confirmed, ...(source ? { source } : {}) }),
+    return { id, promise, cancel() { cancelled = true; executor.dispose(); }, update: (bar, confirmed, source, collectAlerts, collectConditions) => send({ action: "update", bar, confirmed,
+      ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}), ...(collectConditions !== undefined ? { collectConditions } : {}) }),
       setViewport: viewport => send({ action: "viewport", viewport }), updateMarkets: events => send({ action: "markets", events }) };
   };
   const create = (initial = input(), owns = () => true) => {
@@ -149,6 +150,30 @@ test("held actual warmup flushes remote and primary commands in their genuine re
     assert.equal(tail(b, "Main executions"), 5); assert.equal(tail(b, "Remote"), 110);
     assert.deepEqual(live[0].commands.map(command => command.action), ["markets", "update", "markets", "update"]);
     assert.deepEqual(values(warm, "Main executions"), [1, 2, 3]);
+  });
+});
+
+test("queued condition collection survives genuine market warmup and samples each awaited foreign receipt without arming quiet updates", async () => {
+  await harness(async ({ create, waitSocket, sessionGate, live }) => {
+    const initial = input({ source: script('remote=request.security("ETHUSDT","1",close)\nalertcondition(remote>105,"Remote threshold","")\nplot(remote,"Remote")') });
+    const coordinator = create(initial), socket = await waitSocket(0); socket.open(); socket.tick(); await coordinator.promise;
+    const held = gate(); sessionGate(held); const actual = coordinator.start(initial); assert.ok(actual);
+    const first = actual.update(bar(3), false, undefined, undefined, true);
+    socket.tick(3, 110, false, 2); const quiet = actual.update(bar(3, 14), false);
+    socket.tick(3, 111, false, 3); const second = actual.update(bar(3, 15), false, undefined, undefined, true);
+    assert.equal(live[0].commands.length, 0); held.resolve(); const warm = await actual.promise;
+    const [a, unarmed, b] = await Promise.all([first, quiet, second]);
+    assert.equal(Object.hasOwn(warm, "conditionSamples"), false); assert.equal(Object.hasOwn(unarmed, "conditionSamples"), false);
+    for (const [result, price, condition] of [[a, 103, false], [b, 111, true]]) {
+      assert.equal(result.conditionSamples.chartTime, origin + 180); assert.equal(result.conditionSamples.chartBarIndex, 3);
+      assert.equal(result.conditionSamples.samples.length, 1); assert.equal(result.conditionSamples.dropped, 0);
+      assert.deepEqual(result.conditionSamples.samples[0].conditions, [condition]);
+      assert.deepEqual(result.conditionSamples.samples[0].plots.numbered, [price]); assert.equal(tail(result, "Remote"), price);
+    }
+    assert.equal(tail(unarmed, "Remote"), 110);
+    assert.deepEqual(live[0].commands.map(command => command.action), ["markets", "update", "markets", "update", "markets", "update"]);
+    assert.deepEqual(live[0].commands.filter(command => command.action === "update").map(command => command.collectConditions), [true, undefined, true]);
+    assert.deepEqual(a.conditionSamples.samples[0].conditions, [false]);
   });
 });
 

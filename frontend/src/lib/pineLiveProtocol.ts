@@ -1,4 +1,5 @@
 import type { Candle } from "./api";
+import { validatePineConditionSampleOwnership, type PineConditionSampleProof } from "./pineConditionSamples";
 import { validatePineLiveMarketEvents, validatePineLiveMarketStreams, validatePineLiveMarketReceipt, type PineLiveMarketEvent, type PineLiveMarketStream, type PineLiveMarketReceipt, type PineLiveMarketLedger } from "./pineLiveMarkets";
 import { PINE_LIMITS, pineFixedTimeframeDuration, PineProtocolError, validatePineBar, validatePineViewport, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest, type PineResponse, type PineSourceSnapshot, type PineViewport } from "./pineProtocol";
 
@@ -8,7 +9,7 @@ type LiveIdentity = { protocol: typeof PINE_LIVE_PROTOCOL; sessionId: string; se
 export type PineLiveSourceEvent = { bar: Candle; confirmed: boolean };
 export type PineLiveRequest = LiveIdentity & (
   { action: "start"; request: PineRequest; marketStreams?: PineLiveMarketStream[] } |
-  { action: "update"; bar: Candle; confirmed: boolean; source?: PineLiveSourceEvent; collectAlerts?: boolean } |
+  { action: "update"; bar: Candle; confirmed: boolean; source?: PineLiveSourceEvent; collectAlerts?: boolean; collectConditions?: boolean } |
   { action: "markets"; events: PineLiveMarketEvent[] } |
   { action: "viewport"; viewport: PineViewport | null }
 );
@@ -33,7 +34,7 @@ export function pineLiveRequestId(sessionId: string, sequence: number): string {
 export function validatePineLiveRequest(value: unknown): PineLiveRequest {
   const raw = plain(value);
   const owner = identity(raw);
-  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request", "marketStreams"] : raw.action === "markets" ? ["protocol", "sessionId", "sequence", "action", "events"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source", "collectAlerts"];
+  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request", "marketStreams"] : raw.action === "markets" ? ["protocol", "sessionId", "sequence", "action", "events"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source", "collectAlerts", "collectConditions"];
   if (Object.keys(raw).some(key => !fields.includes(key))) invalid("Unexpected live Pine request field.");
   if (raw.action === "start") {
     if (owner.sequence !== 0) invalid("Live Pine initialization requires sequence zero.");
@@ -75,6 +76,7 @@ export function validatePineLiveRequest(value: unknown): PineLiveRequest {
   }
   if (raw.action !== "update" || owner.sequence === 0 || typeof raw.confirmed !== "boolean") invalid("Live Pine updates require an ordered explicit confirmation event.");
   if (raw.collectAlerts !== undefined && typeof raw.collectAlerts !== "boolean") invalid("Live Pine alert collection requires an explicit boolean.");
+  if (raw.collectConditions !== undefined && typeof raw.collectConditions !== "boolean") invalid("Live Pine condition collection requires an explicit boolean.");
   let source: PineLiveSourceEvent | undefined;
   if (raw.source !== undefined) {
     const event = plain(raw.source);
@@ -83,7 +85,7 @@ export function validatePineLiveRequest(value: unknown): PineLiveRequest {
     if (!["time", "open", "high", "low", "close", "volume"].every(key => Object.prototype.hasOwnProperty.call(candle, key))) invalid("Source updates require explicit OHLCV fields.");
     source = { bar: validatePineBar(candle), confirmed: event.confirmed };
   }
-  return { ...owner, action: "update", bar: validatePineBar(raw.bar), confirmed: raw.confirmed, ...(source ? { source } : {}), ...(raw.collectAlerts !== undefined ? { collectAlerts: raw.collectAlerts } : {}) };
+  return { ...owner, action: "update", bar: validatePineBar(raw.bar), confirmed: raw.confirmed, ...(source ? { source } : {}), ...(raw.collectAlerts !== undefined ? { collectAlerts: raw.collectAlerts } : {}), ...(raw.collectConditions !== undefined ? { collectConditions: raw.collectConditions } : {}) };
 }
 
 /** A chart update and its real source event are accepted atomically by host and worker. */
@@ -115,7 +117,7 @@ export function advancePineLiveSource(snapshot: PineSourceSnapshot | undefined, 
   return { timeframe: snapshot.timeframe, bars };
 }
 /** Bind every response to its immutable owner, command and exact expected history. */
-export function validatePineLiveResponse(value: unknown, command: PineLiveRequest, expected: PineRequest): PineExecutionResult {
+export function validatePineLiveResponse(value: unknown, command: PineLiveRequest, expected: PineRequest, conditionProof?: PineConditionSampleProof): PineExecutionResult {
   if (command.action === "markets") invalid("Requested-market commands cannot publish chart execution results.");
   const raw = plain(value);
   const owner = identity(raw);
@@ -129,6 +131,18 @@ export function validatePineLiveResponse(value: unknown, command: PineLiveReques
     const latest = expected.bars!.at(-1)!;
     if (result.alertEvents.events.some(event => event.time !== latest.time || event.time !== command.bar.time
       || event.barIndex !== expected.bars!.length - 1 || event.freq === "once_per_bar_close" && !command.confirmed)) invalid("Pine alerts do not belong to the latest owned candle and confirmation.");
+  }
+  if (result.conditionSamples !== undefined || command.action === "update" && command.collectConditions === true) {
+    if (command.action !== "update" || command.collectConditions !== true || result.declaration !== "indicator"
+      || !conditionProof || !result.conditionSamples) invalid("Condition samples require their armed update and fresh calculation owner.");
+    const latest = expected.bars!.at(-1)!, batch = result.conditionSamples;
+    const definitions = result.alertConditions ?? [];
+    if (batch.chartTime !== latest.time || batch.chartTime !== command.bar.time || batch.chartBarIndex !== expected.bars!.length - 1
+      || definitions.length !== conditionProof.conditions.length || definitions.some((definition, index) => {
+        const trusted = conditionProof.conditions[index];
+        return definition.id !== trusted.id || definition.title !== trusted.title || definition.message !== trusted.message;
+      })) invalid("Condition samples changed their chart identity or prepared definitions.");
+    validatePineConditionSampleOwnership(batch, conditionProof);
   }
   return result;
 }

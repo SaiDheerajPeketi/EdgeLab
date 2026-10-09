@@ -4,6 +4,8 @@ import { aggregatePineCalculationBars, pineCalculationCanAggregate, pineCalculat
 import { preparePineCalculationPrefix, selectPineCalculationSnapshot, type PineCalculationSnapshot } from "../lib/pineCalculationSnapshot";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { PINE_ALERT_EVENT_LIMIT, PINE_ALERT_DROPPED_LIMIT, validatePineAlertEvent, type PineAlertEvents } from "../lib/pineAlertEvents";
+import { capturePineAlertPlots, type PineAlertPlotDefinition } from "../lib/pineAlertPlaceholders";
+import { PINE_CONDITION_SAMPLE_LIMIT, PINE_CONDITION_SAMPLE_BYTES, PINE_CONDITION_DROPPED_LIMIT, type PineConditionSamples } from "../lib/pineConditionSamples";
 import { pineMarketChartTimeframe, pineMarketSymbol } from "../lib/pineMarketProtocol";
 import { pineHeikinAshiBase, pineHeikinAshiBars } from "../lib/pineHeikinAshi";
 import { bucketTime } from "../lib/charting";
@@ -95,7 +97,7 @@ type RequestContext = Context & {
   _edgelabRequestDependencies?: readonly string[];
   _edgelabStaticPath?: readonly string[];
   _ltfTruncatedBodies?: Record<string, Function>;
-  _explicitBarstate?: { isrealtime: boolean };
+  _explicitBarstate?: { isrealtime: boolean; isconfirmed: boolean };
 };
 function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>(), initialConfirmed = true, initialSourceConfirmed = true, marketLedger: PineLiveMarketLedger = [], calculationTimeframe = request.context!.timeframe) {
   const context = request.context!;
@@ -1337,8 +1339,12 @@ function magnifierSnapshot(request: PineRequest): () => MagnifierSnapshot {
 
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
 const alertCollectors = new WeakMap<Context, { batch: PineAlertEvents; time: number; barIndex: number; confirmed: boolean }>();
+type ConditionIteration = { barIndex: number; tick: number; confirmed: boolean; conditions: boolean[] };
+const conditionCollectors = new WeakMap<Context, { batch: PineConditionSamples; bytes: number; exhausted?: boolean; iteration?: ConditionIteration }>();
 function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number, magnifier?: () => MagnifierSnapshot, mainTimeframe?: string, inheritedCalculation = false) {
   const original = prepared.fn;
+  const conditionDefinitions = Object.getOwnPropertyDescriptor(original, "_edgelabAlertConditions")?.value as readonly { id: string }[] | undefined;
+  const plotDefinitions = Object.getOwnPropertyDescriptor(original, "_edgelabAlertPlots")?.value as readonly PineAlertPlotDefinition[] | undefined;
   const declaredCalculation = inheritedCalculation || Object.getOwnPropertyDescriptor(original, "_edgelabCalculation")?.value?.hasTimeframe === true;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
@@ -1363,6 +1369,14 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
         error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot disclose unavailable alert delivery.");
       }
       const condition = alertCondition.value;
+      Object.defineProperty(context, "_edgelabObserveAlertCondition", { value: (id: string, value: boolean) => {
+        const iteration = conditionCollectors.get(context)?.iteration;
+        if (!iteration) return;
+        if (context.idx !== iteration.barIndex || context._execTick !== iteration.tick
+          || conditionDefinitions?.[iteration.conditions.length]?.id !== id || typeof value !== "boolean")
+          error("UNSUPPORTED_EXECUTION_CONTEXT", "Native alert conditions do not match the compiled global definitions.");
+        iteration.conditions.push(value);
+      } });
       Object.defineProperty(pine, "alertcondition", { ...alertCondition, value: function(this: unknown, ...args: unknown[]) {
         encounteredAlerts.add("alertcondition");
         try { return Reflect.apply(condition, this, args); }
@@ -1437,6 +1451,11 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
     backgrounds.get(context)!.start();
     barcolors.get(context)!.start();
     barplots.get(context)!.start();
+    const collector = conditionCollectors.get(context);
+    const explicit = (context as RequestContext)._explicitBarstate;
+    const iteration: ConditionIteration | undefined = collector && realtime && !strategyDeclaration && explicit?.isrealtime === true
+      ? { barIndex: context.idx, tick: context._execTick, confirmed: explicit.isconfirmed, conditions: [] } : undefined;
+    if (collector) collector.iteration = iteration;
     const checked = () => {
       backgrounds.get(context)!.finish();
       barcolors.get(context)!.finish();
@@ -1444,6 +1463,29 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       const channels = (Object.values(context.plots) as { options?: { style?: string }; data?: unknown[] }[]).filter((plot) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style ?? ""));
       if (channels.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
       if (channels.reduce((total, plot) => total + (plot.data?.length ?? 0), 0) > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 1,280,000 bar slots.");
+      if (collector && iteration) {
+        if (!conditionDefinitions || !plotDefinitions || iteration.conditions.length !== conditionDefinitions.length
+          || context.idx !== iteration.barIndex || context._execTick !== iteration.tick)
+          error("UNSUPPORTED_EXECUTION_CONTEXT", "The complete native alert-condition iteration cannot be verified.");
+        if (collector.exhausted || collector.batch.samples.length >= PINE_CONDITION_SAMPLE_LIMIT) {
+          collector.exhausted = true;
+          collector.batch.dropped = Math.min(PINE_CONDITION_DROPPED_LIMIT, collector.batch.dropped + 1);
+        }
+        else {
+          const bar = context.marketData[iteration.barIndex];
+          const sample = { barIndex: iteration.barIndex,
+            bar: { time: bar.openTime / 1000, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume },
+            confirmed: iteration.confirmed, conditions: iteration.conditions,
+            plots: capturePineAlertPlots(context.plots, plotDefinitions, bar.openTime) };
+          const bytes = new TextEncoder().encode(JSON.stringify(sample)).length + 1;
+          if (collector.bytes + bytes > PINE_CONDITION_SAMPLE_BYTES) {
+            collector.exhausted = true;
+            collector.batch.dropped = Math.min(PINE_CONDITION_DROPPED_LIMIT, collector.batch.dropped + 1);
+          }
+          else { collector.batch.samples.push(sample); collector.bytes += bytes; }
+        }
+        collector.iteration = undefined;
+      }
     };
     const value = Reflect.apply(original, this, [context, ...args]);
     if (value && typeof value.then === "function") return value.then((result: unknown) => { checked(); return result; });
@@ -1607,7 +1649,7 @@ function calculationPlots(context: Context, request: PineRequest, calculation: C
   return output;
 }
 
-function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false, requestedLive = false, calculation?: Calculation, chartConfirmed = true, collectingAlerts?: PineAlertEvents): PineExecutionResult {
+function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false, requestedLive = false, calculation?: Calculation, chartConfirmed = true, collectingAlerts?: PineAlertEvents, collectingConditions?: PineConditionSamples): PineExecutionResult {
   const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
     warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
       ? requestedLive
@@ -1640,7 +1682,7 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const polylines = polylineResults(context.plots, overlay, diagnostics, request.bars!);
   const tables = tableResults(context.plots, overlay, diagnostics);
   const output = plotResults(calculationPlots(context, request, calculation, realtime, chartConfirmed), overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, ...(collectingAlerts ? { alertEvents: collectingAlerts } : {}), plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, ...(collectingAlerts ? { alertEvents: collectingAlerts } : {}), ...(collectingConditions ? { conditionSamples: collectingConditions } : {}), plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 
@@ -1691,6 +1733,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         const command: PineLiveRequest = validatePineLiveRequest(value);
         let owner: LiveState;
         let collectedAlerts: PineAlertEvents | undefined;
+        let collectedConditions: PineConditionSamples | undefined;
         if (state && command.sessionId !== state.sessionId) error("LIVE_SESSION_MISMATCH", "The live Pine command belongs to another session.");
         if (command.action === "start") {
           if (state) error("LIVE_SEQUENCE", "A live Pine session can only be initialized once.");
@@ -1729,6 +1772,8 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
             }
             owner.sequence = command.sequence;
           } else {
+            if (command.collectConditions === true && owner.descriptor.declaration === "strategy")
+              error("UNSUPPORTED_EXECUTION_CONTEXT", "Named alert-condition collection requires an indicator script.");
             const bars = owner.request.bars!;
             const previous = bars[bars.length - 1];
             const append = command.bar.time > previous.time;
@@ -1748,12 +1793,19 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
               collectedAlerts = { events: [], dropped: 0 };
               alertCollectors.set(owner.context!, { batch: collectedAlerts, time: command.bar.time, barIndex: nextRequest.bars.length - 1, confirmed: command.confirmed });
             }
+            if (command.collectConditions === true) {
+              collectedConditions = { chartTime: command.bar.time, chartBarIndex: nextRequest.bars.length - 1,
+                calculationTimeframe: canonicalPineTimeframe(owner.calculation?.timeframe ?? nextRequest.context!.timeframe), samples: [], dropped: 0 };
+              // Reserve the largest disclosed drop count and one comma per sample.
+              const bytes = new TextEncoder().encode(JSON.stringify({ ...collectedConditions, dropped: PINE_CONDITION_DROPPED_LIMIT })).length;
+              conditionCollectors.set(owner.context!, { batch: collectedConditions, bytes });
+            }
             let changed: boolean;
             try {
               changed = owner.calculation
                 ? await owner.engine.updateRequestTail(owner.context!, { confirmed: owner.local.calculationState().confirmed, received: true })
                 : await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
-            } finally { alertCollectors.delete(owner.context!); }
+            } finally { alertCollectors.delete(owner.context!); conditionCollectors.delete(owner.context!); }
             active(owner);
             if (!changed && !owner.calculation) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
             owner.confirmed = command.confirmed;
@@ -1763,7 +1815,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         }
         active(owner);
         if (owner.local.unavailable()) throw owner.local.unavailable();
-        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true, owner.marketLedger.length > 0, owner.calculation, owner.confirmed, collectedAlerts);
+        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true, owner.marketLedger.length > 0, owner.calculation, owner.confirmed, collectedAlerts, collectedConditions);
         active(owner);
         liveResultBars.set(result, owner.request.bars!);
         return result;
