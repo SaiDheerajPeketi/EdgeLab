@@ -47,9 +47,9 @@ test("rolling replay advances beyond its original end and bounds history without
 });
 
 test("responsive windows stay dense and past-only, including short reviewed history", () => {
-  assert.equal(market.demoVisibleBarCount(220, 256), 64);
-  assert.equal(market.demoVisibleBarCount(640, 256), 160);
-  assert.equal(market.demoVisibleBarCount(1400, 256), 256);
+  assert.equal(market.demoVisibleBarCount(220, 256), 24);
+  assert.equal(market.demoVisibleBarCount(640, 256), 71);
+  assert.equal(market.demoVisibleBarCount(1400, 256), 155);
   assert.equal(market.demoVisibleBarCount(220, 12), 12);
   assert.equal(market.demoVisibleBarCount(0, 0), 0);
 });

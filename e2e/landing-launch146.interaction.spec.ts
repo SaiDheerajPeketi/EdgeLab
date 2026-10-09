@@ -86,7 +86,8 @@ async function chart(target: Locator) {
   }) as Promise<{ bars: Array<{ time: number; open: number; high: number; low: number; close: number }>; cursor: number; lastIndex: number; width: number; spacing: number; firstX: number; lastX: number }>;
 }
 function continuous(state: Awaited<ReturnType<typeof chart>>) {
-  expect(state.cursor).toBe(state.lastIndex); expect(state.bars.length).toBeGreaterThanOrEqual(64); expect(state.bars.length).toBeLessThanOrEqual(256);
+  expect(state.cursor).toBe(state.lastIndex); expect(state.bars.length).toBeGreaterThanOrEqual(16); expect(state.bars.length).toBeLessThanOrEqual(160);
+  expect(state.spacing).toBeGreaterThanOrEqual(8); expect(state.spacing).toBeLessThanOrEqual(12);
   expect(state.firstX).toBeLessThanOrEqual(Math.max(6, state.spacing)); expect(state.width - state.lastX).toBeLessThanOrEqual(Math.max(6, state.spacing));
   expect(state.bars.some(bar => bar.close > bar.open)).toBe(true); expect(state.bars.some(bar => bar.close < bar.open)).toBe(true);
   for (let i = 0; i < state.bars.length; i++) {
@@ -105,11 +106,14 @@ async function settledChart(target: Locator) {
   }).toBe(true);
   return state!;
 }
-const forbidden = /\b96 candles\b|\bone example session\b|\bbars shown\b|\bcandles shown\b|\bfirst candle\b|\blast candle\b|\bgenerated\b|qualified data required|coming soon|implementation timeline|feature roadmap/i;
+const forbidden = /\b96 candles\b|\bone example session\b|\bbars shown\b|\bcandles shown\b|\bfirst candle\b|\blast candle\b|\bgenerated\b|qualified data required|coming soon|implementation timeline|feature roadmap|illustrative (?:market )?data|explore the working example|explore the trading workspace/i;
 
 test("hero contains clean product scenarios and a continuous market without replay or tape transport", async ({ page }, info) => {
   await openLanding(page); const hero = page.locator("[data-replay-cursor]");
   await expect(hero).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Trading workspace preview", exact: true })).toHaveCount(1);
+  await expect(page.locator('[data-flow-row] a')).toHaveCount(0);
+  await expect(page.locator('main a[href="#live-preview"]')).toHaveCount(1);
   await capture(page, info, "launch-hero-top", { presentation: await page.locator("[data-marketing-variant]").getAttribute("data-marketing-variant") });
   for (const label of ["Replay", "Journal", "Results"]) {
     await hero.getByRole("button", { name: label === "Journal" ? /^Journal(?: \+ review)?$/ : label, exact: true }).click();
@@ -123,9 +127,16 @@ test("hero contains clean product scenarios and a continuous market without repl
   const before = await settledChart(hero); continuous(before);
   await expect.poll(async () => (await chart(hero)).cursor).toBeGreaterThan(before.lastIndex + 4);
   const after = await chart(hero); continuous(after); expect(after.bars.at(-1)!.time).toBeGreaterThan(before.bars.at(-1)!.time);
-  const overlap = before.bars.filter(bar => after.bars.some(next => next.time === bar.time)); expect(overlap.length).toBeGreaterThan(30);
+  const overlap = before.bars.filter(bar => after.bars.some(next => next.time === bar.time)); expect(overlap.length).toBeGreaterThan(before.bars.length * .6);
   for (const bar of overlap) expect(after.bars.find(next => next.time === bar.time)).toEqual(bar);
   await capture(page, info, "clean-continuous-hero", { before, after, immutableOverlap: overlap.length, forbiddenPublicCaptions: false }, hero);
+  const originalViewport = page.viewportSize()!;
+  await page.setViewportSize({ ...originalViewport, width: 320 }); await hero.scrollIntoViewIfNeeded();
+  const narrow = await settledChart(hero); continuous(narrow);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await capture(page, info, "readable-narrow-candles152", { narrow }, hero);
+  await page.setViewportSize(originalViewport); await hero.scrollIntoViewIfNeeded();
+  continuous(await settledChart(hero));
   const reduce = page.getByRole("checkbox", { name: "Reduce motion", exact: true });
   await reduce.check(); await hero.scrollIntoViewIfNeeded(); await page.waitForTimeout(350);
   const paused = await chart(hero); await page.waitForTimeout(850); expect((await chart(hero)).cursor).toBe(paused.cursor);
@@ -200,7 +211,7 @@ test("text and components visibly travel inside the viewport before finishing wi
 test("launch is default and beta presentation cannot mutate auth or operational CTA", async ({ page }, info) => {
   await openLanding(page); const hero = page.locator("[data-landing-hero]");
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "production");
-  await expect(hero).toContainText("Monthly or yearly Pro subscriptions");
+  await expect(page.locator("#pricing")).toContainText("Choose monthly or yearly billing");
   await expect(hero).not.toContainText("Private beta");
   const cta = hero.locator('[data-marketing-reveal="hero-actions"] a').first(); const operationalHref = await cta.getAttribute("href");
   const authState = () => page.evaluate(({ auth, google }) => ({ localAuth: localStorage.getItem(auth), sessionAuth: sessionStorage.getItem(auth),
@@ -210,7 +221,7 @@ test("launch is default and beta presentation cannot mutate auth or operational 
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "beta");
   await expect(cta).toHaveAttribute("href", operationalHref!); expect(await authState()).toEqual(before);
   await capture(page, info, "beta-presentation", { operationalHref, authBefore: before, authAfter: await authState() }, hero);
-  await gotoStable(page, "/?variant=unknown"); await expect(hero).toContainText("Monthly or yearly Pro subscriptions");
+  await gotoStable(page, "/?variant=unknown"); await expect(page.locator("#pricing")).toContainText("Choose monthly or yearly billing");
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "production");
   await expect(hero).not.toContainText("Private beta"); await expect(cta).toHaveAttribute("href", operationalHref!);
   expect(await authState()).toEqual(before); await capture(page, info, "default-launch-presentation", { operationalHref, authState: before }, hero);

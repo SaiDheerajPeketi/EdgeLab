@@ -93,9 +93,9 @@ export function generateDemoBars(state: DemoMarketState, count: number): { state
   return { state: current, bars };
 }
 
-/** Past-only viewport size: enough history to fill each width without future placeholders. */
+/** Fit readable candles to the plot width, using only available history. */
 export function demoVisibleBarCount(width: number, available: number) {
-  return Math.min(available, Math.max(64, Math.min(256, Math.floor(Math.max(0, width) / 4))));
+  return Math.min(available, Math.max(16, Math.min(160, Math.floor(Math.max(0, width) / 9))));
 }
 
 export type DemoReplay = {

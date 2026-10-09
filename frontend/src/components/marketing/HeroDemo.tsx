@@ -1,4 +1,3 @@
-import { CandlestickChart } from "lucide-react";
 import {
   ColorType,
   CrosshairMode,
@@ -859,12 +858,14 @@ function MarketingCandleSurface({
     const container = containerRef.current;
     let resizeFrame = 0;
     const observer = new ResizeObserver(() => {
-      setChartWidth(container.clientWidth);
       cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(() => chart.timeScale().fitContent());
+      resizeFrame = requestAnimationFrame(() => {
+        setChartWidth(chart.timeScale().width());
+        chart.timeScale().fitContent();
+      });
     });
     observer.observe(container);
-    setChartWidth(container.clientWidth);
+    setChartWidth(chart.timeScale().width());
 
     return () => {
       observer.disconnect();
@@ -971,7 +972,7 @@ function MarketingCandleSurface({
       </div>
 
       <div className="mt-3 overflow-hidden bg-[#0b1017]">
-        <div ref={containerRef} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
+        <div ref={containerRef} className="h-[320px] w-full sm:h-[400px] lg:h-[440px]" />
       </div>
       <span hidden data-visible-candles={visibleBars.length} data-visible-first-time={firstBar?.time} data-visible-last-time={lastBar?.time} />
     </section>
@@ -1489,23 +1490,12 @@ export function HeroDemo({
       data-market-last-index={replay.firstIndex + replay.bars.length - 1}
       data-market-last-time={replay.market.time}
       data-market-following={autoplayActive && !reducedMotion && demoVisible && scenario.id === "replay"}
+      role="region"
+      aria-label="Trading workspace preview"
       ref={rootRef}
     >
       <div className="border-b border-white/10 px-4 py-3 sm:px-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-6 text-white sm:text-base">
-              <CandlestickChart className="shrink-0 text-cyan-100" size={18} />
-              <span className="min-w-0 break-words">Explore the trading workspace.</span>
-            </div>
-          </div>
-          <div className="inline-flex items-center gap-2 text-xs font-medium text-amber-100">
-            <span className="hidden sm:inline">Illustrative market data</span>
-            <span className="sm:hidden">Illustrative data</span>
-          </div>
-        </div>
-
-        <div className="mt-3 grid touch-pan-y grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Trading workspace examples">
+        <div className="grid touch-pan-y grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Trading workspace examples">
           {SCENARIOS.map((item) => (
             <button
               data-scenario-pill="true"

@@ -281,6 +281,6 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
       <div className="flex"><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene left" onClick={() => orbit(-0.08, 0)}><ArrowLeft size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Reset scene view" onClick={reset}><RotateCcw size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene right" onClick={() => orbit(0.08, 0)}><ArrowRight size={15} /></button></div>
     </div>
     <div className="pt-4" aria-live="polite"><h2 className="text-xl font-medium tracking-tight text-white">{content.title}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">{content.detail}</p></div>
-    <p className="sr-only" id="market-sculpture-instructions">Illustrative market data. Drag with a mouse or use the rotation controls. Arrow keys rotate; Home resets.</p>
+    <p className="sr-only" id="market-sculpture-instructions">Drag with a mouse or use the rotation controls. Arrow keys rotate; Home resets.</p>
   </section>;
 }

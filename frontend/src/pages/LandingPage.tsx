@@ -38,39 +38,25 @@ function DeferredMount({ children, fallback }: { children: ReactNode; fallback: 
 
 type WorkflowStep = {
   body: string;
-  phase: string;
-  step: string;
   title: string;
-  action?: string;
 };
 
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
-    step: "01",
-    phase: "Replay",
-    title: "Replay the decision, not just the candle.",
-    body: "Walk price forward while entries, exits, sizing, and tempo remain visible in the same market context.",
-    action: "Try it: step through the candles and inspect where the entry meets the price path.",
+    title: "Replay with perspective.",
+    body: "Walk price forward with your entries, exits, and position sizes in view.",
   },
   {
-    step: "02",
-    phase: "Journal",
-    title: "Capture what you saw while it is still useful.",
-    body: "Journal notes, mistake tags, and playbooks stay attached to the exact session behavior that produced them.",
-    action: "Try it: select a trade to read its decision notes and execution details together.",
+    title: "Keep the reason.",
+    body: "Attach notes, mistake tags, and playbooks to the trades that matter.",
   },
   {
-    step: "03",
-    phase: "Review",
-    title: "Read the outcome beside the original context.",
-    body: "Trades, notes, mistake tags, and session metrics keep the review grounded in what actually happened.",
-    action: "Explore the example breakdown, then return to the trade that produced it.",
+    title: "See the whole trade.",
+    body: "Review the result beside the chart and the decisions that shaped it.",
   },
   {
-    step: "04",
-    phase: "Refine",
-    title: "Carry the lesson into the next session.",
-    body: "Strategy breakdowns and playbooks turn repeated behavior into a process you can test again.",
+    title: "Refine your next move.",
+    body: "Find patterns in your strategy results and carry them into your playbook.",
   },
 ];
 
@@ -130,7 +116,7 @@ export function LandingPage() {
           tabIndex={-1}
         >
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-8 sm:gap-12 lg:min-h-[650px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-16">
+            <div className="grid gap-8 sm:gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-10">
               <div className="order-1 min-w-0">
                 <h1
                   className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[1.02] tracking-[-0.03em] text-white"
@@ -147,8 +133,7 @@ export function LandingPage() {
                   data-motion="reveal"
                   data-reveal-delay="0.08"
                 >
-                  Replay the market, capture your decisions, and review every trade in one
-                  connected workspace.
+                  Keep price action, notes, and outcomes in one workspace.
                 </p>
                 <div
                   className="mt-5 flex flex-wrap items-center gap-3 lg:justify-start"
@@ -178,7 +163,7 @@ export function LandingPage() {
                     <span className="text-edgelab-text-secondary">
                       {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
                     </span>
-                </div> : <p className="mt-4 text-sm leading-6 text-edgelab-text-secondary">Monthly or yearly Pro subscriptions. Your chart, replay, and journal stay connected.</p>}
+                </div> : null}
                 {betaMode ? <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
                   Private beta · temporary test workspaces
                 </p> : null}
@@ -187,10 +172,6 @@ export function LandingPage() {
               <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
                 <div className="landing-motion-content" data-scene-content>
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
-                  <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
-                    Product demo · Illustrative market data.
-                    {betaMode ? <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span> : null}
-                  </p>
                 </div>
               </div>
               <div className="order-3 min-w-0 lg:order-2" data-marketing-flow>
@@ -210,8 +191,8 @@ export function LandingPage() {
           <div className="mx-auto max-w-7xl">
             <div className="landing-motion-content max-w-4xl" data-scene-content>
               <SectionHeading
-                description="Price action, decisions, and review move as one system instead of three disconnected tools."
-                title="One continuous loop."
+                description="From the first setup to the next session, keep your process connected."
+                title="Trade. Understand. Refine."
               />
             </div>
 
@@ -220,7 +201,7 @@ export function LandingPage() {
                 <article
                   className="border-b border-edgelab-border py-10 sm:py-16"
                   data-flow-row
-                  key={step.step}
+                  key={step.title}
                 >
                   <div className="landing-motion-content grid gap-6 md:pr-16 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-16" data-flow-content>
                     <h3 className="max-w-2xl text-3xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-4xl">
@@ -229,9 +210,6 @@ export function LandingPage() {
                     <p className="max-w-xl self-end text-sm leading-7 text-edgelab-text-secondary sm:text-base sm:leading-8">
                       {step.body}
                     </p>
-                  </div>
-                  <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-cyan-100" data-marketing-flow>
-                    <a className="inline-flex min-h-11 items-center gap-2 text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="#live-preview">Explore the working example <ArrowRight size={15} aria-hidden="true" /></a>
                   </div>
                 </article>
               ))}
