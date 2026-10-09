@@ -18,7 +18,7 @@ function signature(indicator: ChartIndicatorInstance) {
   const metadata = indicator.settings.pineInputPrepared ?? indicator.customPinePrepared;
   const schema = Array.isArray(metadata?.inputDefinitions) && metadata.inputDefinitions.length <= PINE_LIMITS.inputs
     ? metadata.inputDefinitions.map((item) => [typeof item?.id === "string" ? item.id.slice(0, 96) : undefined, typeof item?.type === "string" ? item.type.slice(0, 32) : undefined, item?.enumVersion === 1 ? 1 : undefined]) : undefined;
-  return JSON.stringify([indicator.customScriptSource, Object.entries(indicator.settings.customInputs ?? {}).sort(([a], [b]) => a.localeCompare(b)), metadata?.source === indicator.customScriptSource, schema]);
+  return JSON.stringify([indicator.customScriptSource, Object.entries(indicator.settings.customInputs ?? {}).sort(([a], [b]) => a.localeCompare(b)), Object.entries(indicator.settings.pineStrategySettings ?? {}).sort(([a], [b]) => a.localeCompare(b)), metadata?.source === indicator.customScriptSource, schema]);
 }
 
 /** Each visible study owns its session; other studies and React batching cannot reset it. */
@@ -61,7 +61,7 @@ export function useLivePineRuntime(options: {
       entry.failed = true;
       entry.failedViewport = viewport ?? null;
       entry.session?.cancel();
-      const error = failure instanceof Error ? failure.message : "Live indicator execution failed.";
+      const error = failure instanceof Error ? failure.message : "Live study execution failed.";
       setStudies(current => ({ ...current, [id]: { sourceId: id, owner: entry.owner, bars: entry.bars,
         usesVisibleRange: entry.usesVisibleRange, viewport: entry.failedViewport, error } }));
       latest.current.onRuntimeState?.(id, error);
@@ -166,6 +166,7 @@ export function useLivePineRuntime(options: {
             const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, "1", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
             entry.sourceOwned = sourceSnapshot !== undefined;
             entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
+              strategySettings: indicator.settings.pineStrategySettings,
               inputMetadata: sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!),
               context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: entry.bars, viewport: entry.viewport,
               sourceSnapshot });

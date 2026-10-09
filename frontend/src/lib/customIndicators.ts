@@ -189,11 +189,11 @@ export function sanitizePinePrepared(value: unknown, source: string): PinePrepar
   } catch { return undefined; }
 }
 
-/** Only exact-source prepared indicators can enter the indicator-only live lifecycle. */
+/** Only exact-source prepared Pine studies can enter the owned live lifecycle. */
 export function isPersistentPineIndicator(indicator: ChartIndicatorInstance): boolean {
   return indicator.kind === "custom" && !!indicator.customScriptSource
     && isPineScriptSource(indicator.customScriptSource)
-    && sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource)?.declaration === "indicator";
+    && !!sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource);
 }
 
 /** Validate declared settings as data; mirrors the isolated engine's input contract. */

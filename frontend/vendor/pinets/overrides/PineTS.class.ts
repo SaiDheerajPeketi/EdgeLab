@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-09: explicit realtime rollback, persistent requested contexts and chart-owned historical intrabar fill scheduling.
+// EdgeLab modification, 2026-10-09: explicit realtime rollback, requested contexts and persistent received-event strategy scheduling.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only. Upstream notices retained below.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
@@ -1419,7 +1419,12 @@ export class PineTS {
             }
             if (!replacement) return false;
             if (!lifecycle.deferred && !event.confirmed && event.received !== true && ['open','high','low','close','volume','closeTime'].every(key => replacement[key] === previous[key])) return false;
-            this._restoreRealtimeSnapshot(context, (context as any)._realtimeSnapshot);
+            if (context.strategy) {
+                // Broker-only ticks are not script executions: retain the previous
+                // calculation's plots/drawings/state until the next calculation.
+                for (const item of Object.values(context.data) as any[])
+                    if (item instanceof Series) item.data.length = (context as any)._realtimeSnapshot.data;
+            } else this._restoreRealtimeSnapshot(context, (context as any)._realtimeSnapshot);
             this._replaceCandle(lifecycle.index, replacement);
             lifecycle.confirmed = event.confirmed;
             lifecycle.newBar = lifecycle.deferred === true;
@@ -1682,27 +1687,35 @@ export class PineTS {
                     islastconfirmedhistory: !realtime && i === live.index - 1,
                 };
             }
+            const realtimeBar = this._realtimeMode && (context as any)._explicitBarstate.isrealtime;
             context._execTick = (context._execTick || 0) + 1;
 
-            context.data.close.data.push(this.close[i]);
-            context.data.open.data.push(this.open[i]);
-            context.data.high.data.push(this.high[i]);
-            context.data.low.data.push(this.low[i]);
-            context.data.volume.data.push(this.volume[i]);
-            context.data.hl2.data.push(this.hl2[i]);
-            context.data.hlc3.data.push(this.hlc3[i]);
-            context.data.ohlc4.data.push(this.ohlc4[i]);
-            context.data.hlcc4.data.push(this.hlcc4[i]);
-            context.data.openTime.data.push(this.openTime[i]);
-            context.data.closeTime.data.push(this.closeTime[i]);
-            context.data.bar_index.data.push(i);
+            const loadBarData = () => {
+                context.data.close.data.push(this.close[i]);
+                context.data.open.data.push(this.open[i]);
+                context.data.high.data.push(this.high[i]);
+                context.data.low.data.push(this.low[i]);
+                context.data.volume.data.push(this.volume[i]);
+                context.data.hl2.data.push(this.hl2[i]);
+                context.data.hlc3.data.push(this.hlc3[i]);
+                context.data.ohlc4.data.push(this.ohlc4[i]);
+                context.data.hlcc4.data.push(this.hlcc4[i]);
+                context.data.openTime.data.push(this.openTime[i]);
+                context.data.closeTime.data.push(this.closeTime[i]);
+                context.data.bar_index.data.push(i);
+            };
+            loadBarData();
 
             // Fill recalculation snapshots only script state; orders and varip remain live.
-            const historicalSnapshot = !this._realtimeMode && (context.strategy?.config.calc_on_order_fills === true ||
+            const historicalSnapshot = !realtimeBar && (context.strategy?.config.calc_on_order_fills === true ||
                 (!context.strategy && this._currentIndicator?.getDeclarationType() === 'strategy')) ? this._takeRealtimeSnapshot(context) : null;
             let calculated = false;
             const calculate = async () => {
-                if (calculated && historicalSnapshot) {
+                if (realtimeBar && context.strategy) {
+                    this._restoreRealtimeSnapshot(context, (context as any)._realtimeSnapshot);
+                    loadBarData();
+                    if (calculated) context._execTick++;
+                } else if (calculated && historicalSnapshot) {
                     this._restoreRealtimeSnapshot(context, historicalSnapshot);
                     context.rollbackDrawings(i);
                     context._execTick++;
@@ -1715,7 +1728,12 @@ export class PineTS {
                 }
             };
             let result: any;
-            if (!this._realtimeMode && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true)) {
+            if (realtimeBar && context.strategy) {
+                result = await processHistoricalFillBar(context, calculate, undefined, {
+                    confirmed: (context as any)._realtimeLifecycle.confirmed,
+                    calculate: (context as any)._realtimeLifecycle.confirmed || context.strategy.config.calc_on_every_tick === true,
+                });
+            } else if (!realtimeBar && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true)) {
                 result = await processHistoricalFillBar(context, calculate);
             } else {
                 // Process strategy orders at the START of the bar (filling at Open).
@@ -1759,11 +1777,18 @@ export class PineTS {
 
                 result = await calculate();
                 // The first declaration becomes available during the first calculation.
-                if (!this._realtimeMode && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true))
+                if (!realtimeBar && (context.strategy?.config.calc_on_order_fills === true || context.strategy?.config.use_bar_magnifier === true))
                     result = await processHistoricalFillBar(context, calculate, { result });
                 else if (context.strategy) processOrdersOnClose(context);
             }
             if (historicalSnapshot) (context as any)._captureRealtimeObject = undefined;
+
+            // Default strategies may process fills without evaluating the script.
+            // Do not publish/shift a synthetic calculation on those received ticks.
+            if (!calculated) {
+                if (this._realtimeMode) realtimeSlots(context, this._realtimeLimits);
+                continue;
+            }
 
             //collect results
             if (typeof result === 'object') {
@@ -1805,7 +1830,6 @@ export class PineTS {
                 for (const container of [context, ...context.lctx.values()])
                     for (const item of Object.values(container.varip ?? {}) as any[])
                         if (item instanceof Series) (item as any)._realtimeSlotLength = item.data.length;
-                if (context.strategy) throw new Error('Realtime strategy order scheduling is not supported.');
             }
 
             //shift context

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "bc918b3fee419fc6770707538dc8bee70d09159cbc530a29b5327502de365a49",
+  "namespaceSourcesSha256": "b967ac21ffe67f1af42b40a1b66e505a7a3d7744cf9c6555bb5f70ae0cd6a67c",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -74,15 +74,19 @@
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",
-      "sha256": "a3920e7df04429eb8c1618fc5493079247fd66bb9c05310ed308062d7c6ba3f7"
+      "sha256": "ee5dd370e6315138933a1682943f6b8533bcf5ba2f7bd10c2e6f37296c456a2e"
     },
     {
       "source": "src/namespaces/strategy/methods/exit.ts",
-      "sha256": "2c2bba900ff0b21717ab77d56faee866bd9572e09d5e8a13d620f2a5c120ef7f"
+      "sha256": "650aeeec74db94806f5db92f8f93fa42cfe8dd6b7d609cfba8d5e36259a8be02"
+    },
+    {
+      "source": "src/namespaces/strategy/methods/order.ts",
+      "sha256": "061a5e05893d0ff95ebec26782520eab5f35933db51c77caddf8c31efb99734e"
     },
     {
       "source": "src/namespaces/strategy/utils.ts",
-      "sha256": "130fee1785db6bc9e7462b7aeb631bc52ec45cf8cedf0c882f09f8a3d34831f9"
+      "sha256": "16bd09c6bf9c01025ffaec0c681637262998b8b8d7af28fb46f46cd9a6e31f35"
     },
     {
       "source": "src/namespaces/table/TableHelper.ts",

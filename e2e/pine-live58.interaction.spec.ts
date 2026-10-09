@@ -499,7 +499,7 @@ if bar_index==3
       }));
       strategyActivity.push({ ...observation, layoutWrites: layoutWrites.length });
       return observation.frames.length;
-    }).toBe(0);
+    }).toBe(1);
   } finally {
     save(info, "strategy-activity", { beforeStrategyAdd, strategyActivity, layoutWrites, workerFetchCount: setup.workerReceipts.length, errors });
   }
@@ -507,7 +507,7 @@ if bar_index==3
   await expect(page.locator(".chart-study-pill").filter({ hasText: "Closed live strategy · Closed EMA" }).locator("strong")).toBeVisible();
   const closedStrategy = (await productResults(page, strategySource)).at(-1)!;
   expect(closedStrategy.declaration).toBe("strategy");
-  expect(closedStrategy.sessionId).toBeUndefined();
+  expect(closedStrategy.sessionId).toBeTruthy();
   expect(plot(closedStrategy, "Closed history").values.every((value: any) => value === true)).toBe(true);
   expect(plot(closedStrategy, "Closed confirmed").values.every((value: any) => value === true)).toBe(true);
   expect(setup.storage.get("custom-indicator-scripts.v1").find((item: any) => item.id === saved.id)).toEqual(saved);

@@ -1307,7 +1307,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
-    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate at the candle close and can recalculate after historical order fills with calc_on_order_fills=true. Bar magnification uses covered loaded smaller candles for fills; uncovered candles use the chart OHLC path. Every candle’s OHLC path is inferred and can differ from actual trades. Historical callbacks see final OHLCV values. Trailing exits arm and follow the best price reached along the remaining path. Live strategy scheduling, calc_on_every_history_tick and intrabar margin-liquidation simulations with fill recalculation or magnification are unavailable.")] : []),
+    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Historical strategies calculate at candle close and can recalculate after order fills. Bar magnification uses covered loaded smaller candles; uncovered candles use the inferred chart OHLC path. Historical callbacks see final OHLCV values. Live strategies calculate at candle close, on each received update when calc_on_every_tick=true, and additionally after fills when calc_on_order_fills=true. Fills use received prices without reconstructing unreceived trades. Historical-tick recalculation and intrabar margin-liquidation with chronological fills remain unavailable.")] : []),
   ] };
   return { indicator, prepared, descriptor, inputs, declaration };
 }
@@ -1388,7 +1388,7 @@ type LiveState = {
 // Each result owns fresh output buffers; only its validated bar index is retained for encoding.
 const liveResultBars = new WeakMap<PineExecutionResult, readonly Candle[]>();
 
-/** One isolated, immutable-source indicator session. Cancellation never publishes pending work. */
+/** One isolated, immutable-source study session. Cancellation never publishes pending work. */
 export function createPineLiveExecutor(): { execute(value: unknown): Promise<PineExecutionResult>; dispose(): void } {
   let state: LiveState | undefined;
   let busy = false, halted = false;
@@ -1411,9 +1411,8 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           if (state) error("LIVE_SEQUENCE", "A live Pine session can only be initialized once.");
           const request = command.request;
           const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request, true);
-          if (declaration !== "indicator") error("LIVE_STRATEGY_UNAVAILABLE", "Persistent realtime execution is available only for indicators; strategy tick scheduling is unavailable.");
           const alerts = new Set<string>();
-          bindClosedSnapshot(prepared, false, alerts, true, request.context?.quantityStep);
+          bindClosedSnapshot(prepared, declaration === "strategy", alerts, true, request.context?.quantityStep, () => magnifierSnapshot(owner.request)());
           const { local, engine } = ownedEngine(request, alerts, "historical");
           owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, sourceConfirmed: true, request, engine, local, indicator, descriptor, inputs, alerts };
           state = owner;
@@ -1468,6 +1467,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         if (cause instanceof PineProtocolError) throw cause;
         if ((cause as { code?: unknown } | null)?.code === "UNSUPPORTED_REQUEST_EXPRESSION") error("UNSUPPORTED_REQUEST_EXPRESSION", cause instanceof Error ? cause.message.slice(0, 4_096) : "The requested expression cannot cross this live context safely.");
         if ((cause as { code?: unknown } | null)?.code === "REALTIME_STATE_LIMIT") error("REALTIME_STATE_LIMIT", cause instanceof Error ? cause.message : "Realtime retained-state limit exceeded.");
+        if (["UNSUPPORTED_ORDER_FILL_CONTEXT", "STRATEGY_EXECUTION_LIMIT"].includes((cause as { code?: string } | null)?.code ?? "")) error((cause as { code: string }).code, cause instanceof Error ? cause.message : "Live strategy execution stopped.");
         error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native realtime Pine execution failed.");
       } finally { busy = false; }
     },

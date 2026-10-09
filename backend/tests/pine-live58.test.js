@@ -185,9 +185,11 @@ test("invalid bars and committed history revisions fail closed without later out
   await assert.rejects(executor.execute(update(start, 2, bar(4, 50))), failure("LIVE_SESSION_HALTED"));
 });
 
-test("strategies and preparation requests never enter persistent indicator execution", async () => {
-  const strategy = initial('//@version=6\nstrategy("No live strategy")\nplot(close)');
-  await assert.rejects(pine.createPineLiveExecutor().execute(strategy), failure("LIVE_STRATEGY_UNAVAILABLE"));
+test("prepared strategies warm historical state and preparation requests remain excluded", async () => {
+  const strategy = initial('//@version=6\nstrategy("Live strategy")\nplot(close)');
+  const executor = pine.createPineLiveExecutor();
+  assert.equal((await executor.execute(strategy)).declaration, "strategy");
+  executor.dispose();
   const prepare = initial();
   prepare.request.action = "prepare";
   await assert.rejects(pine.createPineLiveExecutor().execute(prepare), failure("INVALID_LIVE_MESSAGE"));

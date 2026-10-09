@@ -197,7 +197,7 @@ test("omitted tick flag and one future-timestamp closed bar retain ordinary hist
   }
 });
 
-test("persistent realtime strategies stay refused for default, false and true configurations", async () => {
+test("persistent strategies warm historical state for default, false and true tick settings", async () => {
   for (const version of [5, 6]) for (const expression of [undefined, "false", "true"]) {
     const source = expression === undefined ? `//@version=${version}\nstrategy("Live refusal")\nplot(close)` : program(version, expression);
     const sessionId = `strategy-live-${version}-${expression ?? "default"}`;
@@ -205,12 +205,12 @@ test("persistent realtime strategies stay refused for default, false and true co
     const command = { protocol: "pine-live-v1", sessionId, sequence: 0, action: "start", request: {
       id: `${sessionId}:0`, action: "run", mode: "live", source, inputs: {}, bars, context,
     } };
+    const initial = await executor.execute(command);
+    assert.equal(initial.declaration, "strategy");
+    assert.equal(initial.audit.mode, "live");
+    assert.deepEqual(initial.strategy, (await execute(source)).strategy);
     await assert.rejects(executor.execute(command), (error) => {
-      assert.equal(error.code, "LIVE_STRATEGY_UNAVAILABLE");
-      return true;
-    });
-    await assert.rejects(executor.execute(command), (error) => {
-      assert.equal(error.code, "LIVE_SESSION_HALTED");
+      assert.equal(error.code, "LIVE_SEQUENCE");
       return true;
     });
     executor.dispose();

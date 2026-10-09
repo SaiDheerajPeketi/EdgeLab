@@ -72,7 +72,7 @@ export function exit(context: any) {
         }
 
         const parsed = parseArgsForPineParams<any>(args, EXIT_SIGNATURES, EXIT_ARGS_TYPES);
-        const chronological = context.strategy.config.calc_on_order_fills === true || context.strategy.config.use_bar_magnifier === true;
+        const chronological = context.strategy.config.calc_on_order_fills === true || context.strategy.config.use_bar_magnifier === true || context._explicitBarstate?.isrealtime === true;
 
         const extractValue = (val: any) => {
             if (val === undefined || val === null) return val;

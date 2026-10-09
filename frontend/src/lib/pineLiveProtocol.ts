@@ -114,6 +114,6 @@ export function validatePineLiveResponse(value: unknown, command: PineLiveReques
     || owner.sessionId !== command.sessionId || owner.sequence !== command.sequence
     || expected.id !== pineLiveRequestId(owner.sessionId, owner.sequence)) invalid("Live Pine response does not match the active command.");
   const result = validatePineResponse(raw.response, expected);
-  if (result.kind !== "run" || result.declaration !== "indicator" || result.audit.mode !== "live") invalid("Live Pine sessions require indicator execution results.");
+  if (result.kind !== "run" || !["indicator", "strategy"].includes(result.declaration) || result.audit.mode !== "live") invalid("Live Pine sessions require study execution results.");
   return result;
 }

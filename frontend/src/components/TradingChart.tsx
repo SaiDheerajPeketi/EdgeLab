@@ -197,6 +197,7 @@ import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import { useLivePineRuntime } from "./chart/useLivePineRuntime";
+import { PineStrategyResults } from "./PineStrategyResults";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
 import { useChartViewportHeight } from "../lib/useChartViewportHeight";
@@ -751,7 +752,7 @@ export function TradingChart({
     !(study.sourceId in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[study.sourceId], pineViewport)), [ownedSnapshot, pineViewport]);
   const snapshotRuntimeWarnings = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.warnings).filter(([id]) =>
     !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
-  const pineStrategyMarkers = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.markers).filter(([id]) =>
+  const snapshotStrategyMarkers = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.markers).filter(([id]) =>
     !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
   const livePine = useLivePineRuntime({ feed: persistentPineFeed, context: pineInstrument.context,
     contextLoading: pineInstrument.loading, contextError: pineInstrument.error, metadataKey: pineInstrument.key,
@@ -769,6 +770,9 @@ export function TradingChart({
     }
     return [{ ...study, indicator, adapted }];
   }), [livePine, indicatorInstances]);
+  const pineStrategyMarkers = useMemo(() => ({ ...snapshotStrategyMarkers,
+    ...Object.fromEntries(livePineAdapted.flatMap(study => !study.error && study.result?.strategy && study.adapted
+      ? [[study.sourceId, study.adapted.strategyMarkers]] : [])) }), [snapshotStrategyMarkers, livePineAdapted]);
   const customRuntimeStudies = useMemo(() => [...snapshotRuntimeStudies, ...livePineAdapted.flatMap(study => {
     if (study.error) return [emptyCustomRuntimeStudy(study.indicator, study.error)];
     if (!study.result || !study.adapted) return [];
@@ -3277,6 +3281,13 @@ export function TradingChart({
       return !!anchors && !!stageRef.current?.contains(anchors);
     }
 
+    function isOwnedIndicatorSelectTarget(target: Element) {
+      const menu = target.closest(".themed-select-menu-floating[id]");
+      if (!menu) return false;
+      return Array.from(stageRef.current?.querySelectorAll(".indicator-floating-toolbar [aria-controls]") ?? [])
+        .some(anchor => anchor.getAttribute("aria-controls") === menu.id);
+    }
+
     function closeIndicatorToolbarOnEscape(event: KeyboardEvent) {
       if (event.key !== "Escape" || isOwnedPineInputTarget(event.target)) return;
       event.preventDefault();
@@ -3290,6 +3301,7 @@ export function TradingChart({
       }
       if (
         isOwnedPineInputTarget(target) ||
+        isOwnedIndicatorSelectTarget(target) ||
         target.closest(".indicator-floating-toolbar") ||
         target.closest(".chart-study-pill") ||
         target.closest(".indicator-pane-title") ||
@@ -4079,6 +4091,7 @@ export function TradingChart({
         <FloatingIndicatorToolbar
           key={selectedIndicator.id}
           indicator={selectedIndicator}
+          liveStrategyResult={livePine.find(study => study.sourceId === selectedIndicator.id && !study.error)?.result}
           onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
           onClose={closeIndicatorToolbar}
           onRemove={() => {
@@ -5988,6 +6001,7 @@ function useFloatingToolbarPlacement(
 
 function FloatingIndicatorToolbar({
   indicator,
+  liveStrategyResult,
   onChange,
   onClose,
   onRemove,
@@ -6001,6 +6015,7 @@ function FloatingIndicatorToolbar({
   chartInputsEnabled,
 }: {
   indicator: ChartIndicatorInstance;
+  liveStrategyResult?: PineExecutionResult;
   onChange: (settings: Partial<IndicatorSettings>) => void;
   onClose: () => void;
   onRemove: () => void;
@@ -6182,6 +6197,10 @@ function FloatingIndicatorToolbar({
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
       {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}
+      {liveStrategyResult?.strategy ? <details className="mt-4 border-y border-[var(--ui-border-subtle)] py-2">
+        <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]">Live strategy results</summary>
+        <PineStrategyResults result={liveStrategyResult} />
+      </details> : null}
       {indicator.kind === "custom" && customInputs.length > 0 ? (
         <div className="indicator-floating-grid">
           {customInputs.map((input) => {

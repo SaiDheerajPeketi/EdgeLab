@@ -194,14 +194,15 @@ test("malformed fill flags and unsupported historical ticks fail before any scri
   }
 });
 
-test("persistent realtime strategies remain rejected for false and true fill settings", async () => {
+test("persistent strategies retain historical warmup for false and true fill settings", async () => {
   for (const enabled of [false, true]) {
     const sessionId = `strategy65-live-${enabled}`;
     const executor = pine.createPineLiveExecutor();
     try {
-      await assert.rejects(executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start", request: {
+      const initial = await executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start", request: {
         id: `${sessionId}:0`, action: "run", mode: "live", source: reversal(enabled), inputs: {}, bars, context,
-      } }), (error) => error.code === "LIVE_STRATEGY_UNAVAILABLE");
+      } });
+      assert.deepEqual(initial.strategy, (await execute(reversal(enabled))).strategy);
     } finally {
       executor.dispose();
     }

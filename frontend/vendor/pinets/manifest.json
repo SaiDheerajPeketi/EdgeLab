@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "cc388da3c2d456d4287aed10737ddf9972bf1f573bf445f7c1a87a344b49ae67"
+      "sha256": "e28435139097970c314bd7d1e0eea4e51cdbadab26d73757f3be5627187ca06f"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -74,19 +74,19 @@
       "source": "src/namespaces/strategy/utils.ts",
       "file": "overrides/namespaces/strategy/utils.ts",
       "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
-      "sha256": "130fee1785db6bc9e7462b7aeb631bc52ec45cf8cedf0c882f09f8a3d34831f9"
+      "sha256": "16bd09c6bf9c01025ffaec0c681637262998b8b8d7af28fb46f46cd9a6e31f35"
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",
       "file": "overrides/namespaces/strategy/methods/entry.ts",
       "upstreamSha256": "dff14e8874150597eaca1522e2c15253592bfe72631980a922b141632660c666",
-      "sha256": "a3920e7df04429eb8c1618fc5493079247fd66bb9c05310ed308062d7c6ba3f7"
+      "sha256": "ee5dd370e6315138933a1682943f6b8533bcf5ba2f7bd10c2e6f37296c456a2e"
     },
     {
       "source": "src/namespaces/strategy/methods/exit.ts",
       "file": "overrides/namespaces/strategy/methods/exit.ts",
       "upstreamSha256": "bcc4a6feb6193dcf607f06f29f7c1771eb18ca9ad3da8030847d66e94915be66",
-      "sha256": "2c2bba900ff0b21717ab77d56faee866bd9572e09d5e8a13d620f2a5c120ef7f"
+      "sha256": "650aeeec74db94806f5db92f8f93fa42cfe8dd6b7d609cfba8d5e36259a8be02"
     },
     {
       "source": "src/namespaces/strategy/methods/cancel_all.ts",
@@ -207,10 +207,16 @@
       "file": "overrides/namespaces/table/TableObject.ts",
       "upstreamSha256": "8045a5e1d381517077f6b742a60b893c1b767bc17683a374035b65fef6f2379a",
       "sha256": "58317994aacb5f828c784aa2d36fbe15f1004b0a8f1b6b064caf61b8f2ed39dc"
+    },
+    {
+      "source": "src/namespaces/strategy/methods/order.ts",
+      "file": "overrides/namespaces/strategy/methods/order.ts",
+      "upstreamSha256": "f42b8d4723dc823744a0c12525fd1f692b023a11e2e29c8ac756a8c39b1295b6",
+      "sha256": "061a5e05893d0ff95ebec26782520eab5f35933db51c77caddf8c31efb99734e"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "6c2e046fa216e2092c8bec18af87cd0dfc2b54c660bff33a47672c9296e983b2"
+    "sha256": "be2162ab694a93780fc0aca10dfb261708b81b8babf35aedb9ba1a55505a778f"
   }
 }
