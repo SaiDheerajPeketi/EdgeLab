@@ -1,6 +1,6 @@
 import type { Candle } from "./api";
 import { bucketTime, canAggregateTimeframe, getTimeframeSeconds, normalizeChartTimeframe, type ChartTimeframe } from "./charting";
-import { validatePineBar } from "./pineProtocol";
+import { PINE_LIMITS, validatePineBar } from "./pineProtocol";
 import { pineFeedNextSourceTime } from "./pineLiveFeed";
 
 const NATIVE_INTERVALS: Record<string, string> = {
@@ -74,6 +74,85 @@ export async function loadBinanceChartHistory(symbol: string, plan: BinanceChart
   }
   if (!history.length) throw new Error("No chart history was returned for this interval.");
   return history;
+}
+
+export type BinanceRequestHistory = {
+  bars: Candle[]; sourceTimeframe: ChartTimeframe; from: number; to: number;
+  warmupFrom: number; requests: number; exhausted: boolean; capped: boolean;
+};
+
+/** Historical request contexts retain provider gaps rather than requiring a live stream. */
+export async function loadBinanceRequestHistory(symbol: string, plan: BinanceChartPlan, options: {
+  from: number; to: number; warmupPeriods?: number; candleLimit?: number; requestLimit?: number;
+  signal: AbortSignal; owns?: () => boolean; fetcher?: typeof fetch;
+}): Promise<BinanceRequestHistory> {
+  const { from, to } = options;
+  const warmupPeriods = options.warmupPeriods ?? 0;
+  const candleLimit = options.candleLimit ?? BINANCE_CHART_HISTORY_LIMIT;
+  const requestLimit = options.requestLimit ?? Math.ceil(BINANCE_CHART_HISTORY_LIMIT / 1000);
+  if (!/^[A-Z0-9]{2,40}$/.test(symbol) || !Number.isSafeInteger(from) || !Number.isSafeInteger(to)
+    || from < 0 || from > to || to > 253402300799
+    || !Number.isSafeInteger(warmupPeriods) || warmupPeriods < 0 || warmupPeriods > PINE_LIMITS.sourceBars
+    || !Number.isSafeInteger(candleLimit) || candleLimit < 1 || candleLimit > PINE_LIMITS.sourceBars
+    || !Number.isSafeInteger(requestLimit) || requestLimit < 1 || requestLimit > Math.ceil(PINE_LIMITS.sourceBars / 1000)
+    || !binanceChartInterval(plan.sourceTimeframe) || binanceChartInterval(plan.sourceTimeframe) !== plan.interval
+    || !canAggregateTimeframe(plan.chartTimeframe, plan.sourceTimeframe)) {
+    throw new Error("The requested symbol history range or budget is invalid.");
+  }
+  const sourceTimeframe = normalizeChartTimeframe(plan.sourceTimeframe)!;
+  const chartTimeframe = normalizeChartTimeframe(plan.chartTimeframe)!;
+  if (/^\d+W$/.test(chartTimeframe) && chartTimeframe !== "1W") {
+    throw new Error("Requested multi-week history requires calendar-aligned chart buckets, which are not supported yet.");
+  }
+  const end = bucketTime(to, sourceTimeframe);
+  // Include every source constituent of the first requested chart bucket.
+  // Warmup is a grid lookback in requested periods, not a count of real bars.
+  let warmupFrom = bucketTime(from, chartTimeframe);
+  if (chartTimeframe === "1M") {
+    const date = new Date(warmupFrom * 1000);
+    warmupFrom = Math.max(0, Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - warmupPeriods, 1) / 1000);
+  } else warmupFrom = Math.max(0, warmupFrom - warmupPeriods * getTimeframeSeconds(chartTimeframe));
+  const fetcher = options.fetcher ?? fetch;
+  const ensureActive = () => {
+    if (options.signal.aborted || options.owns?.() === false) throw new DOMException("Requested symbol history retired.", "AbortError");
+  };
+  const bars: Candle[] = [];
+  let cursor = warmupFrom, requests = 0, exhausted = false;
+  while (cursor <= end && bars.length < candleLimit && requests < requestLimit) {
+    ensureActive();
+    const limit = Math.min(1000, candleLimit - bars.length);
+    const query = new URLSearchParams({ symbol, interval: plan.interval, limit: String(limit),
+      startTime: String(cursor * 1000), endTime: String(to * 1000) });
+    requests++;
+    const response = await fetcher(`https://data-api.binance.vision/api/v3/klines?${query}`, {
+      signal: options.signal, credentials: "omit", redirect: "error",
+    });
+    ensureActive();
+    if (!response.ok) throw new Error("Requested symbol history could not be loaded. Retry the indicator.");
+    const rows: unknown = await response.json();
+    ensureActive();
+    if (!Array.isArray(rows) || rows.length > limit) throw new Error("The provider returned invalid requested symbol history.");
+    if (!rows.length) { exhausted = true; break; }
+    const page = rows.map(row => {
+      const bar = binanceChartCandle(row);
+      if (!Array.isArray(row) || bar.time !== bucketTime(bar.time, sourceTimeframe)
+        || row[6] !== pineFeedNextSourceTime(bar.time, sourceTimeframe) * 1000 - 1
+        || bar.time < cursor || bar.time > end) {
+        throw new Error("The provider returned requested history outside its candle interval or date range.");
+      }
+      return bar;
+    });
+    if (page.some((bar, index) => index > 0 && bar.time <= page[index - 1].time)
+      || bars.length && page[0].time <= bars.at(-1)!.time) {
+      throw new Error("Requested symbol history has unordered or overlapping candles.");
+    }
+    bars.push(...page);
+    cursor = pineFeedNextSourceTime(page.at(-1)!.time, sourceTimeframe);
+    if (rows.length < limit) { exhausted = true; break; }
+  }
+  ensureActive();
+  return { bars, sourceTimeframe, from, to, warmupFrom, requests, exhausted,
+    capped: !exhausted && cursor <= end && (bars.length >= candleLimit || requests >= requestLimit) };
 }
 
 export function binanceChartCandle(row: unknown): Candle {
