@@ -256,10 +256,10 @@ test("actual minified worker message handler publishes only an owned market ack 
   } finally { if (previous === undefined) delete globalThis.self; else globalThis.self = previous; }
 });
 
-test("genuine foreign realtime expression stays refused until independent child execution is admitted", async () => {
+test("foreign realtime expressions stay refused without an independently admitted stream", async () => {
   const executor = pine.createPineLiveExecutor(), sessionId = "live-market161-refusal";
   try {
-    await assert.rejects(executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start", marketStreams: [binding()],
+    await assert.rejects(executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start",
       request: request(undefined, { id: sessionId + ":0", source: '//@version=6\nindicator("No premature realtime161")\nplot(request.security("ETHUSDT","1",close))' }) }), fail("UNAVAILABLE_DATA"));
   } finally { executor.dispose(); }
 });

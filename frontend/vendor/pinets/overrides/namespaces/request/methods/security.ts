@@ -240,7 +240,7 @@ export function security(context: any) {
             const opens = secondary.data.openTime.data, closes = secondary.data.closeTime.data;
             const chartOpen = Series.from(context.data.openTime).get(0);
             const chartClose = Series.from(context.data.closeTime).get(0);
-            const state = typeof liveState === 'function' ? liveState(_timeframe, context) : undefined;
+            const state = typeof liveState === 'function' ? liveState(_timeframe, context, _symbol) : undefined;
             const realtime = state?.realtime === true;
             if (reqSeconds < ctxSeconds) {
                 // Supplied complete children belong to the chart bar by opening time.

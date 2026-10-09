@@ -4,8 +4,8 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 
 // Controlled market input, real host facade and production opaque worker bridge.
-// This is protocol plumbing coverage, not a claim of a connected secondary feed.
-test("remote-only acknowledgements traverse the actual isolated worker without chart calculations", async ({ page }, info) => {
+// Secondary socket acquisition is outside this controlled-input integration.
+for (const requestedMarket of [false, true]) test(`remote acknowledgements and ${requestedMarket ? "independent requested calculations" : "quiet chart state"} traverse the actual isolated worker`, async ({ page }, info) => {
   const worker = fs.readdirSync("frontend/dist/assets").find(file => /^pine-native-worker-.*\.js$/.test(file))!;
   const workerBytes = fs.readFileSync(`frontend/dist/assets/${worker}`), workerSha = createHash("sha256").update(workerBytes).digest("hex");
   const fixture = (await build({ bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", define: { "import.meta.env": "{}" },
@@ -21,14 +21,14 @@ const tail=(result,name)=>result.plots.find(plot=>plot.name===name).points.at(-1
 window.runLedger161=async()=>{
  const messages=[];const listen=event=>{if(event.origin==='null'&&event.data?.type==='result')messages.push(event.data.payload);};
  window.addEventListener('message',listen);
- const session=createPineLiveRuntimeSession({source:'//@version=6\\nindicator("Browser ledger")\\nvarip int ticks=0\\nticks+=1\\nplot(ticks,"Ticks")\\nplot(close,"Price")',inputs:{},bars:[bar(0),bar(1)],context:context('BINANCE:BTCUSDT'),marketData:{provider:'binance',snapshots:[{context:context('BINANCE:ETHUSDT'),requestedTimeframe:'1',bars:[bar(0),bar(1,101)],asOf:start+120}]},marketStreams:[{symbol:'BINANCE:ETHUSDT',timeframe:'1',epoch:4}]});
+ const session=createPineLiveRuntimeSession({source:${JSON.stringify('//@version=6\nindicator("Browser ledger")\nvarip int ticks=0\nticks+=1\nplot(ticks,"Ticks")\nplot(close,"Price")' + (requestedMarket ? '\nplot(request.security("BINANCE:ETHUSDT","1",close),"Remote")' : ''))},inputs:{},bars:[bar(0),bar(1)],context:context('BINANCE:BTCUSDT'),marketData:{provider:'binance',snapshots:[{context:context('BINANCE:ETHUSDT'),requestedTimeframe:'1',bars:[bar(0),bar(1,101)],asOf:start+120}]},marketStreams:[{symbol:'BINANCE:ETHUSDT',timeframe:'1',epoch:4}]});
  try {
   const initial=await session.promise;const frame=document.querySelector('iframe');
   const isolation={sandbox:frame.getAttribute('sandbox'),hidden:frame.hidden,networkDenied:frame.srcdoc.includes("connect-src 'none'")};
   const source=(sequence,close,confirmed=false)=>({symbol:'BINANCE:ETHUSDT',timeframe:'1',epoch:4,sequence,bar:bar(2,close),confirmed,closeTime:(start+180)*1000-1,eventTime:confirmed?(start+180)*1000:(start+120)*1000+sequence*100});
   const first=await session.updateMarkets([source(1,105)]);const second=await session.updateMarkets([source(2,110),source(3,110,true)]);
   const quiet=await session.setViewport(null);const main=await session.update(bar(2,107),false);
-  return {isolation,initialTicks:tail(initial,'Ticks'),quietTicks:tail(quiet,'Ticks'),mainTicks:tail(main,'Ticks'),mainPrice:tail(main,'Price'),quietPlotsUnchanged:JSON.stringify(initial.plots)===JSON.stringify(quiet.plots),first,second,messages:messages.map(message=>({sequence:message.sequence,kind:message.response.ack?.kind??message.response.result?.kind,hasAck:!!message.response.ack,hasResult:!!message.response.result}))};
+  return {isolation,initialTicks:tail(initial,'Ticks'),quietTicks:tail(quiet,'Ticks'),mainTicks:tail(main,'Ticks'),mainPrice:tail(main,'Price'),remote:${requestedMarket ? "[tail(initial,'Remote'),tail(quiet,'Remote'),tail(main,'Remote')]" : "null"},quietPlotsUnchanged:JSON.stringify(initial.plots)===JSON.stringify(quiet.plots),first,second,messages:messages.map(message=>({sequence:message.sequence,kind:message.response.ack?.kind??message.response.result?.kind,hasAck:!!message.response.ack,hasResult:!!message.response.result}))};
  }finally{session.cancel();window.removeEventListener('message',listen);}
 };
 ` } })).outputFiles[0].text;
@@ -43,6 +43,7 @@ window.runLedger161=async()=>{
   expect(result.isolation).toEqual({ sandbox: "allow-scripts", hidden: true, networkDenied: true });
   expect([result.initialTicks, result.quietTicks, result.mainTicks, result.mainPrice]).toEqual([2, 2, 3, 107]);
   expect(result.quietPlotsUnchanged).toBe(true);
+  if (requestedMarket) expect(result.remote).toEqual([101, 101, 110]);
   expect(result.first.streams[0].revision).toBe(1); expect(result.second.streams[0].revision).toBe(3); expect(result.second.streams[0].confirmed).toBe(true);
   expect(result.messages.map((entry: any) => entry.sequence)).toEqual([0, 1, 2, 3, 4]);
   expect(result.messages.filter((entry: any) => entry.hasAck)).toEqual([

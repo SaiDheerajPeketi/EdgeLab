@@ -93,7 +93,7 @@ type RequestContext = Context & {
   _ltfTruncatedBodies?: Record<string, Function>;
   _explicitBarstate?: { isrealtime: boolean };
 };
-function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>(), initialConfirmed = true, initialSourceConfirmed = true) {
+function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>(), initialConfirmed = true, initialSourceConfirmed = true, marketLedger: PineLiveMarketLedger = []) {
   const context = request.context!;
   const timeframe = canonicalPineTimeframe(context.timeframe);
   let failure: PineProtocolError | undefined;
@@ -134,29 +134,37 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   let revision = 0, chartConfirmed = initialConfirmed, sourceConfirmed = initialSourceConfirmed;
   if (realtime && request.sourceSnapshot && request.sourceSnapshot.timeframe === timeframe) error("UNAVAILABLE_DATA", "Live source history must use a lower chart timeframe.");
   if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
+  const liveMarket = (requestedSymbol: string, tf: string) => marketLedger.find(item => item.symbol === marketSymbol(requestedSymbol) && item.requestedTimeframes.includes(tf));
   const dataFor = (tf: string, requestedSymbol = symbol, calcBarsCount?: number, ignoreInvalidSymbol = false): Kline[] => {
     if (!sameSymbol(requestedSymbol)) {
       const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
       if (!qualified) { reject(requestedSymbol, tf); throw failure!; }
-      if (realtime) error("UNAVAILABLE_DATA", "Independent requested-market live feeds are not connected yet.");
+      const live = realtime ? liveMarket(qualified, tf) : undefined;
+      if (realtime && !live) error("UNAVAILABLE_DATA", "This requested market has no independently admitted live stream.");
       const key = `${qualified}:${tf}`;
       const existing = snapshots.get(key);
       if (existing) return existing;
       const snapshot = marketSnapshots.get(key);
       if (!snapshot) error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: qualified, timeframe: tf,
         ...(calcBarsCount !== undefined ? { calcBarsCount } : {}), ...(ignoreInvalidSymbol ? { ignoreInvalidSymbol: true } : {}) }));
-      const sourceFrame = pineMarketChartTimeframe(snapshot.context.timeframe), targetFrame = pineMarketChartTimeframe(tf);
+      const history = live ?? snapshot;
+      const sourceFrame = pineMarketChartTimeframe(history.context.timeframe), targetFrame = pineMarketChartTimeframe(tf);
       const groups = new Map<number, Candle[]>();
-      for (const bar of snapshot.bars) {
+      for (const bar of history.bars) {
         const start = bucketTime(bar.time, targetFrame), children = groups.get(start);
         if (children) children.push(bar); else groups.set(start, [bar]);
       }
       const data: Kline[] = [];
       for (const [time, children] of groups) {
         const close = pineFeedNextSourceTime(time, targetFrame);
-        if (children[0].time !== time || close > snapshot.asOf
+        const last = children.at(-1)!;
+        const complete = pineFeedNextSourceTime(last.time, sourceFrame) === close;
+        // A developing target candle requires every actual native child from
+        // its opening. Only the final group can be a contiguous forming prefix.
+        const developing = !!live && last === history.bars.at(-1) && pineFeedNextSourceTime(last.time, sourceFrame) <= close;
+        if (children[0].time !== time
           || children.some((bar, index) => index > 0 && bar.time !== pineFeedNextSourceTime(children[index - 1].time, sourceFrame))
-          || pineFeedNextSourceTime(children.at(-1)!.time, sourceFrame) !== close) continue;
+          || !(complete && (live || close <= history.asOf) || developing)) continue;
         let volume = 0, high = -Infinity, low = Infinity;
         for (const child of children) { volume += child.volume; high = Math.max(high, child.high); low = Math.min(low, child.low); }
         if (!Number.isFinite(volume)) error("UNAVAILABLE_DATA", "Aggregated requested-market volume exceeds the supported finite range.");
@@ -210,14 +218,22 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   const admitted = new WeakMap<Context, Set<string>>();
   const liveOwners = new WeakMap<Context, Map<string, Promise<LiveRequestedState>>>();
   const staticLiveOwners = new Map<string, Promise<LiveRequestedState>>();
-  type LiveRequestedState = { engine: PineTS & { updateRequestTail(child: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean> }; child: Context; revision: number };
-  const liveState = (tf: string, parent: RequestContext) => {
-    const data = dataFor(tf), tail = data.at(-1);
+  type LiveRequestedState = { engine: PineTS & { updateRequestTail(child: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean> }; child: Context; revision: number; chartRevision: number };
+  const liveState = (tf: string, parent: RequestContext, requestedSymbol = symbol) => {
+    const data = dataFor(tf, requestedSymbol), tail = data.at(-1);
+    const parentRealtime = ((parent.fullContext ?? parent) as RequestContext)._explicitBarstate?.isrealtime === true;
+    if (!sameSymbol(requestedSymbol)) {
+      const market = liveMarket(requestedSymbol, tf)!;
+      const latest = market.bars.at(-1);
+      const boundary = latest && pineFeedNextSourceTime(latest.time, pineMarketChartTimeframe(market.timeframe)) * 1000;
+      return { revision: market.revision, confirmed: !!tail && boundary !== undefined && (tail.closeTime < boundary || tail.closeTime === boundary && market.confirmed),
+        received: market.revision > 0, realtime: parentRealtime };
+    }
     const latest = source?.bars.at(-1) ?? request.bars!.at(-1)!;
     const base = pineHigherTimeframeDuration(source?.timeframe ?? timeframe);
     const boundary = base ? (latest.time + base) * 1000 : candles.at(-1)!.closeTime;
     return { revision, confirmed: !!tail && (tail.closeTime < boundary || tail.closeTime === boundary && (source ? sourceConfirmed : chartConfirmed)),
-      received: revision > 0, realtime: (parent.fullContext as RequestContext | undefined)?._explicitBarstate?.isrealtime === true };
+      received: revision > 0, realtime: parentRealtime };
   };
   const countChild = (child: Context, engine?: PineTS) => {
     let slots = 0;
@@ -264,28 +280,29 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
     bindViewport(engine, request);
     engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
-    if (liveTimeframe !== undefined) (engine as RealtimeEngine).setRealtimeMode(true, { initialTail: liveState(liveTimeframe, parent).confirmed ? "historical" : "deferred" });
+    if (liveTimeframe !== undefined) (engine as RealtimeEngine).setRealtimeMode(true, { initialTail: liveState(liveTimeframe, parent, childSymbol).confirmed ? "historical" : "deferred" });
     const child = await engine.runPretranspiled(fn, parent.inputs);
     countChild(child, liveTimeframe !== undefined ? engine : undefined);
     return child;
   };
   const requestedOwner = async (owners: Map<string, Promise<LiveRequestedState>>, key: string, parent: RequestContext, expressionName: string, tf: string,
-    count?: number, captureExpression?: string, staticPath?: readonly string[]) => {
+    count?: number, captureExpression?: string, staticPath?: readonly string[], requestedSymbol = symbol) => {
     let pending = owners.get(key);
     if (!pending) {
-      if (liveState(tf, parent).realtime) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
-      if (!dataFor(tf).length) error("UNAVAILABLE_DATA", "The requested timeframe has no complete or developing owned candles.");
-      const engine = new PineTS(provider, symbol, tf, count) as LiveRequestedState["engine"];
+      if (liveState(tf, parent, requestedSymbol).realtime) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
+      if (!dataFor(tf, requestedSymbol).length) error("UNAVAILABLE_DATA", "The requested timeframe has no complete or developing owned candles.");
+      const engine = new PineTS(provider, requestedSymbol, tf, count) as LiveRequestedState["engine"];
       engine.markAsSecondary();
-      pending = runRequest(engine, undefined, parent, expressionName, captureExpression, staticPath, tf).then(child => ({ engine, child, revision }));
+      const initial = liveState(tf, parent, requestedSymbol);
+      pending = runRequest(engine, undefined, parent, expressionName, captureExpression, staticPath, tf).then(child => ({ engine, child, revision: initial.revision, chartRevision: revision }));
       owners.set(key, pending);
     }
     const owner = await pending;
-    if (owner.revision !== revision || liveState(tf, parent).realtime && (owner.child as Context & { _realtimeLifecycle?: { deferred?: boolean } })._realtimeLifecycle?.deferred) {
-      const event = liveState(tf, parent);
+    const event = liveState(tf, parent, requestedSymbol);
+    if (owner.revision !== event.revision || owner.chartRevision !== revision || event.realtime && (owner.child as Context & { _realtimeLifecycle?: { deferred?: boolean } })._realtimeLifecycle?.deferred) {
       await owner.engine.updateRequestTail(owner.child, { confirmed: event.confirmed, received: event.received || event.realtime });
       countChild(owner.child, owner.engine);
-      owner.revision = revision;
+      owner.revision = event.revision; owner.chartRevision = revision;
     }
     return owner.child;
   };
@@ -300,7 +317,6 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       if (!ownedSymbol) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
-      if (realtime && ownedSymbol !== symbol) error("UNAVAILABLE_DATA", "Independent requested-market live feeds are not connected yet.");
       if (kind === "security_lower_tf" && invalidTimeframe && ignoreInvalidTimeframe) return { symbol: ownedSymbol, timeframe: tf, invalidTimeframe: true };
       if (!tf || kind === "security_lower_tf" && invalidTimeframe) {
         reject(String(requested), rawTimeframe); throw failure!;
@@ -316,8 +332,8 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
         const root = parent.fullContext ?? parent;
         let identities = admitted.get(root);
         if (!identities) admitted.set(root, identities = new Set());
-        const key = `${kind}:${symbol}:${tf}:${expression}`;
-        if (liveState(tf, parent).realtime && !identities.has(key)) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
+        const key = `${kind}:${ownedSymbol}:${tf}:${expression}:${calcBarsCount ?? ""}`;
+        if (liveState(tf, parent, ownedSymbol).realtime && !identities.has(key)) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
         if (!identities.has(key) && identities.size >= 64) error("REQUEST_LIMIT", "Pine requested too many distinct contexts.");
         identities.add(key);
       }
@@ -333,11 +349,11 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     _edgelabRunRequest: { value: runRequest },
     ...(realtime ? {
       _edgelabRequestLiveState: { value: liveState },
-      _edgelabLiveRequest: { value: (parent: RequestContext, expressionName: string, _symbol: string, tf: string, count?: number, kind = "security") => {
+      _edgelabLiveRequest: { value: (parent: RequestContext, expressionName: string, requestedSymbol: string, tf: string, count?: number, kind = "security") => {
         const root = parent.fullContext ?? parent;
         let owners = liveOwners.get(root);
         if (!owners) liveOwners.set(root, owners = new Map());
-        return requestedOwner(owners, `${kind}:${symbol}:${tf}:${expressionName}:${count ?? ""}`, parent, expressionName, tf, count);
+        return requestedOwner(owners, `${kind}:${requestedSymbol}:${tf}:${expressionName}:${count ?? ""}`, parent, expressionName, tf, count, undefined, undefined, requestedSymbol);
       } },
     } : {}),
     _edgelabRetainIntrabars: { value: (slots: number, parent?: Context, expressionName?: string) => {
@@ -423,6 +439,11 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     provider, notices,
     unavailable: () => failure,
     reset() { calls = 0; requestedBars = 0; failure = undefined; if (realtime) staticSnapshots.clear(); },
+    setMarkets(ledger: PineLiveMarketLedger) {
+      marketLedger = ledger;
+      // Remote data acceptance never executes or invalidates primary state.
+      for (const key of snapshots.keys()) if (key.includes(":")) snapshots.delete(key);
+    },
     update(bar: Candle, append: boolean, confirmed: boolean, sourceSnapshot = request.sourceSnapshot, confirmedSource = true) {
       if (append) candles.push(candle(bar)); else candles[candles.length - 1] = candle(bar);
       request = { ...request, bars: append ? [...request.bars!, bar] : [...request.bars!.slice(0, -1), bar], sourceSnapshot };
@@ -1403,10 +1424,12 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   return executionResult(request, resultDescriptor, inputs, context, encounteredAlerts, started);
 }
 
-function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false): PineExecutionResult {
+function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false, requestedLive = false): PineExecutionResult {
   const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
     warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
-      ? "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
+      ? requestedLive
+        ? "Execution samples independently supplied market candles on chart updates, with UTC and a 24x7 session. Closed requested bars are calculated in order; remote intrabar ticks between chart updates are not replayed. Other exchanges, exchange sessions and alert delivery are unavailable."
+        : "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
       : request.marketData
         ? "Execution uses the chart snapshot and requested Binance history through this run's cutoff, with UTC and a 24x7 session. Other exchanges, exchange sessions and tick history are unavailable."
         : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and the supplied quote currency (USD when omitted); exchange sessions, tick history and additional market data are unavailable."),
@@ -1438,8 +1461,8 @@ type RealtimeEngine = PineTS & {
   updateTail(context: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean>;
 };
 /** Fresh owned data and identical limits for initial runs and viewport reloads. */
-function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "historical" | "open", sourceConfirmed = true) {
-  const local = chartProvider(request, initialTail !== undefined, alerts, initialTail !== "open", sourceConfirmed);
+function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "historical" | "open", sourceConfirmed = true, marketLedger: PineLiveMarketLedger = []) {
+  const local = chartProvider(request, initialTail !== undefined, alerts, initialTail !== "open", sourceConfirmed, marketLedger);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
   bindViewport(engine, request);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -1481,8 +1504,8 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request, true);
           const alerts = new Set<string>();
           bindClosedSnapshot(prepared, declaration === "strategy", alerts, true, request.context?.quantityStep, () => magnifierSnapshot(owner.request)());
-          const { local, engine } = ownedEngine(request, alerts, "historical");
           const marketLedger = command.marketStreams === undefined ? Object.freeze([]) : createPineLiveMarketLedger(request, command.marketStreams);
+          const { local, engine } = ownedEngine(request, alerts, "historical", true, marketLedger);
           owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, sourceConfirmed: true, request, engine, local, indicator, descriptor, inputs, alerts, marketLedger };
           state = owner;
           const context = await engine.run(indicator);
@@ -1498,13 +1521,14 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
             const ledger = advancePineLiveMarkets(owner.marketLedger, command.events, owner.request);
             active(owner);
             owner.marketLedger = ledger;
+            owner.local.setMarkets(ledger);
             owner.sequence = command.sequence;
             return pineLiveMarketReceipt(ledger);
           }
           if (command.action === "viewport") {
             owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), viewport: command.viewport };
             if (owner.descriptor.usesVisibleRange) {
-              const { local, engine } = ownedEngine(owner.request, owner.alerts, owner.confirmed ? "historical" : "open", owner.sourceConfirmed);
+              const { local, engine } = ownedEngine(owner.request, owner.alerts, owner.confirmed ? "historical" : "open", owner.sourceConfirmed, owner.marketLedger);
               const context = await engine.run(owner.indicator);
               active(owner);
               owner.engine = engine; owner.local = local; owner.context = context;
@@ -1536,7 +1560,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         }
         active(owner);
         if (owner.local.unavailable()) throw owner.local.unavailable();
-        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true);
+        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true, owner.marketLedger.length > 0);
         active(owner);
         liveResultBars.set(result, owner.request.bars!);
         return result;

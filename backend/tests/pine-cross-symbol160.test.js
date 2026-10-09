@@ -106,7 +106,7 @@ test("persistent secondary requests fail explicitly before stale historical pric
     initial.id = "cross-symbol160-live:0";
     await assert.rejects(executor.execute({ protocol: "pine-live-v1", sessionId: "cross-symbol160-live", sequence: 0, action: "start", request: initial }), cause => {
       assert.equal(cause.code, "UNAVAILABLE_DATA");
-      assert.match(cause.message, /Independent requested-market live feeds/);
+      assert.match(cause.message, /independently admitted live stream/);
       return true;
     });
   } finally { executor.dispose(); }
