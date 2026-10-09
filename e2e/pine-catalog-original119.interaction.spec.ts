@@ -1,3 +1,4 @@
+import { selectPineCatalogScript } from "./support/pine-catalog-selection";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -73,7 +74,7 @@ async function check(editor: Locator) {
 async function importEntry(editor:Locator,entry:any){
  const browser=editor.locator("details").filter({hasText:"Community Pine catalog"});
  if(!await browser.evaluate(e=>(e as HTMLDetailsElement).open))await browser.locator("summary").click();
- await browser.getByRole("combobox",{name:"Script",exact:true}).selectOption(entry.id);
+ await selectPineCatalogScript(browser, entry.id);
  await browser.getByRole("button",{name:"View source",exact:true}).click();
  await expect(browser.getByLabel(entry.name+" original source",{exact:true})).toHaveText(original(entry));
  await browser.getByRole("button",{name:entry.pineVersion<5?"Import migrated draft":"Import draft",exact:true}).click();
@@ -99,9 +100,12 @@ test("saved original recovers its immutable revision despite newer current catal
  const entry=catalog.entries.find((e:any)=>e.name==="Parabolic SAR"),initial=await savedDraft(page,entry),state=initial.state;let editor=initial.editor;
  await editor.getByRole("button",{name:"Add to chart",exact:true}).click();
  await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();
- const saveLayout=page.getByRole("button",{name:"Save Layout",exact:true});
+ const saveLayout=page.getByRole("button",{name:"Workspace",exact:true});
  if(!await saveLayout.isVisible())await page.getByRole("button",{name:"Tools",exact:true}).first().click();
  await saveLayout.click();
+ const workspace=page.getByRole("dialog",{name:"Workspace controls",exact:true});
+ await workspace.getByPlaceholder("Layout name",{exact:true}).fill("Original119 immutable chart");
+ await workspace.getByRole("button",{name:"Save",exact:true}).click();await page.keyboard.press("Escape");
  await expect.poll(()=>chartSources(state.storage.get("chart-layout.v1")).includes(edited)).toBe(true);
  editor=await openEditor(page);await editor.getByRole("combobox",{name:"Script library",exact:true}).selectOption(scripts(state)[0].id);
  const saved=structuredClone(scripts(state)),chart=chartSources(state.storage.get("chart-layout.v1")),layout=structuredClone(state.storage.get("chart-layout.v1")),writeCount=state.writes.filter(w=>["custom-indicator-scripts.v1","chart-layout.v1"].includes(w.key)).length;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CURATED_PINE_CATALOG, loadPineCatalog, loadPineCatalogSource, loadPineCatalogMigration, pineCatalogMigration, pineCatalogCanRun, pineCatalogLicenseUrl, type PineCatalogImport } from "../lib/pineCatalog";
+import { ThemedSelect } from "./ThemedSelect";
 
 /** Standalone integration: import opens an unsaved draft; preparation remains in the editor. */
 export function PineCatalogBrowser({ onImport, draftIdentity }: { onImport: (script: PineCatalogImport) => void; draftIdentity: unknown }) {
@@ -58,21 +59,27 @@ export function PineCatalogBrowser({ onImport, draftIdentity }: { onImport: (scr
     } catch (cause) { if (attempt === attemptRef.current) setError(cause instanceof Error ? cause.message : "Migration could not be verified."); }
     finally { if (attempt === attemptRef.current) { activeRef.current = null; setBusy(false); } }
   }
-  return <details className="mt-4 min-w-0 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
-    <summary className="min-h-11 cursor-pointer rounded py-3 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">Community Pine catalog</summary>
+  return <details className="mt-4 min-w-0 rounded-lg border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] p-3 text-xs text-[var(--text-secondary)]">
+    <summary className="min-h-11 cursor-pointer rounded py-3 font-semibold text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]">Community Pine catalog</summary>
     <p className="mt-3 leading-5">Original scripts by Alex Orekhov (everget). Community implementations; experimental execution. Attribution and original source are preserved. Pine alerts are not connected to notifications.</p>
-    <label className="mt-3 grid gap-1.5">Script<select className="input-control min-h-11 w-full min-w-0 text-xs" disabled={busy} onChange={(event) => { invalidate(); setSelectedId(event.target.value); setNotice(""); }} value={selectedId}>
-      {catalog.entries.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · v{entry.pineVersion}{pineCatalogCanRun(entry) ? " · experimental" : " · migration needed"}</option>)}
-    </select></label>
+    <div className="mt-3 grid gap-1.5"><span>Script</span><ThemedSelect
+      ariaLabel="Script"
+      className="min-h-11 w-full min-w-0 text-xs [&_.themed-select-trigger]:min-h-11"
+      disabled={busy}
+      onChange={(value) => { if (value === selectedId) return; invalidate(); setSelectedId(value); setNotice(""); }}
+      options={catalog.entries.map((entry) => ({ value: entry.id, label: `${entry.name} · v${entry.pineVersion}${pineCatalogCanRun(entry) ? " · experimental" : " · migration needed"}` }))}
+      portal
+      value={selectedId}
+    /></div>
     <p className="mt-2 leading-5">Pine v{selected.pineVersion} · GPL-3.0 · source revision {catalog.upstreamCommit.slice(0, 8)}</p>
-    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-2"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={selected.originUrl} rel="noreferrer" target="_blank">Original source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={pineCatalogLicenseUrl(catalog)} rel="noreferrer" target="_blank">Full licence</a></div>
-    {!pineCatalogCanRun(selected) ? <p className="mt-2 leading-5 text-amber-100">Preserved original. Pine v{selected.pineVersion} needs an explicit migration before this runtime can execute it. {migration ? "A separately verified Pine v5 copy is available. Check the migrated draft and review its inputs before running; execution is experimental." : "No reviewed migration matches this source revision."}</p> : <p className="mt-2 leading-5">Pine version supported; execution is experimental. Import opens a draft. Check the script and review its inputs before running.</p>}
-    <div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" disabled={busy} onClick={() => void viewSource()} type="button">{busy ? "Loading…" : "View source"}</button><button className="studio-tool-button min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" disabled={busy} onClick={() => void checkUpdates()} type="button">Reload catalog</button>
-      <button className="studio-tool-button studio-tool-button-active min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" disabled={busy || !loaded || !pineCatalogCanRun(selected)} onClick={() => { if (loaded) onImport(loaded); }} type="button">Import draft</button>
-      {migration ? <button className="studio-tool-button studio-tool-button-active min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" disabled={busy || !loaded} onClick={() => void importMigrated()} type="button">Import migrated draft</button> : null}
-      {downloadUrl ? <a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" download={selected.path.split("/").pop()} href={downloadUrl}>Download original</a> : null}</div>
-    {error ? <p className="mt-2 leading-5 text-rose-200" role="alert">{error}</p> : null}
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-2"><a className="inline-flex min-h-11 items-center text-[var(--text-accent)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" href={selected.originUrl} rel="noreferrer" target="_blank">Original source</a><a className="inline-flex min-h-11 items-center text-[var(--text-accent)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" href={pineCatalogLicenseUrl(catalog)} rel="noreferrer" target="_blank">Full licence</a></div>
+    {!pineCatalogCanRun(selected) ? <p className="mt-2 leading-5 text-[var(--warning-text)]">Preserved original. Pine v{selected.pineVersion} needs an explicit migration before this runtime can execute it. {migration ? "A separately verified Pine v5 copy is available. Check the migrated draft and review its inputs before running; execution is experimental." : "No reviewed migration matches this source revision."}</p> : <p className="mt-2 leading-5">Pine version supported; execution is experimental. Import opens a draft. Check the script and review its inputs before running.</p>}
+    <div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" disabled={busy} onClick={() => void viewSource()} type="button">{busy ? "Loading…" : "View source"}</button><button className="studio-tool-button min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" disabled={busy} onClick={() => void checkUpdates()} type="button">Reload catalog</button>
+      <button className="studio-tool-button studio-tool-button-active min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" disabled={busy || !loaded || !pineCatalogCanRun(selected)} onClick={() => { if (loaded) onImport(loaded); }} type="button">Import draft</button>
+      {migration ? <button className="studio-tool-button studio-tool-button-active min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" disabled={busy || !loaded} onClick={() => void importMigrated()} type="button">Import migrated draft</button> : null}
+      {downloadUrl ? <a className="inline-flex min-h-11 items-center text-[var(--text-accent)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" download={selected.path.split("/").pop()} href={downloadUrl}>Download original</a> : null}</div>
+    {error ? <p className="mt-2 leading-5 text-[var(--loss-text)]" role="alert">{error}</p> : null}
     {notice ? <p className="mt-2 leading-5" role="status">{notice}</p> : null}
-    {loaded ? <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/30 p-2 font-mono text-[11px] leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" tabIndex={0} aria-label={`${selected.name} original source`}>{loaded.source}</pre> : null}
+    {loaded ? <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--ui-inset)] p-2 font-mono text-[11px] leading-5 text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]" tabIndex={0} aria-label={`${selected.name} original source`}>{loaded.source}</pre> : null}
   </details>;
 }

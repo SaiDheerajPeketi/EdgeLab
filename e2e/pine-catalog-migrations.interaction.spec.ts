@@ -1,3 +1,4 @@
+import { selectPineCatalogScript } from "./support/pine-catalog-selection";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -115,11 +116,18 @@ async function nativeRun(page: Page, source: string) {
 
 
 const catalog = JSON.parse(fs.readFileSync(path.resolve("frontend/src/lib/pineCatalogManifest.json"), "utf8")) as PineCatalogManifest;
+const currentCatalog = JSON.parse(fs.readFileSync(path.resolve("frontend/src/lib/pineCatalogManifestV2.json"), "utf8")) as PineCatalogManifest;
 const sourceRoot = path.resolve("frontend/public/catalog/pine/everget", catalog.upstreamCommit);
 const original = (entry: typeof catalog.entries[number]) => fs.readFileSync(path.join(sourceRoot, entry.path), "utf8");
-const provenance = (entry: typeof catalog.entries[number]) => ({ catalogId: entry.id, repository: catalog.repository, path: entry.path,
-  upstreamCommit: catalog.upstreamCommit, upstreamBlobSha1: entry.upstreamBlobSha1, sourceSha256: entry.sourceSha256,
-  originalPineVersion: entry.pineVersion, author: entry.author, license: entry.license, originUrl: entry.originUrl, lastFetchedAt: catalog.lastFetchedAt });
+const provenance = (entry: typeof catalog.entries[number]) => {
+  const current = currentCatalog.entries.find(item => item.id === entry.id)!;
+  expect(currentCatalog.upstreamCommit).toBe(catalog.upstreamCommit);
+  expect(current).toMatchObject({ path: entry.path, pineVersion: entry.pineVersion, sourceBytes: entry.sourceBytes,
+    sourceSha256: entry.sourceSha256, upstreamBlobSha1: entry.upstreamBlobSha1, originUrl: entry.originUrl });
+  return { collection: "expanded-v2", catalogId: current.id, repository: currentCatalog.repository, path: current.path,
+    upstreamCommit: currentCatalog.upstreamCommit, upstreamBlobSha1: current.upstreamBlobSha1, sourceSha256: current.sourceSha256,
+    originalPineVersion: current.pineVersion, author: current.author, license: current.license, originUrl: current.originUrl, lastFetchedAt: currentCatalog.lastFetchedAt };
+};
 const scripts = (storage: Map<string, unknown>) => (storage.get("custom-indicator-scripts.v1") ?? []) as CustomIndicatorScript[];
 function snapshots(value: unknown): Array<Record<string, unknown>> {
   if (!value || typeof value !== "object") return [];
@@ -143,7 +151,7 @@ async function certifyCatalog(page: Page, target: Locator) {
 }
 
 async function view(browser: Locator, entry: typeof catalog.entries[number]) {
-  await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(entry.id);
+  await selectPineCatalogScript(browser, entry.id);
   await browser.getByRole("button", { name: "View source", exact: true }).click();
   await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(original(entry));
 }
@@ -168,7 +176,7 @@ test("all17 legacy originals retain separate verified drafts and genuine product
   expect(legacy).toHaveLength(17);
   for (const [index, entry] of legacy.entries()) {
     const savedBeforeImport = structuredClone(scripts(state.storage));
-    await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(entry.id);
+    await selectPineCatalogScript(browser, entry.id);
     await expect(browser.getByRole("button", { name: "Import migrated draft", exact: true })).toBeDisabled();
     await view(browser, entry);
     await expect(browser.getByRole("button", { name: "Import draft", exact: true })).toBeDisabled();
@@ -246,9 +254,12 @@ test("migrated Hull genuine Run save reload edit history duplicate and chart pre
   const first = structuredClone(scripts(state.storage)[0]); expect(first).toMatchObject({ source: migrated(entry), catalogOrigin: migratedCredit(entry), revision: 1 });
   await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
   await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
-  const saveLayout = page.getByRole("button", { name: "Save Layout", exact: true });
+  const saveLayout = page.getByRole("button", { name: "Workspace", exact: true });
   if (!await saveLayout.isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   await saveLayout.click();
+  const workspace = page.getByRole("dialog", { name: "Workspace controls", exact: true });
+  await workspace.getByPlaceholder("Layout name", { exact: true }).fill("Migrated catalog chart");
+  await workspace.getByRole("button", { name: "Save", exact: true }).click(); await page.keyboard.press("Escape");
   await expect.poll(() => snapshots(state.storage.get("chart-layout.v1")).filter((item) => item.customScriptId === first.id).length).toBe(1);
   const snapshot = structuredClone(snapshots(state.storage.get("chart-layout.v1")).find((item) => item.customScriptId === first.id)!);
   expect(snapshot).toMatchObject({ customScriptSource: migrated(entry), customCatalogOrigin: migratedCredit(entry) });
@@ -299,7 +310,7 @@ for (const invalidation of ["edit", "close", "selection", "reload"] as const) {
     } else {
       await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
       editor = await openEditor(page); browser = await catalogBrowser(editor);
-      if (invalidation === "selection") await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(legacy[1].id);
+      if (invalidation === "selection") await selectPineCatalogScript(browser, legacy[1].id);
     }
     release(); await expect.poll(() => completed).toBe(true);
     await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(invalidation === "edit" ? changed : before);

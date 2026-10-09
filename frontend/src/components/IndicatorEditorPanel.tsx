@@ -142,7 +142,8 @@ export function IndicatorEditorPanel({
   const originalCatalogSource = useMemo(() => Boolean(catalogOrigin && sourceSha256(source) === catalogOrigin.sourceSha256), [source, catalogOrigin?.sourceSha256]);
   const unchangedMigration = useMemo(() => Boolean(catalogOrigin?.migration && sourceSha256(source) === catalogOrigin.migration.sourceSha256), [source, catalogOrigin?.migration?.sourceSha256]);
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
-  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, sourceSnapshot, symbol, timeframe]);
+  // Archived source belongs to the draft, not to each received market update.
+  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, symbol, timeframe]);
   const catalogDraftRef = useRef(catalogDraftIdentity);
   catalogDraftRef.current = catalogDraftIdentity;
   useEffect(() => {

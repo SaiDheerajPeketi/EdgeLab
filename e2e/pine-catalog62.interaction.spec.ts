@@ -1,3 +1,4 @@
+import { selectPineCatalogScript, expectPineCatalogOptionCount } from "./support/pine-catalog-selection";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -31,11 +32,11 @@ const credit = (entry: Entry) => ({
 async function browserIn(dialog: Locator) {
   const browser = dialog.locator("details").filter({ hasText: "Community Pine catalog" });
   if (!await browser.evaluate((element) => (element as HTMLDetailsElement).open)) await browser.locator("summary").click();
-  await expect(browser.getByRole("combobox", { name: "Script", exact: true }).locator("option")).toHaveCount(29);
+  await expectPineCatalogOptionCount(browser, 29);
   return browser;
 }
 async function view(browser: Locator, entry: Entry) {
-  await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(entry.id);
+  await selectPineCatalogScript(browser, entry.id);
   await browser.getByRole("button", { name: "View source", exact: true }).click();
   await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(original(entry));
   await expect(browser.getByRole("link", { name: "Full licence", exact: true })).toHaveAttribute("href", `/catalog/pine/everget-v2/${catalog.upstreamCommit}/LICENSE.txt`);
@@ -174,7 +175,7 @@ test("tampered migration and incomplete refetch fail without mutating the draft;
   await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
   await expect(browser.getByRole("alert")).toContainText(/catalog|collection/i);
   await expect(sourceInput).toHaveValue(migrated(entry));
-  await expect(browser.getByRole("combobox", { name: "Script", exact: true }).locator("option")).toHaveCount(29);
+  await expectPineCatalogOptionCount(browser, 29);
   await page.unroute(forgedManifestUrl);
   await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
   await expect(browser.getByRole("alert")).toBeHidden();

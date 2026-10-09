@@ -1,3 +1,4 @@
+import { selectPineCatalogScript, expectPineCatalogOptionCount } from "./support/pine-catalog-selection";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -143,7 +144,7 @@ async function certifyCatalog(page: Page, target: Locator) {
 }
 
 async function view(browser: Locator, entry: typeof catalog.entries[number]) {
-  await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(entry.id);
+  await selectPineCatalogScript(browser, entry.id);
   await browser.getByRole("button", { name: "View source", exact: true }).click();
   await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(original(entry));
 }
@@ -153,7 +154,7 @@ test("all 29 hash-verified originals download and 25 legacy scripts require migr
   await fixture(page);
   let editor = await openEditor(page), browser = await catalogBrowser(editor);
   expect(catalog.entries).toHaveLength(29);
-  await expect(browser.getByRole("combobox", { name: "Script", exact: true }).locator("option")).toHaveCount(29);
+  await expectPineCatalogOptionCount(browser, 29);
   expect(catalog.entries.filter((entry) => entry.pineVersion < 5)).toHaveLength(25);
   for (const [index, entry] of catalog.entries.entries()) {
     // Chrome suppresses repeated downloads from one document. Fresh documents
@@ -239,9 +240,12 @@ test("native import preserves exact source and provenance through save, edits, h
   expect(first).toMatchObject({ source: original(entry), catalogOrigin: provenance(entry), revision: 1 });
   await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
   await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
-  const saveLayout = page.getByRole("button", { name: "Save Layout", exact: true });
+  const saveLayout = page.getByRole("button", { name: "Workspace", exact: true });
   if (!await saveLayout.isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   await saveLayout.click();
+  const workspace = page.getByRole("dialog", { name: "Workspace controls", exact: true });
+  await workspace.getByPlaceholder("Layout name", { exact: true }).fill("Native catalog chart");
+  await workspace.getByRole("button", { name: "Save", exact: true }).click(); await page.keyboard.press("Escape");
   await expect.poll(() => snapshots(state.storage.get("chart-layout.v1")).filter((item) => item.customScriptId === first.id).length).toBe(1);
   const snapshot = structuredClone(snapshots(state.storage.get("chart-layout.v1")).find((item) => item.customScriptId === first.id)!);
   expect(snapshot).toMatchObject({ customScriptSource: original(entry), customCatalogOrigin: provenance(entry), customScriptVersion: 1 });
@@ -286,7 +290,7 @@ test("native import preserves exact source and provenance through save, edits, h
   const chartBeforeReload = structuredClone(state.storage.get("chart-layout.v1"));
   await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
   await expect(browser.getByRole("status")).toContainText("New catalog revision loaded"); expect(loadedManifest).toBe(true);
-  await browser.getByRole("combobox", { name: "Script", exact: true }).selectOption(entry.id); await browser.getByRole("button", { name: "View source", exact: true }).click();
+  await selectPineCatalogScript(browser, entry.id); await browser.getByRole("button", { name: "View source", exact: true }).click();
   await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(original(entry)); await expect(browser.getByText(/source revision 11111111/)).toBeVisible();
   await expect(browser.getByRole("link", { name: "Original source", exact: true })).toHaveAttribute("href", latest.entries.find((item) => item.id === entry.id)!.originUrl);
   expect(scripts(state.storage)).toEqual(savedBeforeReload); expect(state.storage.get("chart-layout.v1")).toEqual(chartBeforeReload);
