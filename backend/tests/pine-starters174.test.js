@@ -48,8 +48,9 @@ const window = (i, length) => bars.slice(Math.max(0, i - length + 1), i + 1);
 const midpoint = (i, length) => i < length - 1 ? null : (Math.max(...window(i, length).map(bar => bar.high)) + Math.min(...window(i, length).map(bar => bar.low))) / 2;
 const selected = key => bars.map(bar => key === "hl2" ? (bar.high + bar.low) / 2 : key === "hlc3" ? (bar.high + bar.low + bar.close) / 3 : bar[key]);
 
-test("six editable originals prepare with stable authored input IDs, names and exact source", async () => {
-  assert.deepEqual(entries.map(item => item.id), ["pine-macd", "pine-bollinger", "pine-donchian", "pine-ichimoku", "pine-vwap", "pine-heikin-ashi"]);
+test("existing editable originals keep their stable authored input IDs, names and exact source", async () => {
+  const existingIds = ["pine-macd", "pine-bollinger", "pine-donchian", "pine-ichimoku", "pine-vwap", "pine-heikin-ashi"];
+  assert.deepEqual(entries.filter(item => existingIds.includes(item.id)).map(item => item.id), existingIds);
   const definitions = {
     "pine-macd": [["source", "Source", "close"], ["int", "Fast length", 12], ["int", "Slow length", 26], ["int", "Signal length", 9]],
     "pine-bollinger": [["source", "Source", "close"], ["int", "Length", 20], ["float", "Standard deviations", 2]],
@@ -57,7 +58,7 @@ test("six editable originals prepare with stable authored input IDs, names and e
     "pine-ichimoku": [["int", "Conversion length", 9], ["int", "Base length", 26], ["int", "Span B length", 52], ["int", "Displacement", 26]],
     "pine-vwap": [["source", "Source", "hlc3"]],
   };
-  for (const entry of entries) {
+  for (const entry of entries.filter(item => existingIds.includes(item.id))) {
     assert.ok(entry.description.length > 15); assert.match(entry.source, /^\/\/@version=6\n/); assert.match(entry.source, /Original EdgeLab starter/);
     const result = await execute(entry.id, {}, "prepare"); assert.equal(result.source, entry.source); assert.equal(result.name, entry.name);
     assert.deepEqual(result.inputDefinitions.map(item => item.id), result.inputDefinitions.map((_, i) => "in_" + i));

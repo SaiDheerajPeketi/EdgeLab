@@ -309,7 +309,9 @@ test("every first-party study executes deterministically with finite chart point
     const close = 100 + index * 0.2 + Math.sin(index / 5);
     return [close + 1, close - 1, close];
   }));
-  for (const study of charting.FIRST_PARTY_EDGE_INDICATORS) {
+  // Native Pine entries execute through the genuine worker in pine-builtins186;
+  // this existing DSL contract keeps all of its original studies and oracles.
+  for (const study of charting.FIRST_PARTY_EDGE_INDICATORS.filter((item) => !charting.isPineScriptSource(item.source))) {
     const first = charting.executeEdgeIndicator({ bars, source: study.source });
     assert.ok(first.plots.length > 0, study.name);
     for (const plot of first.plots) {

@@ -1,5 +1,6 @@
 import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
+import { usePreparedIndicatorAdd } from "../lib/usePreparedIndicatorAdd";
 import {
   Activity,
   AreaChart,
@@ -430,6 +431,7 @@ export function ChartToolbar({
   timeframe,
   toolsOpen = true,
 }: Props) {
+  const customIndicatorAdd = usePreparedIndicatorAdd({ activePaneLabel, symbol, timeframe, sourceTimeframe }, customIndicatorScripts, onAddCustomIndicator);
   const [activeToolGroup, setActiveToolGroup] = useState<ChartToolGroup | null>(null);
   const studyGroupTriggerRef = useRef<HTMLButtonElement>(null);
   const symbolSurfaceRef = useRef<HTMLDivElement>(null);
@@ -528,10 +530,12 @@ export function ChartToolbar({
         color: script.color,
         count: indicatorInstances.filter((instance) => instance.kind === "custom" && instance.customScriptId === scriptId).length,
         description: script.description,
-        disabled: !onAddCustomIndicator,
+        disabled: !onAddCustomIndicator || !!customIndicatorAdd.pendingId,
+        pending: customIndicatorAdd.pendingId === script.id,
+        busy: !!customIndicatorAdd.pendingId,
         id: favorite,
         label: script.name,
-        add: () => onAddCustomIndicator?.(script),
+        add: () => customIndicatorAdd.add(script),
       }] : [];
     }
     const indicator = getIndicatorCatalogItem(favorite as ChartIndicatorKind);
@@ -542,6 +546,8 @@ export function ChartToolbar({
       count,
       description: indicator.description,
       disabled: isSingleInstanceIndicator(indicator.kind) && count > 0,
+      pending: false,
+      busy: false,
       id: favorite,
       label: indicator.label,
       add: () => onAddIndicator(indicator.kind),
@@ -1227,7 +1233,9 @@ export function ChartToolbar({
                 customScripts={customIndicatorScripts}
                 favorites={indicatorFavorites}
                 indicatorInstances={indicatorInstances}
-                onAddCustomIndicator={onAddCustomIndicator}
+                onAddCustomIndicator={onAddCustomIndicator ? customIndicatorAdd.add : undefined}
+                customAddPendingId={customIndicatorAdd.pendingId}
+                customAddMessage={customIndicatorAdd.message}
                 onAddIndicator={onAddIndicator}
                 onClose={closeIndicatorMenu}
                 onEditCustomIndicator={onEditCustomIndicator}
@@ -1236,6 +1244,8 @@ export function ChartToolbar({
               />
           )}
         </div>
+
+        {!indicatorMenuOpen && customIndicatorAdd.message ? <span role="status" className="min-w-0 max-w-xs break-words text-xs leading-5 text-[var(--text-secondary)]">{customIndicatorAdd.message}</span> : null}
 
         {onOpenIndicatorEditor ? (
           <button className="chart-dropdown-trigger" onClick={() => { changeToolGroup(null); onOpenIndicatorEditor(); }} type="button">
@@ -1759,7 +1769,7 @@ export function ChartToolbar({
               return (
                 <button
                   aria-label={
-                    disabled
+                    indicator.pending ? `Adding ${indicator.label}` : indicator.busy ? `${indicator.label} is waiting for the current indicator to finish adding` : disabled
                       ? count > 0 ? `${indicator.label} is already active` : `${indicator.label} cannot be added in this chart`
                       : count > 0
                         ? `Add another ${indicator.label} indicator; ${count} active`
@@ -1769,10 +1779,10 @@ export function ChartToolbar({
                   disabled={disabled}
                   key={indicator.id}
                   onClick={indicator.add}
-                  title={disabled && count > 0 ? `${indicator.label} supports one instance` : indicator.description}
+                  title={indicator.busy ? "Wait for the current indicator to finish adding." : disabled && count > 0 ? `${indicator.label} supports one instance` : indicator.description}
                   type="button"
                 >
-                  <span>{indicator.label}</span>
+                  <span>{indicator.pending ? "Adding…" : indicator.label}</span>
                   {count > 0 && <span className="text-[10px] tabular-nums">{count}</span>}
                 </button>
               );

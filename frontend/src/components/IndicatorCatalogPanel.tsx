@@ -22,7 +22,7 @@ import {
   scriptIndicatorFavorite,
   type FavoriteIndicator,
 } from "../lib/indicatorFavorites";
-import type { CustomIndicatorScript } from "../lib/customIndicators";
+import { isPineScriptSource, type CustomIndicatorScript } from "../lib/customIndicators";
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
@@ -31,6 +31,8 @@ type Props = {
   favorites: readonly FavoriteIndicator[];
   indicatorInstances: ChartIndicatorInstance[];
   customScripts?: readonly CustomIndicatorScript[];
+  customAddPendingId?: string;
+  customAddMessage?: string;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onAddCustomIndicator?: (script: CustomIndicatorScript) => void;
   onClose: (restoreFocus: boolean) => void;
@@ -44,6 +46,8 @@ export function IndicatorCatalogPanel({
   favorites,
   indicatorInstances,
   customScripts = [],
+  customAddPendingId,
+  customAddMessage,
   onAddIndicator,
   onAddCustomIndicator,
   onClose,
@@ -336,6 +340,8 @@ export function IndicatorCatalogPanel({
         </div>
       </div>
 
+      {customAddMessage ? <p role="status" className="break-words border-b border-[var(--ui-border-subtle)] px-4 py-2 text-xs leading-5 text-[var(--text-secondary)]">{customAddMessage}</p> : null}
+
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-[var(--text-secondary)]">
           <span aria-live="polite">
@@ -447,7 +453,7 @@ export function IndicatorCatalogPanel({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <h3 className="truncate text-sm font-semibold text-[var(--text-primary)]">{script.name}</h3>
-                        <span className="text-[10px] font-medium text-[var(--text-secondary)]">{script.origin === "first-party" ? "EdgeLab script" : `My script · v${script.revision}`}</span>
+                        <span className="text-[10px] font-medium text-[var(--text-secondary)]">{script.origin === "first-party" ? isPineScriptSource(script.source) ? "Built-in indicator" : "EdgeLab script" : `My script · v${script.revision}`}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <button
@@ -470,7 +476,7 @@ export function IndicatorCatalogPanel({
                       </div>
                     </div>
                     <p className="mt-1 min-h-10 text-xs leading-5 text-[var(--text-secondary)]">{script.description}</p>
-                    <button aria-label={`Add ${script.name} EdgeLab script${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex min-h-9 [@media(pointer:coarse)]:min-h-11 items-center justify-center gap-1.5 self-start rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-selection)] px-2.5 text-xs font-semibold text-[var(--text-accent)] outline-none transition hover:border-[var(--ui-focus)] hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{count ? `Add ${count + 1}` : "Add"}</button>
+                    <button aria-label={customAddPendingId === script.id ? `Adding ${script.name}` : `Add ${script.name} ${script.origin === "first-party" && isPineScriptSource(script.source) ? "built-in indicator" : "EdgeLab script"}${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex min-h-9 [@media(pointer:coarse)]:min-h-11 items-center justify-center gap-1.5 self-start rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-selection)] px-2.5 text-xs font-semibold text-[var(--text-accent)] outline-none transition hover:border-[var(--ui-focus)] hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator || !!customAddPendingId} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{customAddPendingId === script.id ? "Adding…" : count ? `Add ${count + 1}` : "Add"}</button>
                   </div>
                 </article>
               );

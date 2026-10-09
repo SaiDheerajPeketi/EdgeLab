@@ -5,6 +5,7 @@ import {
   subscribeAppStorageItem,
 } from "./serverStorage";
 import { parseEdgeIndicator, type EdgeIndicatorInputValue } from "./indicatorDsl";
+import { PINE_INDICATOR_STARTERS } from "./pineStarters";
 import { normalizeChartTimeframe, type ChartIndicatorInstance } from "./charting";
 import { sanitizePineCatalogProvenance, type PineCatalogProvenance } from "./pineCatalog";
 import { canonicalPineTimeframe, validatePineStrategySettings, PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineContext, type PineStrategySettings, type PinePrepareResult } from "./pineProtocol";
@@ -123,6 +124,18 @@ const firstParty = (
 });
 
 export const FIRST_PARTY_EDGE_INDICATORS: readonly CustomIndicatorScript[] = [
+  ...PINE_INDICATOR_STARTERS.filter((item) => ["pine-stochastic", "pine-stochastic-rsi", "pine-dmi", "pine-sar", "pine-ichimoku"].includes(item.id)).map((item) => {
+    const momentum = ["pine-stochastic", "pine-stochastic-rsi", "pine-dmi"].includes(item.id);
+    const synonyms: Record<string, string[]> = {
+      "pine-stochastic": ["stoch", "percent k", "percent d", "overbought oversold"],
+      "pine-stochastic-rsi": ["stoch rsi", "stochrsi", "relative strength"],
+      "pine-dmi": ["dmi", "di", "adx", "directional movement", "trend strength"],
+      "pine-sar": ["psar", "sar", "stop and reverse"],
+      "pine-ichimoku": ["ichimoku", "cloud", "tenkan", "kijun", "senkou", "chikou"],
+    };
+    return firstParty(item.id, item.name, momentum ? "momentum" : "structure", item.description,
+      momentum ? "oscillator" : "trend", item.source, "#38bdf8", synonyms[item.id]);
+  }),
   firstParty("linear-regression", "Linear Regression", "basic", "Rolling least-squares trend value at the current bar.", "trend", source("Linear Regression", "overlay", "linreg(source, period)", "#38bdf8", 50), "#38bdf8", ["least squares", "regression line", "trend"]),
   firstParty("rolling-high", "Rolling High", "structure", "Highest high across a configurable lookback window.", "channel", source("Rolling High", "overlay", "highest(high, period)", "#22c55e", 20), "#22c55e", ["highest high", "resistance", "breakout"]),
   firstParty("rolling-low", "Rolling Low", "structure", "Lowest low across a configurable lookback window.", "channel", source("Rolling Low", "overlay", "lowest(low, period)", "#fb7185", 20), "#fb7185", ["lowest low", "support", "breakout"]),
