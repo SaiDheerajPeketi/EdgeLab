@@ -771,12 +771,13 @@ export function MarketingShell({
                 </a>
               </div>
               <button
-                className="inline-flex min-h-11 items-center gap-2 justify-self-start text-sm transition-colors hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:justify-self-end"
+                className="inline-flex h-11 w-11 items-center justify-center justify-self-start rounded-el-md transition-colors hover:bg-white/5 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:justify-self-end"
+                title={reducedMotion ? "Resume animations" : "Pause animations"}
                 type="button"
                 onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
               >
                 {reducedMotion ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}
-                {reducedMotion ? "Resume animations" : "Pause animations"}
+                <span className="sr-only">{reducedMotion ? "Resume animations" : "Pause animations"}</span>
               </button>
             </nav>
           </div>

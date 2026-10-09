@@ -233,9 +233,16 @@ test("short desktop hover fits the viewport and keyboard focus holds the preview
   await page.locator("#workspace-content").focus();
   const narrow = await stableChartState(page);
   await trigger.hover();
-  await expect(pane).toHaveCount(0);
+  await expect(pane).toBeVisible();
+  await expect(pane).toHaveAttribute("data-hover-preview", "true");
+  const narrowBox = (await pane.boundingBox())!;
+  expect(narrowBox.x).toBeGreaterThanOrEqual(0);
+  expect(narrowBox.x + narrowBox.width).toBeLessThanOrEqual(1023.01);
+  expect(narrowBox.y + narrowBox.height).toBeLessThanOrEqual(592.01);
   unchanged(await chartState(page), narrow);
   await capture(page, info, "tools-below-breakpoint-1023", { before: narrow, final: await chartState(page) });
+  await leaveTools(page);
+  await expect(pane).toHaveCount(0);
   expect(fixture.events).toEqual([]);
 });
 

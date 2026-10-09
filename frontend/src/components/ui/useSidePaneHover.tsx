@@ -38,7 +38,7 @@ export function useSidePaneHover({ open, onOpenChange, label, contextKey, width 
     }, 180);
   };
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 1024px) and (hover: hover)");
+    const media = window.matchMedia("(hover: hover)");
     const changed = () => { if (!media.matches) dismiss(); };
     media.addEventListener("change", changed);
     return () => { cancelLeave(); media.removeEventListener("change", changed); };
@@ -58,7 +58,7 @@ export function useSidePaneHover({ open, onOpenChange, label, contextKey, width 
     "aria-haspopup": "dialog" as const,
     onPointerEnter: (event: PointerEvent<HTMLButtonElement>) => {
       if (open || event.pointerType !== "mouse"
-        || !window.matchMedia("(min-width: 1024px) and (hover: hover)").matches) return;
+        || !window.matchMedia("(hover: hover)").matches) return;
       cancelLeave();
       anchorRef.current = event.currentTarget;
       setHover({ key: contextKey, visible: true });
