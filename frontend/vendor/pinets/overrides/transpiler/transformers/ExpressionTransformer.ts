@@ -1820,6 +1820,7 @@ function transformCallExpressionInner(node: any, scopeManager: ScopeManager, nam
         const fullPath = `${namespace}.${methodNameForCallsite}`;
         if (CALLSITE_ID_NAMESPACES.includes(namespace) || CALLSITE_ID_NAMESPACES.includes(fullPath)) {
             const callsiteId = scopeManager.getNextPlotCallId();
+            if (node._edgelabAlertPlot) scopeManager.registerAlertPlot(node._edgelabAlertPlot, callsiteId.value);
             node.arguments.push({
                 type: 'ObjectExpression',
                 properties: [{
@@ -1958,6 +1959,15 @@ function transformCallExpressionInner(node: any, scopeManager: ScopeManager, nam
             }
             return transformFunctionArgument(arg, CONTEXT_NAME, scopeManager);
         });
+        // Standalone native plotchar/shape/arrow/bar/candle helpers share the
+        // same allocator as plot.* without pretending they are namespaces.
+        if (node._edgelabAlertPlot && scopeManager.isContextBound(node.callee.name)) {
+            const callsiteId = scopeManager.getNextPlotCallId();
+            scopeManager.registerAlertPlot(node._edgelabAlertPlot, callsiteId.value);
+            node.arguments.push({ type: 'ObjectExpression', properties: [{ type: 'Property',
+                key: { type: 'Identifier', name: '__callsiteId' }, value: callsiteId,
+                kind: 'init', computed: false, shorthand: false }] });
+        }
 
         // `type Vis` with a user method declared on it: name the factory so a receiver can be
         // recognised as a `Vis` at runtime (`Context.callMethod`).

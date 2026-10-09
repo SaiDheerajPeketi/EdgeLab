@@ -1016,14 +1016,18 @@ function bindBarPlotOptions(context: Context) {
     const title = options.title as string | undefined;
     let channel = channels.get(ordinal);
     if (!channel) {
-      let id = `edgelab-ohlc-bar:${ordinal}`;
-      while (Object.prototype.hasOwnProperty.call(plots, id) || (title && Object.prototype.hasOwnProperty.call(plots, title + id))) id += ":";
+      let id = sentinel?.__callsiteId as string | undefined;
+      if (!id) {
+        id = `edgelab-ohlc-bar:${ordinal}`;
+        while (Object.prototype.hasOwnProperty.call(plots, id) || (title && Object.prototype.hasOwnProperty.call(plots, title + id))) id += ":";
+      }
       channel = { id, flags }; channels.set(ordinal, channel);
-    } else if (Object.keys(channel.flags).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, channel!.flags[name]))) error("UNSUPPORTED_BAR_OPTION", "OHLC bar options other than color must remain constant throughout the snapshot.");
+    } else if (sentinel && sentinel.__callsiteId !== channel.id) error("UNSUPPORTED_BAR_OPTION", "OHLC bars must preserve their authored calls throughout the snapshot.");
+    if (Object.keys(channel.flags).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, channel!.flags[name]))) error("UNSUPPORTED_BAR_OPTION", "OHLC bar options other than color must remain constant throughout the snapshot.");
     const key = title ? (!plots[title] || plots[title]._callsiteId === channel.id ? title : title + channel.id) : channel.id;
     const forwarded = [fields.open, fields.high, fields.low, fields.close, options];
-    // This helper lacks transpiler callsite identities. Supply an own-context
-    // global-call identity so untitled and duplicate-title calls cannot merge.
+    // Keep the compiler identity; only older/function inputs need the bounded
+    // own-context fallback for untitled and duplicate-title calls.
     forwarded.push({ __callsiteId: channel.id });
     const result = Reflect.apply(original, this, forwarded);
     const plot = plots[key];
@@ -1467,8 +1471,10 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
     checked(); return value;
   };
   // The engine reads this tag to select v5/v6 semantics before the first execution.
-  const version = Object.getOwnPropertyDescriptor(original, "_pineVersion");
-  if (version) Object.defineProperty(wrapped, "_pineVersion", version);
+  for (const key of ["_pineVersion", "_edgelabAlertConditions", "_edgelabAlertPlots"]) {
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (descriptor) Object.defineProperty(wrapped, key, descriptor);
+  }
   prepared.fn = wrapped;
 }
 
@@ -1477,6 +1483,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const indicator = new Indicator(request.source, request.inputs ?? {});
   let prepared: PreparedScript;
   try { prepared = indicator.prepare({ debug: false, ln: false }); } catch (cause) {
+    if (cause instanceof Error && Object.getOwnPropertyDescriptor(cause, "code")?.value === "PLOT_LIMIT") error("PLOT_LIMIT", cause.message);
     error("COMPILE_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine compilation failed.");
   }
   const dependency = Object.getOwnPropertyDescriptor(prepared.fn, "_edgelabUsesVisibleRange")?.value;

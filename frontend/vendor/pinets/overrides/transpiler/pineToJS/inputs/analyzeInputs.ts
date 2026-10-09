@@ -4,7 +4,7 @@
 
 import { Identifier, Literal, ObjectExpression, Property } from '../ast';
 import { pineNamespaceHasMember } from './edgelabNamespaceMembers';
-import { ConstEnv, ConstType, ConstValue, dottedName, evalConst, finalizeConst, SOURCE_BUILTINS } from './constEval';
+import { COLOR_LITERAL, ConstEnv, ConstType, ConstValue, dottedName, evalConst, finalizeConst, SOURCE_BUILTINS } from './constEval';
 import { describeArgument, inferQualified, QualifierEnv, startPos, ValueType } from './qualifiers';
 
 /**
@@ -108,6 +108,16 @@ const POSITIONAL_BY_FN: Record<string, readonly string[]> = {
 };
 // The bare wrapper's source overload orders `inline` / `group` before `tooltip`.
 const BARE_SOURCE_LAYOUT = ['defval', 'title', 'inline', 'group', 'tooltip', 'display', 'active'];
+// Public argument order of the pinned native plot helpers. These signatures
+// authorize native fallback only when an unrelated same-name method cannot bind.
+const NATIVE_PLOT_PARAMETERS: Record<string, readonly string[]> = {
+    plot: 'series title color linewidth style trackprice histbase offset join editable show_last display format precision force_overlay'.split(' '),
+    plotchar: 'series title char location color offset text textcolor editable size show_last display format precision force_overlay'.split(' '),
+    plotshape: 'series title style location color offset text textcolor editable size show_last display format precision force_overlay'.split(' '),
+    plotarrow: 'series title colorup colordown offset minheight maxheight editable show_last display format precision force_overlay'.split(' '),
+    plotbar: 'open high low close title color editable show_last display format precision force_overlay'.split(' '),
+    plotcandle: 'open high low close title color wickcolor editable show_last bordercolor display format precision force_overlay'.split(' '),
+};
 // input.int / input.float: the 3rd positional is `options` (array) or `minval`.
 const INT_FLOAT_OPTIONS = ['defval', 'title', 'options', 'tooltip', 'inline', 'group', 'confirm', 'display', 'active'];
 const INT_FLOAT_RANGE = ['defval', 'title', 'minval', 'maxval', 'step', 'tooltip', 'inline', 'group', 'confirm', 'display', 'active'];
@@ -138,7 +148,7 @@ function expectedArgType(fn: string, param: string): string | undefined {
 
 /** Enum types are checked on the original Pine AST, including unreachable branches. */
 function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
-    type Binding = { type?: string; namespace?: string; init?: any; declaration?: any };
+    type Binding = { type?: string; namespace?: string; init?: any; declaration?: any; scope?: Env };
     type Fn = { node: any; scope: Env; origin?: any };
     class Env {
         vars = new Map<string, Binding>();
@@ -151,6 +161,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
     const objectNames = new Set<string>();
     const objectFields = new Map<string, Map<string, string>>();
     const mutated = new WeakSet<object>();
+    const nativeColorAliases = new Set<Binding>();
     const globalEnums = new Set((ast.body ?? []).flatMap((node: any) =>
         node.type === 'VariableDeclaration' ? (node.declarations ?? []).map((declaration: any) => declaration.init).filter((init: any) => init?._pineEnumName) : []));
     forEachNode(ast, node => {
@@ -246,6 +257,22 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
             },
         };
         return evalConst(node, env)?.type === 'int';
+    }
+    function nativeHexColor(node: any, scope: Env, active = new Set<Binding>(), depth = 0): boolean {
+        if (!node || depth > 64) return false;
+        if (++expressionVisits > 100_000) throw new Error('Native plot color analysis exceeded its expression budget.');
+        if (node.type === 'Literal') return typeof node.value === 'string' && COLOR_LITERAL.test(node.value);
+        if (node.type === 'ConditionalExpression') return nativeHexColor(node.consequent, scope, active, depth + 1)
+            && nativeHexColor(node.alternate, scope, active, depth + 1);
+        if (node.type !== 'Identifier') return false;
+        if (node.name === 'na') return true;
+        const binding = scope.binding(node.name);
+        if (!binding?.init || mutated.has(binding.init) || active.has(binding)) return false;
+        active.add(binding);
+        const valid = nativeHexColor(binding.init, binding.scope ?? scope, active, depth + 1);
+        active.delete(binding);
+        if (valid) nativeColorAliases.add(binding);
+        return valid;
     }
     function specialize(fn: Fn, args: Array<string | undefined>): Fn {
         const params = fn.node.params ?? [];
@@ -491,18 +518,37 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                 let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name).filter(fn => !fn.node.id?.isMethod) : [];
                 if (userCall && !functions.length) {
                     const directMethods = scope.functionsFor(node.callee.name).filter(fn => fn.node.id?.isMethod);
-                    const fields = ['condition', 'title', 'message'];
+                    const fields = node.callee.name === 'alertcondition' ? ['condition', 'title', 'message'] : NATIVE_PLOT_PARAMETERS[node.callee.name];
                     const conditionType = actual[0] ?? namedTypes.get('condition');
-                    const nativeCondition = node.callee.name === 'alertcondition' && actual.length <= fields.length
-                        && (actual.length > 0 || namedTypes.has('condition'))
-                        && [...namedTypes.keys()].every(key => fields.includes(key))
-                        && (conditionType === undefined || conditionType === 'bool'
-                            || version != null && version < 6 && ['int', 'float', '@na'].includes(conditionType))
-                        && !directMethods.some(fn => acceptsArguments(fn, actual, namedTypes, true));
-                    if (nativeCondition) {
+                    const supplied = new Map(actual.map((type, index) => [fields?.[index], type]));
+                    for (const [key, type] of namedTypes) supplied.set(key, type);
+                    const suppliedNodes = new Map(positional.map((argument: any, index: number) => [fields?.[index], argument]));
+                    for (const property of named) suppliedNodes.set(property.key?.name, property.value);
+                    const numeric = (type: string | undefined) => type === undefined || ['int', 'float', '@na'].includes(type);
+                    const nativeType = (key: string, type: string | undefined): boolean => {
+                        if (type === undefined) return true;
+                        if (key === 'series') return numeric(type) || type === 'bool' && ['plotchar', 'plotshape'].includes(node.callee.name);
+                        if (['open', 'high', 'low', 'close', 'histbase'].includes(key)) return numeric(type);
+                        if (['linewidth', 'offset', 'show_last', 'precision', 'minheight', 'maxheight'].includes(key)) return ['int', '@na'].includes(type);
+                        if (['trackprice', 'join', 'editable', 'force_overlay'].includes(key)) return type === 'bool' || version != null && version < 6 && numeric(type);
+                        if (['color', 'textcolor', 'colorup', 'colordown', 'wickcolor', 'bordercolor'].includes(key)) return type === 'color' || type === '@na'
+                            || type === 'string' && nativeHexColor(suppliedNodes.get(key), scope);
+                        return type === 'string';
+                    };
+                    const nativeCall = Array.isArray(fields) && actual.length <= fields.length
+                        && [...namedTypes.keys()].every(key => fields.includes(key) && !fields.slice(0, actual.length).includes(key))
+                        && !directMethods.some(fn => acceptsArguments(fn, actual, namedTypes, true))
+                        && (node.callee.name === 'alertcondition'
+                            ? (actual.length > 0 || namedTypes.has('condition')) && (conditionType === undefined || conditionType === 'bool'
+                                || version != null && version < 6 && ['int', 'float', '@na'].includes(conditionType))
+                            : fields.slice(0, ['plotbar', 'plotcandle'].includes(node.callee.name) ? 4 : 1).every(key => supplied.has(key))
+                                && [...supplied].every(([key, type]) => typeof key === 'string' && nativeType(key, type)));
+                    if (nativeCall) {
                         // An unrelated same-name method cannot replace the native
-                        // signature when codegen orders its named arguments.
-                        node._pineOverloadParams = fields;
+                        // signature. Native plots retain the named options object:
+                        // omitted options must not become supplied undefined slots.
+                        if (node.callee.name === 'alertcondition') node._pineOverloadParams = fields;
+                        else node._pineNativeNamedArgs = true;
                     } else functions = directMethods;
                 }
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
@@ -671,7 +717,7 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                     const declared = normalize(declaration.id.varType ?? declaration.varType);
                     compatible(declared, actual, 'declaration ' + name);
                     if (udtBinding(name, declared ?? actual)) declaration._pineUdtNamespaceBinding = true;
-                    scope.vars.set(name, { type: declared ?? actual, init: declaration.init, declaration });
+                    scope.vars.set(name, { type: declared ?? actual, init: declaration.init, declaration, scope });
                 }
             } else if (node.type === 'FunctionDeclaration') {
                 functionResult({ node, scope });
@@ -690,6 +736,8 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
         return result;
     }
     statements(ast.body ?? [], new Env(null));
+    for (const binding of nativeColorAliases) if (mutated.has(binding.init))
+        throw new Error('Cannot resolve native plot method fallback from a reassigned hex color alias.');
     const checkEmitted = (node: any) => {
         if (!node || typeof node !== 'object') return;
         if (node.type === 'FunctionDeclaration' && node._pineSpecializations?.length) {

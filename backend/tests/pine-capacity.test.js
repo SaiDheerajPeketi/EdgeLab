@@ -67,7 +67,9 @@ for (const [name, hash] of originals) test(`unmodified ${name} preserves nine ra
     assert.ok(bars.some((_, index) => typeof pine.pointAtBar(fill, index).options.color === "string"));
   }
   if (name !== "halftrend") {
-    assert.equal(native.plots.find((plot) => plot.id === "#2").options.display, "none");
+    const hidden = expected.filter(([, plot]) => plot.options?.display === "none");
+    assert.equal(hidden.length, 1, "The unchanged source has one hidden native plot channel");
+    assert.equal(native.plots.find((plot) => plot.id === hidden[0][0]).options.display, "none");
     assert.ok(fills.every((fill) => bars.some((_, index) => pine.pointAtBar(fill, index).options.color === null)));
   } else {
     assert.ok(bars.some((_, index) => typeof pine.pointAtBar(native.plots.find((plot) => plot.id === "Arrow Up"), index).value === "number"));

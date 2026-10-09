@@ -14,7 +14,7 @@
       "source": "src/transpiler/pineToJS/codegen.ts",
       "file": "overrides/transpiler/pineToJS/codegen.ts",
       "upstreamSha256": "cd2ed1f31979dece0df5420bde9af785a4eb2798e0b8985834430695ef83f3a5",
-      "sha256": "269b1878cac708700015e1dd15985406eacc1d1b7952084384ee25a114118a7d"
+      "sha256": "74557c4052b2e196603e60a25a81e845b40042bbde7243687cac63607d6dad87"
     },
     {
       "source": "src/transpiler/pineToJS/parser.ts",
@@ -26,7 +26,7 @@
       "source": "src/transpiler/index.ts",
       "file": "overrides/transpiler/index.ts",
       "upstreamSha256": "f17badec7f474d68cbcedfc8fc2f769a5af47f04c8e4240872873d287cd4f9d0",
-      "sha256": "68e67dce2fef8e7243fa64be3298f21f5d6f5b382f2513e20665a7e17e0f232b"
+      "sha256": "74aa883c3dd8ca0ef21798df28163941f44fe2683b50531d5d89fa0c1778f4d0"
     },
     {
       "source": "src/transpiler/transformers/StatementTransformer.ts",
@@ -68,7 +68,7 @@
       "source": "src/transpiler/transformers/ExpressionTransformer.ts",
       "file": "overrides/transpiler/transformers/ExpressionTransformer.ts",
       "upstreamSha256": "372ab1fc56abb72cc2233bd3ee38558eb02f4a58783cdefb55a0c35c34d9f623",
-      "sha256": "34815bbddf1cf2b113db85f21b1746d79bc4c0b0eee2c7b3ace638265ab9a0ed"
+      "sha256": "1ab987f47155ff8773af4b6c4a29ddcc1ff347e29277380705919ae3ff1e66ce"
     },
     {
       "source": "src/namespaces/strategy/utils.ts",
@@ -98,7 +98,7 @@
       "source": "src/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "file": "overrides/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "upstreamSha256": "f6a75e0b4a9250a8115c2efecf0a26162cac7f519f43f5ee35ca4974f81bd940",
-      "sha256": "98e1a9df155c94e1c2230bffc7e68230c281b34b7607446162bbfe46e0cb0453"
+      "sha256": "c77ae5d48cb48e2685eeaa65131c30ae3396ae80f949448901a1a978be8841a3"
     },
     {
       "source": "src/Indicator/scanInputs.ts",
@@ -218,7 +218,7 @@
       "source": "src/transpiler/analysis/ScopeManager.ts",
       "file": "overrides/transpiler/analysis/ScopeManager.ts",
       "upstreamSha256": "39ddf287f9d7cbc4a35589588ffb964c9cedc9e66761416a3140a3f4886d9456",
-      "sha256": "e4466da89a6c70070ce39d23432163202c4e9437e54f6ff67d9cdda19af1dd10"
+      "sha256": "3ea814943a0b264ccecb3c2acdb17380500973ec80e8d60bbb561273510f2665"
     },
     {
       "source": "src/transpiler/transformers/MainTransformer.ts",

@@ -75,8 +75,9 @@ function declarationCalculation(ast: any, version: number) {
     const functions = new Set((ast.body ?? []).filter((node: any) => node.type === 'FunctionDeclaration' && !node.id?.isMethod).map((node: any) => node.id?.name));
     const globalCalls = new Set((ast.body ?? []).filter((node: any) => node.type === 'ExpressionStatement').map((node: any) => node.expression));
     const nativeConditions = new Set<any>();
+    const nativePlots = new Map<any, { shadowed: Set<string>; owner: any; bindings?: Map<string, ConstValue> }>();
     const alertConditions: Readonly<{ id: string; title: string; message: string }>[] = [];
-    let effects = false, visits = 0;
+    let effects = false, visits = 0, owner: any;
     const walk = (node: any, shadowed = new Set<string>()) => {
         if (!node?.type) return;
         if (++visits > 65536) throw new Error('Declaration AST exceeds 65,536 nodes.');
@@ -110,6 +111,8 @@ function declarationCalculation(ast: any, version: number) {
                 if (!globalCalls.has(node)) throw new Error('alertcondition() must be called in global scope.');
                 nativeConditions.add(node);
             }
+            if (!custom && ['plot', 'plotchar', 'plotshape', 'plotarrow', 'plotbar', 'plotcandle'].includes(name)
+                && !functions.has(name) && !shadowed.has(name)) nativePlots.set(node, { shadowed: new Set(shadowed), owner });
         }
         for (const [key, child] of Object.entries(node)) {
             if (key === 'parent' || key.startsWith('_')) continue;
@@ -118,7 +121,7 @@ function declarationCalculation(ast: any, version: number) {
             else if (child && typeof child === 'object' && (child as any).type) walk(child, shadowed);
         }
     };
-    walk(ast);
+    for (const statement of ast.body ?? []) { owner = statement; walk(statement); }
     const env = { lookup: (name: string) => bindings.get(name), enums: new Map<string, unknown>(), truncatingIntDivision: version < 6 };
     let result: { timeframe?: string; gaps?: boolean; hasTimeframe: boolean; hasGaps: boolean } | undefined;
     for (const node of ast.body ?? []) {
@@ -130,6 +133,7 @@ function declarationCalculation(ast: any, version: number) {
                 if (value?.exact) bindings.set(binding.id.name, value);
             }
         }
+        for (const plot of nativePlots.values()) if (plot.owner === node) plot.bindings = new Map(bindings);
         const call = node.type === 'ExpressionStatement' ? node.expression : node.declarations?.[0]?.init;
         if (nativeConditions.has(call)) {
             if (alertConditions.length >= 64) throw new Error('The script exceeds 64 named alert conditions.');
@@ -176,7 +180,26 @@ function declarationCalculation(ast: any, version: number) {
             result.gaps = gaps.value as boolean;
         }
     }
-    return { calculation: result ?? { hasTimeframe: false, hasGaps: false }, alertConditions: Object.freeze(alertConditions) };
+    if (nativePlots.size > 64) throw Object.assign(new Error('The script exceeds 64 authored alert plot channels.'), { code: 'PLOT_LIMIT' });
+    const position = (call: any): number[] => String(call.callee?._pos ?? '').split(':').map(Number);
+    const alertPlots = new Map<string, { order: number; title?: string; width: 1 | 4 }>();
+    const orderedPlots = [...nativePlots].sort(([a], [b]) => {
+        const [al, ac] = position(a), [bl, bc] = position(b); return al - bl || ac - bc;
+    });
+    orderedPlots.forEach(([call, plot], order) => {
+        const key = call.callee?._pos, [line, column] = position(call);
+        if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || alertPlots.has(key))
+            throw new Error('An authored alert plot has no unique source position.');
+        const width: 1 | 4 = ['plotbar', 'plotcandle'].includes(call.callee.name) ? 4 : 1;
+        const args = call.arguments ?? [], named = args.at(-1)?.type === 'ObjectExpression' ? args.at(-1) : undefined;
+        const positional = args.slice(0, named ? -1 : args.length);
+        const titleNode = named?.properties.find((property: any) => (property.key?.name ?? property.key?.value) === 'title')?.value
+            ?? positional[width === 4 ? 4 : 1];
+        const titleValue = titleNode && evalConst(titleNode, { ...env, lookup: (name: string) => plot.shadowed.has(name) ? undefined : plot.bindings?.get(name) });
+        const title = titleValue?.exact && titleValue.type === 'string' ? String(finalizeConst(titleValue)) : undefined;
+        alertPlots.set(key, { order, width, ...(title !== undefined && title.length <= 4096 ? { title } : {}) });
+    });
+    return { calculation: result ?? { hasTimeframe: false, hasGaps: false }, alertConditions: Object.freeze(alertConditions), alertPlots };
 }
 
 /**
@@ -185,7 +208,8 @@ function declarationCalculation(ast: any, version: number) {
  * such code is JavaScript-like and follows JS semantics, not a Pine version.
  */
 function getPineTSFromSource(source: string | Function): { code: string; version: number | null;
-    calculation?: ReturnType<typeof declarationCalculation>['calculation']; alertConditions?: ReturnType<typeof declarationCalculation>['alertConditions'] } {
+    calculation?: ReturnType<typeof declarationCalculation>['calculation']; alertConditions?: ReturnType<typeof declarationCalculation>['alertConditions'];
+    alertPlots?: ReturnType<typeof declarationCalculation>['alertPlots'] } {
     if (typeof source === 'function') {
         return { code: source.toString(), version: null };
     } else {
@@ -634,7 +658,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
 
     const { debug } = options;
 
-    const { code: sourceCode, version: pineVersion, calculation, alertConditions } = getPineTSFromSource(source);
+    const { code: sourceCode, version: pineVersion, calculation, alertConditions, alertPlots } = getPineTSFromSource(source);
     let code = sourceCode;
 
     // Pre-process: Wrap in context function if not already wrapped
@@ -644,6 +668,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
 
     // Parse the code into an AST
     const intrabarComments: Array<{ name: string; end: number }> = [];
+    const plotComments: Array<{ position: string; end: number }> = [];
     const ast = acorn.parse(code, {
         ecmaVersion: 'latest',
         sourceType: 'module',
@@ -651,6 +676,8 @@ export function transpile(source: string | Function, options: { debug: boolean; 
         onComment: (block: boolean, text: string, _start: number, end: number) => {
             if (pineVersion !== null && block && text.startsWith('__pineVarip:'))
                 intrabarComments.push({ name: text.slice(12), end });
+            if (pineVersion !== null && block && text.startsWith('__edgelabAlertPlot:') && alertPlots?.has(text.slice(19)))
+                plotComments.push({ position: text.slice(19), end });
         },
     });
 
@@ -661,6 +688,11 @@ export function transpile(source: string | Function, options: { debug: boolean; 
         if (node.type === 'VariableDeclaration' && intrabarComments.some(marker =>
             marker.name === node.declarations?.[0]?.id?.name && marker.end <= node.start &&
             /^\s*$/.test(code.slice(marker.end, node.start)))) node.kind = 'varip';
+        if (node.type === 'CallExpression') {
+            const marker = plotComments.find(marker => marker.end <= node.start && /^\s*$/.test(code.slice(marker.end, node.start)));
+            const plot = marker && alertPlots?.get(marker.position);
+            if (plot) node._edgelabAlertPlot = plot;
+        }
         for (const [key, child] of Object.entries(node)) {
             if (key === 'parent') continue;
             if (Array.isArray(child)) child.forEach(preserveIntrabarDeclarations);
@@ -935,6 +967,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
     Object.defineProperty(mainFn, '_edgelabUsesVisibleRange', { value: usesVisibleRange });
     Object.defineProperty(mainFn, '_edgelabCalculation', { value: calculation && Object.freeze(calculation) });
     Object.defineProperty(mainFn, '_edgelabAlertConditions', { value: alertConditions });
+    Object.defineProperty(mainFn, '_edgelabAlertPlots', { value: pineVersion === null ? undefined : scopeManager.getAlertPlots() });
     (mainFn as any)._pineVersion = pineVersion;
     if (slices && Object.keys(slices).length > 0) {
         for (const slice of Object.values(slices)) (slice as any)._pineVersion = pineVersion;

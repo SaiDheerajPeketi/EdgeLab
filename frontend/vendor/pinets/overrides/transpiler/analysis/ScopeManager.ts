@@ -83,6 +83,7 @@ export class ScopeManager {
     private userCallIdCounter: number = 0;
     private plotCallIdCounter: number = 0;
     private alertCallIdCounter: number = 0;
+    private alertPlots = new Map<number, Readonly<{ callsiteId: string; title?: string; width: 1 | 4 }>>();
     private loopGuardCounter: number = 0;
     private hoistingStack: any[][] = [];
     private suppressHoisting: boolean = false;
@@ -231,6 +232,14 @@ export class ScopeManager {
             type: 'Literal',
             value: `alert_${this.alertCallIdCounter++}`,
         };
+    }
+    public registerAlertPlot(plot: { order: number; title?: string; width: 1 | 4 }, callsiteId: string): void {
+        const prior = this.alertPlots.get(plot.order);
+        if (prior && prior.callsiteId !== callsiteId) throw new Error('An authored alert plot maps to multiple runtime callsites.');
+        this.alertPlots.set(plot.order, Object.freeze({ callsiteId, width: plot.width, ...(plot.title === undefined ? {} : { title: plot.title }) }));
+    }
+    public getAlertPlots() {
+        return Object.freeze([...this.alertPlots].sort(([a], [b]) => a - b).map(([, plot]) => plot));
     }
     public getNextLoopGuardName(): string {
         return `__lg${this.loopGuardCounter++}`;

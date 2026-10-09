@@ -1664,6 +1664,10 @@ export class CodeGenerator {
 
     // Generate CallExpression
     generateCallExpression(node) {
+        // Only the pre-lowering Pine AST can authorize an alert plot slot. This
+        // position survives lowering as a compiler comment, never a user title.
+        if (node.callee?.type === 'Identifier' && ['plot', 'plotchar', 'plotshape', 'plotarrow', 'plotbar', 'plotcandle'].includes(node.callee.name)
+            && typeof node.callee._pos === 'string') this.write(`/*__edgelabAlertPlot:${node.callee._pos}*/`);
         if (node._pineMethodCall) {
             // Static method selection uses the ordinary user-call transport:
             // one explicit receiver, ordered args and a written-call history.
@@ -1691,7 +1695,7 @@ export class CodeGenerator {
         // Named args are collected into an ObjectExpression as the last argument by the parser.
         // For user-defined functions, we need to expand them into the correct positional slots.
         const calleeName = node.callee?.type === 'Identifier' ? node.callee.name : null;
-        const paramList = node._pineOverloadParams ?? node._pineEnumMethodParams ?? (calleeName ? this.functionParams.get(calleeName) : null);
+        const paramList = node._pineNativeNamedArgs ? null : node._pineOverloadParams ?? node._pineEnumMethodParams ?? (calleeName ? this.functionParams.get(calleeName) : null);
         const lastArg = node.arguments.length > 0 ? node.arguments[node.arguments.length - 1] : null;
         const hasNamedArgs = lastArg?.type === 'ObjectExpression' && paramList;
 
