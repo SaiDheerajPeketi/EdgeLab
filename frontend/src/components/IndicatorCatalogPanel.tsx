@@ -255,7 +255,7 @@ export function IndicatorCatalogPanel({
       minWidth={320}
       mobileSheet
       onDismiss={(reason) => onClose(reason === "escape")}
-      onKeyDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => { if (event.key !== "Escape") event.stopPropagation(); }}
       open
       preferredWidth={760}
       role="dialog"

@@ -21,7 +21,6 @@ import {
   Save,
   Search,
   Settings2,
-  SlidersHorizontal,
   Star,
   Trash2,
   X,
@@ -32,7 +31,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   TvCrosshairIcon,
   TvCursorIcon,
@@ -430,6 +429,9 @@ export function ChartToolbar({
   timeframe,
   toolsOpen = true,
 }: Props) {
+  const [activeToolGroup, setActiveToolGroup] = useState<ChartToolGroup | null>(null);
+  const studyGroupTriggerRef = useRef<HTMLButtonElement>(null);
+  const symbolSurfaceRef = useRef<HTMLDivElement>(null);
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [indicatorFavorites, setIndicatorFavorites] = useState<FavoriteIndicator[]>(() =>
     loadCachedIndicatorFavorites(),
@@ -721,6 +723,7 @@ export function ChartToolbar({
       setSettingsOpen(false);
       return;
     }
+    setActiveToolGroup(null);
     setCommandOpen(false);
     setDrawingFavoritesOpen(false);
     setIndicatorMenuOpen(false);
@@ -749,6 +752,7 @@ export function ChartToolbar({
     if ((event?.target as HTMLElement | undefined)?.closest(".chart-command-menu")) {
       return;
     }
+    changeToolGroup(null);
     setDrawingFavoritesOpen(false);
     setIndicatorMenuOpen(false);
     setSettingsOpen(false);
@@ -969,15 +973,24 @@ export function ChartToolbar({
     </OverlaySurface>
   ) : null;
 
+  function changeToolGroup(group: ChartToolGroup | null) {
+    setDrawingFavoritesOpen(false);
+    setActiveToolGroup(group);
+    if (group) {
+      setCommandOpen(false);
+      setIndicatorMenuOpen(false);
+      setSymbolMenuOpen(false);
+    }
+  }
+
   function removeStudy(indicatorId: string, button: HTMLButtonElement) {
-    const toolbar = button.closest(".chart-studio-toolbar");
+    const scope = button.closest(".study-manager-strip");
     const active = document.activeElement;
-    if (toolbar?.contains(active) && active instanceof Element && active.closest("[data-study-instance]")?.getAttribute("data-study-instance") === indicatorId) {
-      const scope = button.closest(".study-manager-strip") ?? toolbar;
+    if (scope?.contains(active) && active instanceof Element && active.closest("[data-study-instance]")?.getAttribute("data-study-instance") === indicatorId) {
       const actions = Array.from(scope.querySelectorAll<HTMLButtonElement>("[data-study-action]"));
       const index = actions.indexOf(button);
       const survives = (candidate: HTMLButtonElement) => candidate.isConnected && candidate.getAttribute("data-study-instance") !== indicatorId;
-      const fallback = actions.slice(index + 1).find(survives) ?? actions.slice(0, index).reverse().find(survives) ?? indicatorMenuTriggerRef.current;
+      const fallback = actions.slice(index + 1).find(survives) ?? actions.slice(0, index).reverse().find(survives) ?? studyGroupTriggerRef.current;
       fallback?.focus({ preventScroll: true });
     }
     onRemoveIndicator(indicatorId);
@@ -992,27 +1005,13 @@ export function ChartToolbar({
   }
 
   return (
-    <section className="chart-studio-toolbar">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-md border border-cyan-300/25 bg-cyan-300/10 text-cyan-100">
-              <SlidersHorizontal size={17} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">Chart Workbench</div>
-              <div className="truncate text-xs text-slate-500">
-                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {chartSettings.tradingHoursMode === "regular" ? "RTH" : "ETH"} / {getChartTimeZoneLabel(chartSettings.timeZone)} / {indicatorInstances.length} studies / {drawingsCount} drawings
-              </div>
-            </div>
-          </div>
-        </div>
-
+    <section className="chart-studio-toolbar" aria-label="Chart tools">
+      <div className="chart-toolbar-market">
         {onSymbolChange ? (
-          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+          <div className="chart-toolbar-symbol">
             <label className="sr-only" htmlFor="chart-symbol-search">Chart symbol</label>
             <div className="chart-command-box">
-              <Search aria-hidden="true" size={15} className="text-cyan-200" />
+              <Search aria-hidden="true" size={15} className="text-[var(--accent-primary)]" />
               <input
                 aria-activedescendant={
                   symbolMenuOpen && visibleSymbolOptions[symbolActiveIndex]
@@ -1037,13 +1036,13 @@ export function ChartToolbar({
                 role="combobox"
                 value={symbolQuery}
               />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                 {activePaneLabel}
               </span>
             </div>
             {symbolMenuOpen ? (
-              <div className="chart-command-menu" id="chart-symbol-results" role="listbox">
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <OverlaySurface anchorRef={symbolInputRef} surfaceRef={symbolSurfaceRef} triggerRef={symbolInputRef} open onDismiss={() => closeSymbolMenu()} preferredWidth={360} estimatedHeight={400} id="chart-symbol-results" role="listbox" ariaLabel="Chart symbols" className="chart-command-menu z-[var(--layer-popover)]">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                   Symbols · ↑↓ choose · Enter apply · Esc close
                 </div>
                 {visibleSymbolOptions.length > 0 ? visibleSymbolOptions.map((option, index) => (
@@ -1059,17 +1058,17 @@ export function ChartToolbar({
                     type="button"
                   >
                     <span className="min-w-0 flex-1 text-left">
-                      <strong className="block truncate text-sm text-slate-100">{option.label}</strong>
-                      <span className="block truncate text-xs text-slate-500">{option.name} · {option.assetClass}</span>
+                      <strong className="block truncate text-sm text-[var(--text-primary)]">{option.label}</strong>
+                      <span className="block truncate text-xs text-[var(--text-secondary)]">{option.name} · {option.assetClass}</span>
                     </span>
-                    <span className="text-[10px] uppercase tracking-[0.12em] text-cyan-200/70">{option.source}</span>
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--text-secondary)]">{option.source}</span>
                   </button>
                 )) : (
-                  <div className="px-4 py-5 text-center text-sm text-slate-500" role="status">
+                  <div className="px-4 py-5 text-center text-sm text-[var(--text-secondary)]" role="status">
                     No symbols match “{symbolQuery}”.
                   </div>
                 )}
-              </div>
+              </OverlaySurface>
             ) : null}
           </div>
         ) : null}
@@ -1080,7 +1079,7 @@ export function ChartToolbar({
           onClickCapture={openCommandSearch}
           onPointerDownCapture={openCommandSearch}
         >
-          <Command size={15} className="text-cyan-200" />
+          <Command size={15} className="text-[var(--accent-primary)]" />
           <input
             aria-autocomplete="list"
             aria-controls={commandMenuId}
@@ -1101,10 +1100,10 @@ export function ChartToolbar({
             }}
             onKeyDown={handleCommandInputKeyDown}
             onPointerDown={() => setCommandOpen(true)}
-            placeholder="Search tools, indicators, styles, intervals"
+            placeholder="Search chart controls"
             value={commandQuery}
           />
-          <Search size={14} className="text-slate-500" />
+          <Search size={14} className="text-[var(--text-secondary)]" />
           {commandOpen && (
             <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandInputRef} open onDismiss={closeCommandSearch} preferredWidth={520} estimatedHeight={440} id={commandMenuId} onKeyDown={handleCommandSurfaceKeyDown} role="dialog" ariaLabel="Chart command search results" className="chart-command-menu z-[var(--layer-popover)]">
             <CommandMenu
@@ -1168,13 +1167,294 @@ export function ChartToolbar({
           </form>
         </div>
 
+      </div>
+      <div className="chart-toolbar-actions">
+        <div ref={menuRef} className="relative">
+          <button
+            aria-controls={indicatorCatalogId}
+            aria-expanded={indicatorMenuOpen}
+            aria-haspopup="dialog"
+            className={`chart-dropdown-trigger ${indicatorMenuOpen ? "border-cyan-300/30 bg-cyan-300/10 text-[var(--text-primary)]" : ""}`}
+            onClick={() => {
+              changeToolGroup(null);
+              setIndicatorMenuOpen((value) => !value);
+              setCommandOpen(false);
+              setDrawingFavoritesOpen(false);
+              setSettingsOpen(false);
+            }}
+            ref={indicatorMenuTriggerRef}
+            type="button"
+          >
+            <Layers size={15} />
+            Indicators
+            <ChevronDown size={14} />
+          </button>
+          {indicatorMenuOpen && (
+              <IndicatorCatalogPanel
+                anchorRef={indicatorMenuTriggerRef}
+                customScripts={customIndicatorScripts}
+                favorites={indicatorFavorites}
+                indicatorInstances={indicatorInstances}
+                onAddCustomIndicator={onAddCustomIndicator}
+                onAddIndicator={onAddIndicator}
+                onClose={closeIndicatorMenu}
+                onEditCustomIndicator={onEditCustomIndicator}
+                onToggleFavorite={toggleFavoriteIndicator}
+                id={indicatorCatalogId}
+              />
+          )}
+        </div>
+
+        {onOpenIndicatorEditor ? (
+          <button className="chart-dropdown-trigger" onClick={() => { changeToolGroup(null); onOpenIndicatorEditor(); }} type="button">
+            <Code2 size={15} />
+            Editor
+          </button>
+        ) : null}
+
+        {onOpenQuant ? (
+          <button className="chart-dropdown-trigger" onClick={() => { changeToolGroup(null); onOpenQuant(); }} type="button">
+            <Bot size={15} />
+            Quant
+          </button>
+        ) : null}
+
+        <div ref={settingsAnchorRef} className="relative">
+          <button
+            aria-controls={settingsOverlayId}
+            aria-expanded={settingsOpen}
+            aria-haspopup="dialog"
+            className="chart-dropdown-trigger"
+            onClick={() => {
+              changeToolGroup(null);
+              setCommandOpen(false);
+              setSettingsOpen((value) => !value);
+              setIndicatorMenuOpen(false);
+            }}
+            ref={settingsTriggerRef}
+            type="button"
+          >
+            <Settings2 size={15} />
+            Settings
+          </button>
+          {settingsPanel}
+        </div>
+
+        <div className="chart-toolbar-groups" aria-label="More chart controls">
+          <ChartToolbarGroup label="Drawings" open={activeToolGroup === "drawings"} onOpenChange={(open) => changeToolGroup(open ? "drawings" : null)}>
+        <div className="drawing-tool-strip" aria-label="Drawing tools">
+          {DRAWING_TOOLS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                className={`studio-tool-button ${drawingTool === item.tool ? "studio-tool-button-active" : ""}`}
+                key={item.tool}
+                onClick={() => { onDrawingToolChange(item.tool); if (item.tool !== "icon" && item.tool !== "flag") changeToolGroup(null); }}
+                title={`${item.label}${item.shortcut ? ` (${item.shortcut})` : ""}`}
+                type="button"
+              >
+                <Icon size={15} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+          <button
+            className="studio-tool-button"
+            disabled={clearableDrawingsCount === 0}
+            onClick={onClearDrawings}
+            title={
+              clearableDrawingsCount === 0 && drawingsCount > 0
+                ? "Unlock drawings to clear them"
+                : "Clear unlocked drawings"
+            }
+            type="button"
+          >
+            <Trash2 size={14} />
+            <span>{clearableDrawingsCount}</span>
+          </button>
+          <div
+            className="relative"
+            ref={drawingFavoritesRef}
+          >
+            <button
+              aria-controls="chart-drawing-favorites"
+              aria-expanded={drawingFavoritesOpen}
+              aria-haspopup="dialog"
+              className={`studio-tool-button ${drawingFavoritesOpen ? "studio-tool-button-active" : ""}`}
+              onClick={() => {
+                setDrawingFavoritesOpen((value) => !value);
+                setCommandOpen(false);
+                setIndicatorMenuOpen(false);
+                setSettingsOpen(false);
+              }}
+              title="Edit circular toolbox favorites"
+              type="button"
+              ref={drawingFavoritesTriggerRef}
+            >
+              <Star fill="currentColor" size={14} />
+              <span>Quick wheel</span>
+              <span className="drawing-favorites-count">{drawingFavorites.length}</span>
+            </button>
+            {drawingFavoritesOpen && (
+              <OverlaySurface
+                align="right"
+                anchorRef={drawingFavoritesRef}
+                ariaLabel="Circular toolbox favorites"
+                className="drawing-favorites-panel"
+                estimatedHeight={520}
+                id="chart-drawing-favorites"
+                onDismiss={() => setDrawingFavoritesOpen(false)}
+                open
+                preferredWidth={340}
+                role="dialog"
+                surfaceRef={drawingFavoritesSurfaceRef}
+                triggerRef={drawingFavoritesTriggerRef}
+              >
+                <div className="drawing-favorites-header">
+                  <div>
+                    <strong>Quick wheel</strong>
+                    <span>Hold Alt/Option on the active chart</span>
+                  </div>
+                  <span>{drawingFavorites.length}/{MAX_DRAWING_TOOL_FAVORITES}</span>
+                </div>
+                <div className="drawing-favorites-list">
+                  {favoriteDrawingToolOptions.map((item) => {
+                    const tool = item.tool as FavoriteDrawingTool;
+                    const favoriteIndex = drawingFavorites.indexOf(tool);
+                    const isFavorite = favoriteIndex >= 0;
+                    const atLimit =
+                      !isFavorite && drawingFavorites.length >= MAX_DRAWING_TOOL_FAVORITES;
+                    const Icon = item.icon;
+                    return (
+                      <div
+                        className={`drawing-favorites-row ${isFavorite ? "drawing-favorites-row-active" : ""}`}
+                        key={tool}
+                      >
+                        <button
+                          aria-pressed={isFavorite}
+                          className="drawing-favorites-toggle"
+                          disabled={atLimit || (isFavorite && drawingFavorites.length === 1)}
+                          onClick={() => toggleDrawingFavorite(tool)}
+                          title={
+                            atLimit
+                              ? `Keep up to ${MAX_DRAWING_TOOL_FAVORITES} favorites`
+                              : isFavorite && drawingFavorites.length === 1
+                                ? "Keep at least one favorite"
+                                : `${isFavorite ? "Remove" : "Add"} ${item.label}`
+                          }
+                          type="button"
+                        >
+                          <Star fill={isFavorite ? "currentColor" : "none"} size={14} />
+                          <Icon size={15} />
+                          <span>{item.label}</span>
+                        </button>
+                        {isFavorite && (
+                          <div className="drawing-favorites-order" aria-label={`Reorder ${item.label}`}>
+                            <button
+                              aria-label={`Move ${item.label} earlier`}
+                              disabled={favoriteIndex === 0}
+                              onClick={() => moveDrawingFavorite(tool, -1)}
+                              type="button"
+                            >
+                              <ArrowUp size={13} />
+                            </button>
+                            <span>{favoriteIndex + 1}</span>
+                            <button
+                              aria-label={`Move ${item.label} later`}
+                              disabled={favoriteIndex === drawingFavorites.length - 1}
+                              onClick={() => moveDrawingFavorite(tool, 1)}
+                              type="button"
+                            >
+                              <ArrowDown size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="drawing-favorites-hint">
+                  Hover and release Alt/Option, click a tool, or use arrows and Enter. Number keys 1–8 select directly.
+                </p>
+              </OverlaySurface>
+            )}
+          </div>
+        </div>
+
+        {(drawingTool === "icon" || drawingTool === "flag") && onDrawingMarkerChange ? (
+          <div className="chart-marker-library" role="group" aria-label="Drawing marker library">
+            <input
+              aria-label="Search drawing markers"
+              className="input-control h-8 w-28 text-xs"
+              onChange={(event) => setMarkerQuery(event.target.value)}
+              placeholder="Search markers"
+              value={markerQuery}
+            />
+            {visibleMarkers.map((marker) => (
+              <button
+                aria-label={`Use ${marker.label} marker`}
+                aria-pressed={drawingMarker === marker.value}
+                className={`studio-tool-button h-8 min-w-8 ${drawingMarker === marker.value ? "studio-tool-button-active" : ""}`}
+                key={marker.label}
+                onClick={() => onDrawingMarkerChange(marker.value)}
+                title={marker.label}
+                type="button"
+              >
+                {marker.value}
+              </button>
+            ))}
+            {visibleMarkers.length === 0 ? (
+              <span className="px-2 text-xs text-[var(--text-secondary)]">No markers</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="magnet-mode-strip" aria-label="Magnet mode">
+          <span className="magnet-mode-label">
+            <Magnet size={13} />
+            Magnet
+          </span>
+          {MAGNET_MODES.map((mode) => (
+            <button
+              className={`magnet-mode-button ${magnetMode === mode.id ? "magnet-mode-button-active" : ""}`}
+              key={mode.id}
+              onClick={() => onMagnetModeChange(mode.id)}
+              title={mode.description}
+              type="button"
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+          </ChartToolbarGroup>
+          <ChartToolbarGroup label="Display" open={activeToolGroup === "display"} onOpenChange={(open) => changeToolGroup(open ? "display" : null)}>
+      <div className="chart-style-strip">
+        {CHART_STYLES.map((style) => {
+          const Icon = style.icon;
+          return (
+            <button
+              className={`chart-style-button ${chartStyle === style.id ? "chart-style-button-active" : ""}`}
+              key={style.id}
+              onClick={() => {
+                selectChartStyle(style.id);
+              }}
+              type="button"
+            >
+              <Icon size={14} />
+              {style.label}
+            </button>
+          );
+        })}
+      </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <div
             aria-label="Trading hours for active chart pane"
-            className="flex min-h-9 items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1"
+            className="chart-hours-control"
             role="radiogroup"
           >
-            <span className="px-1 text-xs font-semibold text-slate-400">Hours</span>
+            <span className="px-1 text-xs font-semibold text-[var(--text-secondary)]">Hours</span>
             {TRADING_HOURS_MODES.map((mode, index) => (
               <button
                 aria-checked={chartSettings.tradingHoursMode === mode.id}
@@ -1253,14 +1533,6 @@ export function ChartToolbar({
             </button>
           ) : null}
           <button
-            className="chart-mode-button"
-            onClick={() => selectChartStyle("candles")}
-            type="button"
-          >
-            <CandlestickChart size={15} />
-            {chartStyleLabel(chartStyle)}
-          </button>
-          <button
             className={`chart-mode-button ${orderOverlaysVisible ? "chart-mode-active" : ""}`}
             onClick={onToggleOrderOverlays}
             type="button"
@@ -1268,49 +1540,9 @@ export function ChartToolbar({
             {orderOverlaysVisible ? <Eye size={16} /> : <EyeOff size={16} />}
             Overlays
           </button>
-          <button
-            className="chart-mode-button"
-            onClick={onClearDrawings}
-            disabled={clearableDrawingsCount === 0}
-            title={
-              clearableDrawingsCount === 0 && drawingsCount > 0
-                ? "Unlock drawings to clear them"
-                : "Clear unlocked drawings"
-            }
-            type="button"
-          >
-            Clear {clearableDrawingsCount}
-          </button>
-          <button
-            className="chart-mode-button chart-mode-primary"
-            onClick={onSaveLayout}
-            type="button"
-          >
-            <Save size={15} />
-            {savedLabel ?? "Save Layout"}
-          </button>
         </div>
-      </div>
-
-      <div className="chart-style-strip">
-        {CHART_STYLES.map((style) => {
-          const Icon = style.icon;
-          return (
-            <button
-              className={`chart-style-button ${chartStyle === style.id ? "chart-style-button-active" : ""}`}
-              key={style.id}
-              onClick={() => {
-                selectChartStyle(style.id);
-              }}
-              type="button"
-            >
-              <Icon size={14} />
-              {style.label}
-            </button>
-          );
-        })}
-      </div>
-
+          </ChartToolbarGroup>
+          <ChartToolbarGroup label="Workspace" open={activeToolGroup === "workspace"} onOpenChange={(open) => changeToolGroup(open ? "workspace" : null)}>
       <div className="chart-pane-layout-strip">
         <span className="study-manager-label">Chart layout</span>
         <div
@@ -1479,247 +1711,14 @@ export function ChartToolbar({
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="drawing-tool-strip" aria-label="Drawing tools">
-          {DRAWING_TOOLS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={`studio-tool-button ${drawingTool === item.tool ? "studio-tool-button-active" : ""}`}
-                key={item.tool}
-                onClick={() => onDrawingToolChange(item.tool)}
-                title={`${item.label}${item.shortcut ? ` (${item.shortcut})` : ""}`}
-                type="button"
-              >
-                <Icon size={15} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-          <button
-            className="studio-tool-button"
-            disabled={clearableDrawingsCount === 0}
-            onClick={onClearDrawings}
-            title={
-              clearableDrawingsCount === 0 && drawingsCount > 0
-                ? "Unlock drawings to clear them"
-                : "Clear unlocked drawings"
-            }
-            type="button"
-          >
-            <Trash2 size={14} />
-            <span>{clearableDrawingsCount}</span>
-          </button>
-          <div
-            className="relative"
-            ref={drawingFavoritesRef}
-          >
-            <button
-              aria-controls="chart-drawing-favorites"
-              aria-expanded={drawingFavoritesOpen}
-              aria-haspopup="dialog"
-              className={`studio-tool-button ${drawingFavoritesOpen ? "studio-tool-button-active" : ""}`}
-              onClick={() => {
-                setDrawingFavoritesOpen((value) => !value);
-                setCommandOpen(false);
-                setIndicatorMenuOpen(false);
-                setSettingsOpen(false);
-              }}
-              title="Edit circular toolbox favorites"
-              type="button"
-              ref={drawingFavoritesTriggerRef}
-            >
-              <Star fill="currentColor" size={14} />
-              <span>Quick wheel</span>
-              <span className="drawing-favorites-count">{drawingFavorites.length}</span>
-            </button>
-            {drawingFavoritesOpen && (
-              <OverlaySurface
-                align="right"
-                anchorRef={drawingFavoritesRef}
-                ariaLabel="Circular toolbox favorites"
-                className="drawing-favorites-panel"
-                estimatedHeight={520}
-                id="chart-drawing-favorites"
-                onDismiss={() => setDrawingFavoritesOpen(false)}
-                open
-                preferredWidth={340}
-                role="dialog"
-                surfaceRef={drawingFavoritesSurfaceRef}
-                triggerRef={drawingFavoritesTriggerRef}
-              >
-                <div className="drawing-favorites-header">
-                  <div>
-                    <strong>Quick wheel</strong>
-                    <span>Hold Alt/Option on the active chart</span>
-                  </div>
-                  <span>{drawingFavorites.length}/{MAX_DRAWING_TOOL_FAVORITES}</span>
-                </div>
-                <div className="drawing-favorites-list">
-                  {favoriteDrawingToolOptions.map((item) => {
-                    const tool = item.tool as FavoriteDrawingTool;
-                    const favoriteIndex = drawingFavorites.indexOf(tool);
-                    const isFavorite = favoriteIndex >= 0;
-                    const atLimit =
-                      !isFavorite && drawingFavorites.length >= MAX_DRAWING_TOOL_FAVORITES;
-                    const Icon = item.icon;
-                    return (
-                      <div
-                        className={`drawing-favorites-row ${isFavorite ? "drawing-favorites-row-active" : ""}`}
-                        key={tool}
-                      >
-                        <button
-                          aria-pressed={isFavorite}
-                          className="drawing-favorites-toggle"
-                          disabled={atLimit || (isFavorite && drawingFavorites.length === 1)}
-                          onClick={() => toggleDrawingFavorite(tool)}
-                          title={
-                            atLimit
-                              ? `Keep up to ${MAX_DRAWING_TOOL_FAVORITES} favorites`
-                              : isFavorite && drawingFavorites.length === 1
-                                ? "Keep at least one favorite"
-                                : `${isFavorite ? "Remove" : "Add"} ${item.label}`
-                          }
-                          type="button"
-                        >
-                          <Star fill={isFavorite ? "currentColor" : "none"} size={14} />
-                          <Icon size={15} />
-                          <span>{item.label}</span>
-                        </button>
-                        {isFavorite && (
-                          <div className="drawing-favorites-order" aria-label={`Reorder ${item.label}`}>
-                            <button
-                              aria-label={`Move ${item.label} earlier`}
-                              disabled={favoriteIndex === 0}
-                              onClick={() => moveDrawingFavorite(tool, -1)}
-                              type="button"
-                            >
-                              <ArrowUp size={13} />
-                            </button>
-                            <span>{favoriteIndex + 1}</span>
-                            <button
-                              aria-label={`Move ${item.label} later`}
-                              disabled={favoriteIndex === drawingFavorites.length - 1}
-                              onClick={() => moveDrawingFavorite(tool, 1)}
-                              type="button"
-                            >
-                              <ArrowDown size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="drawing-favorites-hint">
-                  Hover and release Alt/Option, click a tool, or use arrows and Enter. Number keys 1–8 select directly.
-                </p>
-              </OverlaySurface>
-            )}
-          </div>
-        </div>
-
-        {(drawingTool === "icon" || drawingTool === "flag") && onDrawingMarkerChange ? (
-          <div className="flex min-w-48 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1" role="group" aria-label="Drawing marker library">
-            <input
-              aria-label="Search drawing markers"
-              className="input-control h-8 w-28 text-xs"
-              onChange={(event) => setMarkerQuery(event.target.value)}
-              placeholder="Search markers"
-              value={markerQuery}
-            />
-            {visibleMarkers.map((marker) => (
-              <button
-                aria-label={`Use ${marker.label} marker`}
-                aria-pressed={drawingMarker === marker.value}
-                className={`studio-tool-button h-8 min-w-8 ${drawingMarker === marker.value ? "studio-tool-button-active" : ""}`}
-                key={marker.label}
-                onClick={() => onDrawingMarkerChange(marker.value)}
-                title={marker.label}
-                type="button"
-              >
-                {marker.value}
-              </button>
-            ))}
-            {visibleMarkers.length === 0 ? (
-              <span className="px-2 text-xs text-slate-500">No markers</span>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="magnet-mode-strip" aria-label="Magnet mode">
-          <span className="magnet-mode-label">
-            <Magnet size={13} />
-            Magnet
-          </span>
-          {MAGNET_MODES.map((mode) => (
-            <button
-              className={`magnet-mode-button ${magnetMode === mode.id ? "magnet-mode-button-active" : ""}`}
-              key={mode.id}
-              onClick={() => onMagnetModeChange(mode.id)}
-              title={mode.description}
-              type="button"
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-
-        <div ref={menuRef} className="relative">
-          <button
-            aria-controls={indicatorCatalogId}
-            aria-expanded={indicatorMenuOpen}
-            aria-haspopup="dialog"
-            className={`chart-dropdown-trigger ${indicatorMenuOpen ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
-            onClick={() => {
-              setIndicatorMenuOpen((value) => !value);
-              setCommandOpen(false);
-              setDrawingFavoritesOpen(false);
-              setSettingsOpen(false);
-            }}
-            ref={indicatorMenuTriggerRef}
-            type="button"
-          >
-            <Layers size={15} />
-            Indicators
-            <ChevronDown size={14} />
-          </button>
-          {indicatorMenuOpen && (
-              <IndicatorCatalogPanel
-                anchorRef={indicatorMenuTriggerRef}
-                customScripts={customIndicatorScripts}
-                favorites={indicatorFavorites}
-                indicatorInstances={indicatorInstances}
-                onAddCustomIndicator={onAddCustomIndicator}
-                onAddIndicator={onAddIndicator}
-                onClose={closeIndicatorMenu}
-                onEditCustomIndicator={onEditCustomIndicator}
-                onToggleFavorite={toggleFavoriteIndicator}
-                id={indicatorCatalogId}
-              />
-          )}
-        </div>
-
-        {onOpenIndicatorEditor ? (
-          <button className="chart-dropdown-trigger" onClick={onOpenIndicatorEditor} type="button">
-            <Code2 size={15} />
-            Editor
-          </button>
-        ) : null}
-
-        {onOpenQuant ? (
-          <button className="chart-dropdown-trigger" onClick={onOpenQuant} type="button">
-            <Bot size={15} />
-            Quant
-          </button>
-        ) : null}
-
+          </ChartToolbarGroup>
+          <ChartToolbarGroup label="Studies" count={indicatorInstances.length} triggerRef={studyGroupTriggerRef} open={activeToolGroup === "studies"} onOpenChange={(open) => changeToolGroup(open ? "studies" : null)}>
         {favoriteIndicatorOptions.length > 0 && (
           <div
             aria-label="Favorite indicators quick add"
-            className="flex min-h-10 min-w-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1"
+            className="chart-favorite-studies"
           >
-            <span className="inline-flex h-8 items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            <span className="inline-flex h-8 items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
               <Star fill="currentColor" size={12} />
               Quick add
             </span>
@@ -1734,18 +1733,13 @@ export function ChartToolbar({
                         ? `Add another ${indicator.label} indicator; ${count} active`
                         : `Add ${indicator.label} indicator`
                   }
-                  className={`studio-tool-button ${count > 0 ? "text-cyan-100" : ""}`}
+                  className={`studio-tool-button ${count > 0 ? "text-[var(--text-primary)]" : ""}`}
                   disabled={disabled}
                   key={indicator.id}
                   onClick={indicator.add}
                   title={disabled && count > 0 ? `${indicator.label} supports one instance` : indicator.description}
                   type="button"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: indicator.color }}
-                  />
                   <span>{indicator.label}</span>
                   {count > 0 && <span className="text-[10px] tabular-nums">{count}</span>}
                 </button>
@@ -1753,51 +1747,6 @@ export function ChartToolbar({
             })}
           </div>
         )}
-
-        <div ref={settingsAnchorRef} className="relative">
-          <button
-            aria-controls={settingsOverlayId}
-            aria-expanded={settingsOpen}
-            aria-haspopup="dialog"
-            className="chart-dropdown-trigger"
-            onClick={() => {
-              setSettingsOpen((value) => !value);
-              setIndicatorMenuOpen(false);
-            }}
-            ref={settingsTriggerRef}
-            type="button"
-          >
-            <Settings2 size={15} />
-            Settings
-          </button>
-          {settingsPanel}
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {indicatorInstances.map((indicator) => {
-            const settings = indicator.settings ?? FALLBACK_SETTING;
-            return (
-              <button
-                aria-label={`Remove ${indicatorDisplayName(indicator)}`}
-                className="indicator-chip indicator-chip-active"
-                data-study-action="true"
-                data-study-instance={indicator.id}
-                key={indicator.id}
-                onClick={(event) => removeStudy(indicator.id, event.currentTarget)}
-                type="button"
-              >
-                {indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "") ? <Code2 aria-hidden="true" className="shrink-0" size={14} /> : <span
-                  aria-hidden="true"
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: settings.color }}
-                />}
-                {indicatorDisplayName(indicator)}
-                <X size={12} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {indicatorInstances.length > 0 && (
         <div className="study-manager-strip">
@@ -1814,11 +1763,7 @@ export function ChartToolbar({
             const isMacd = indicator.kind === "macd";
             const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
             return (
-              <div className="study-chip" key={indicator.id}>
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: settings.color }}
-                />
+              <div className="study-chip" data-study-instance={indicator.id} key={indicator.id}>
                 <span className="min-w-0 font-semibold">
                   {indicatorDisplayName(indicator)}
                 </span>
@@ -1842,7 +1787,7 @@ export function ChartToolbar({
                   </>
                 ) : isGapStudy ? (
                   <>
-                    <span className="rounded bg-white/5 px-2 py-1 text-[10px] text-slate-500">
+                    <span className="text-xs text-[var(--text-secondary)]">
                       {settings.unmitigatedOnly === true ? "Unmitigated only" : "All zones"}
                     </span>
                   </>
@@ -1853,7 +1798,7 @@ export function ChartToolbar({
                     value={settings.period}
                   />
                 ) : (
-                  <span className="rounded bg-white/5 px-2 py-1 text-[10px] text-slate-500">
+                  <span className="text-xs text-[var(--text-secondary)]">
                     Session
                   </span>
                 )}
@@ -1882,7 +1827,51 @@ export function ChartToolbar({
           })}
         </div>
       )}
+            {indicatorInstances.length === 0 && <p className="chart-tools-empty">No studies on this chart. Choose Indicators or open the Editor to add one.</p>}
+          </ChartToolbarGroup>
+        </div>
+      </div>
     </section>
+  );
+}
+
+type ChartToolGroup = "drawings" | "display" | "workspace" | "studies";
+
+function ChartToolbarGroup({ label, count, open, onOpenChange, children, triggerRef: suppliedTriggerRef }: {
+  label: string;
+  count?: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+  triggerRef?: RefObject<HTMLButtonElement>;
+}) {
+  const ownTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = suppliedTriggerRef ?? ownTriggerRef;
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      const firstControl = surfaceRef.current?.querySelector<HTMLElement>(
+        '[data-toolbar-group-content] :is(button, input, [tabindex]):not([disabled]):not([tabindex="-1"])',
+      );
+      (firstControl ?? surfaceRef.current?.querySelector<HTMLButtonElement>("[data-toolbar-group-close]"))?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+  return (
+    <>
+      <button aria-label={label} aria-controls={id} aria-expanded={open} aria-haspopup="dialog" className="chart-dropdown-trigger chart-group-trigger" onClick={() => onOpenChange(!open)} ref={triggerRef} type="button">
+        {label}{count != null && <span className="chart-study-count">{count}</span>}<ChevronDown aria-hidden="true" size={13} />
+      </button>
+      <OverlaySurface anchorRef={triggerRef} surfaceRef={surfaceRef} triggerRef={triggerRef} open={open} onDismiss={() => onOpenChange(false)} mobileSheet preferredWidth={620} estimatedHeight={460} id={id} role="dialog" ariaLabel={label + " controls"} className="chart-tool-panel">
+        <div className="chart-tool-panel-header">
+          <h3>{label}</h3>
+          <button aria-label={"Close " + label.toLowerCase() + " controls"} className="chart-tool-panel-close" data-toolbar-group-close onClick={() => onOpenChange(false)} type="button"><X aria-hidden="true" size={17} /></button>
+        </div>
+        <div className="chart-tool-panel-body" data-toolbar-group-content>{children}</div>
+      </OverlaySurface>
+    </>
   );
 }
 
@@ -3211,21 +3200,4 @@ function clampInteger(value: string, min: number, max: number) {
     return min;
   }
   return Math.min(max, Math.max(min, parsed));
-}
-
-function chartStyleLabel(style: ChartStyle) {
-  switch (style) {
-    case "area":
-      return "Area";
-    case "heikinAshi":
-      return "Heikin";
-    case "footprint":
-      return "Footprint";
-    case "line":
-      return "Line";
-    case "tpo":
-      return "TPO";
-    default:
-      return "Candles";
-  }
 }

@@ -1304,36 +1304,154 @@ button:disabled {
   }
 
   .chart-studio-toolbar {
-    @apply grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-md border border-white/10 bg-[#090d12] px-3 py-3 shadow-panel;
-    background-image:
-      linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 46%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
+    @apply grid min-w-0 gap-2 rounded-md bg-[var(--ui-surface)] p-1 text-[var(--text-primary)];
+  }
+
+  .chart-toolbar-market {
+    @apply flex min-w-0 flex-wrap items-center gap-2;
+  }
+
+  .chart-toolbar-symbol {
+    @apply min-w-0 flex-1;
+    flex-basis: 180px;
+  }
+
+  .chart-toolbar-market > .chart-command-box {
+    flex-basis: 220px;
+  }
+
+  .chart-toolbar-market > .timeframe-strip {
+    flex: 1 1 420px;
+  }
+
+  .chart-toolbar-actions, .chart-toolbar-groups {
+    @apply flex min-w-0 flex-wrap items-center gap-1;
+  }
+
+  .chart-toolbar-groups {
+    @apply ml-auto;
+  }
+
+  .chart-group-trigger[aria-expanded="true"] {
+    background-color: var(--ui-selection);
+    color: var(--text-primary);
+  }
+
+  .chart-study-count {
+    @apply text-xs font-medium tabular-nums text-[var(--text-secondary)];
+  }
+
+  .chart-tool-panel {
+    @apply z-[var(--layer-popover)] min-w-0 rounded-[var(--radius-lg)] bg-[var(--ui-floating)] text-[var(--text-primary)] shadow-[var(--elevation-floating)];
+  }
+
+  .chart-tool-panel-header {
+    @apply sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] px-4;
+  }
+
+  .chart-tool-panel-header h3 {
+    @apply text-sm font-semibold;
+  }
+
+  .chart-tool-panel-close {
+    @apply grid h-11 w-11 shrink-0 place-items-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
+  }
+
+  .chart-tool-panel-body {
+    @apply grid min-w-0 gap-4 p-4;
+  }
+
+  .chart-tool-panel-body > :is(.layout-manager-strip, .chart-pane-layout-strip, .study-manager-strip) + :is(.layout-manager-strip, .study-manager-strip) {
+    @apply border-t border-[var(--ui-border-subtle)] pt-4;
+  }
+
+  .chart-tools-empty {
+    @apply text-sm leading-6 text-[var(--text-secondary)];
+  }
+
+  .chart-tool-panel :is(.native-study-chip, .study-chip) {
+    @apply w-full max-w-full;
+  }
+
+  .chart-tool-panel :is(input, button, [tabindex]):focus-visible {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: 2px;
+  }
+
+  .chart-tool-panel .native-study-caption {
+    color: var(--text-secondary);
+  }
+
+  @media (max-width: 900px) {
+    .focus-chart-column > :not([hidden]) ~ :not([hidden]) {
+      margin-top: 8px;
+      margin-bottom: 0;
+    }
+    .chart-toolbar-market {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .chart-toolbar-market > .timeframe-strip {
+      grid-column: 1 / -1;
+    }
+    .chart-toolbar-symbol .chart-command-box > span {
+      display: none;
+    }
+    .chart-toolbar-market .chart-command-box {
+      padding-inline: 8px;
+    }
+    .chart-toolbar-actions {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-block: 2px;
+      scrollbar-width: thin;
+    }
+    .chart-toolbar-actions > *, .chart-toolbar-groups {
+      flex-shrink: 0;
+    }
+    .chart-toolbar-groups {
+      flex-wrap: nowrap;
+      margin-left: 0;
+    }
+    .chart-toolbar-actions .chart-dropdown-trigger {
+      white-space: nowrap;
+    }
+    .chart-tool-panel-body .layout-manager-strip > * {
+      max-width: 100%;
+    }
+  }
+
+  @media (pointer: coarse) {
+    :is(.chart-studio-toolbar, .chart-tool-panel) :is(button, input, [role="combobox"]) {
+      min-height: 44px;
+    }
+    .chart-toolbar-market .timeframe-strip {
+      flex-basis: 100%;
+    }
+    .timeframe-custom-form {
+      height: 44px;
+    }
   }
 
   .timeframe-strip {
-    @apply flex min-h-10 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
+    @apply flex min-h-10 min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-md bg-[var(--ui-inset)] p-1;
+    scrollbar-width: thin;
   }
 
   .chart-command-box {
-    @apply relative flex h-10 min-w-0 max-w-full flex-1 items-center gap-2 rounded-md border border-cyan-300/20 bg-black/30 px-3 text-sm text-slate-200 ring-1 ring-cyan-300/5;
-    flex-basis: 280px;
-    min-width: min(280px, 100%);
+    @apply relative flex h-10 min-w-0 max-w-full flex-1 items-center gap-2 rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 text-sm text-[var(--text-primary)];
   }
 
   .chart-command-box input {
-    @apply min-w-0 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-600;
+    @apply min-w-0 flex-1 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)];
   }
 
   .chart-command-menu {
-    @apply grid max-h-[440px] overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
-    background-color: rgb(7 11 16 / 0.98);
-    background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
-      linear-gradient(90deg, rgba(50, 211, 238, 0.055), transparent 46%);
+    @apply grid max-h-[440px] overflow-auto rounded-md bg-[var(--ui-floating)] p-2 text-[var(--text-primary)] shadow-[var(--elevation-floating)];
   }
 
   .chart-command-row {
-    @apply flex min-w-0 items-center gap-3 rounded-md border border-transparent px-2 py-2 text-left transition hover:border-cyan-300/20 hover:bg-cyan-300/10;
+    @apply flex min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-[var(--ui-selection)];
   }
 
   .chart-command-row-disabled {
@@ -1341,59 +1459,59 @@ button:disabled {
   }
 
   .timeframe-button {
-    @apply inline-flex h-8 min-w-10 items-center justify-center gap-1 rounded px-2 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+    @apply inline-flex h-8 min-w-10 shrink-0 items-center justify-center gap-1 rounded px-2 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
   }
 
   .timeframe-button-active {
-    @apply bg-white text-ink-950 shadow-sm;
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .timeframe-button-unavailable {
-    @apply cursor-not-allowed border border-white/5 bg-slate-900/50 text-slate-600 opacity-70 hover:bg-slate-900/50 hover:text-slate-600;
+    @apply cursor-not-allowed text-[var(--text-muted)] opacity-70 hover:bg-transparent hover:text-[var(--text-muted)];
   }
 
   .timeframe-unavailable-label {
-    @apply rounded bg-slate-800 px-1 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500;
+    @apply text-[9px] font-medium text-[var(--text-muted)];
   }
 
   .timeframe-custom-form {
-    @apply inline-flex h-8 items-center overflow-hidden rounded border border-white/10 bg-black/30;
+    @apply inline-flex h-8 shrink-0 items-center overflow-hidden rounded border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)];
   }
 
   .timeframe-custom-input {
-    @apply h-full w-14 bg-transparent px-2 text-xs font-semibold text-slate-200 outline-none placeholder:text-slate-600;
+    @apply h-full w-14 bg-transparent px-2 text-xs font-semibold text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)];
   }
 
   .timeframe-custom-apply {
-    @apply grid h-full w-8 place-items-center border-l border-white/10 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-slate-700 disabled:hover:bg-transparent;
+    @apply grid h-full w-8 place-items-center border-l border-[var(--ui-border-subtle)] text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .chart-mode-button {
-    @apply inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+    @apply inline-flex min-h-9 min-w-0 items-center justify-center gap-2 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
   }
 
   .chart-mode-active {
-    @apply border-emerald-300/30 bg-emerald-300/10 text-emerald-100;
+    @apply border-[var(--ui-focus)] bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-mode-primary {
-    @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100;
+    @apply border-[var(--ui-focus)] bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-style-strip {
-    @apply flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1;
+    @apply flex min-w-0 flex-wrap items-center gap-1;
   }
 
   .chart-style-button {
-    @apply inline-flex h-8 min-w-0 items-center justify-center gap-2 rounded px-3 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+    @apply inline-flex min-h-9 min-w-0 items-center justify-center gap-2 rounded px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
   }
 
   .chart-style-button-active {
-    @apply bg-white text-ink-950 shadow-sm;
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .drawing-tool-strip {
-    @apply flex min-h-10 min-w-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
+    @apply flex min-h-10 min-w-0 flex-wrap items-center gap-1;
   }
 
   .drawing-favorites-count {
@@ -1472,31 +1590,40 @@ button:disabled {
   }
 
   .studio-tool-button {
-    @apply inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded px-2 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40;
+    @apply inline-flex min-h-9 min-w-0 items-center justify-center gap-2 rounded-md px-2 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)];
+  }
+
+  .studio-tool-button:disabled, .chart-mode-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  .chart-hours-control, .chart-favorite-studies, .chart-marker-library {
+    @apply flex min-w-0 flex-wrap items-center gap-1;
   }
 
   .studio-tool-button-active {
-    @apply bg-white text-ink-950 shadow-sm;
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .magnet-mode-strip {
-    @apply inline-flex min-h-10 min-w-0 items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
+    @apply flex min-w-0 flex-wrap items-center gap-1;
   }
 
   .magnet-mode-label {
-    @apply inline-flex h-8 items-center gap-1.5 rounded px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500;
+    @apply inline-flex items-center gap-1.5 pr-2 text-xs font-medium text-[var(--text-secondary)];
   }
 
   .magnet-mode-button {
-    @apply inline-flex h-8 min-w-0 items-center justify-center rounded px-2.5 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+    @apply inline-flex min-h-9 items-center justify-center rounded px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)];
   }
 
   .magnet-mode-button-active {
-    @apply border border-cyan-300/25 bg-cyan-300/10 text-cyan-100 shadow-[0_0_18px_rgba(50,211,238,0.12)];
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-dropdown-trigger {
-    @apply inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-9 min-w-0 items-center justify-center gap-2 rounded-md px-2 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
   }
 
   .chart-dropdown-panel {
@@ -1653,27 +1780,27 @@ button:disabled {
   }
 
   .study-manager-strip {
-    @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/25 p-2 text-xs text-slate-400;
+    @apply flex min-w-0 flex-wrap items-center gap-3 text-xs text-[var(--text-secondary)];
   }
 
   .layout-manager-strip {
-    @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-cyan-300/15 bg-cyan-300/5 p-2 text-xs text-slate-400;
+    @apply flex min-w-0 flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)];
   }
 
   .chart-pane-layout-strip {
-    @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/25 p-2 text-xs text-slate-400;
+    @apply flex min-w-0 flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)];
   }
 
   .chart-pane-layout-buttons {
-    @apply inline-flex min-h-9 max-w-full items-center gap-1 overflow-x-auto rounded-md border border-white/10 bg-black/25 p-1;
+    @apply inline-flex min-h-9 max-w-full items-center gap-1 overflow-x-auto rounded-md bg-[var(--ui-inset)] p-1;
   }
 
   .chart-pane-layout-button {
-    @apply inline-flex h-8 min-w-11 items-center justify-center gap-1.5 rounded text-slate-500 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40;
+    @apply inline-flex h-8 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded text-[var(--text-secondary)] transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)];
   }
 
   .chart-pane-layout-button-active {
-    @apply bg-white text-ink-950 shadow-sm;
+    @apply bg-[var(--ui-selection)] text-[var(--text-primary)];
   }
 
   .chart-pane-layout-glyph {
@@ -1694,7 +1821,7 @@ button:disabled {
   }
 
   .chart-pane-active-label {
-    @apply inline-flex h-8 items-center rounded border border-cyan-300/15 bg-cyan-300/10 px-2 text-xs font-semibold text-cyan-100;
+    @apply inline-flex h-8 items-center px-2 text-xs font-semibold text-[var(--text-primary)];
   }
 
   .chart-replay-timeframe-control {
@@ -1715,11 +1842,11 @@ button:disabled {
   }
 
   .study-manager-label {
-    @apply mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500;
+    @apply w-full text-xs font-semibold text-[var(--text-secondary)];
   }
 
   .study-chip {
-    @apply inline-flex min-h-9 min-w-0 max-w-full flex-wrap items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
+    @apply inline-flex min-h-9 min-w-0 max-w-full flex-wrap items-center gap-2 border-b border-[var(--ui-border-subtle)] py-2 text-xs text-[var(--text-primary)];
     overflow-wrap: anywhere;
   }
 
@@ -2050,7 +2177,19 @@ button:disabled {
   }
 
   .replay-controller-bar {
-    @apply relative z-[1];
+    @apply relative z-[1] min-w-0 rounded-md bg-[var(--ui-surface)] p-2 text-[var(--text-primary)];
+  }
+
+  .replay-transport-layout, .replay-transport-primary {
+    @apply flex min-w-0 flex-wrap items-center gap-2;
+  }
+
+  .replay-current-bar {
+    @apply px-2 text-xs tabular-nums text-[var(--text-secondary)];
+  }
+
+  .replay-custom-speed {
+    @apply flex min-h-11 min-w-0 items-center gap-2 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 text-xs font-semibold text-[var(--text-secondary)];
   }
 
   .replay-timeframe-control {
@@ -2368,6 +2507,73 @@ button:disabled {
 
   .chart-pane-layout-single .chart-stage-header {
     min-height: 9rem;
+  }
+
+  /* Short windows reserve vertical space for market data; tool strips remain keyboard scrollable. */
+  @media (max-width: 900px) and (max-height: 650px) {
+    .chart-studio-toolbar {
+      contain: layout paint;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 8px;
+      padding: 4px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .chart-toolbar-market, .chart-toolbar-actions {
+      display: flex;
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
+      overflow: visible;
+    }
+    .chart-toolbar-actions {
+      order: -1;
+      padding-block: 0;
+    }
+    .chart-toolbar-symbol {
+      flex: 0 0 160px;
+    }
+    .chart-toolbar-market > .chart-command-box {
+      flex: 0 0 200px;
+    }
+    .chart-toolbar-market > .timeframe-strip {
+      flex: 0 0 520px;
+    }
+    .chart-pane-layout-single .chart-stage-header {
+      min-height: 0;
+      padding-block: 4px;
+    }
+    .chart-title-summary {
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .chart-title-summary .chart-symbol-badge {
+      display: none;
+    }
+    .chart-title-copy {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .chart-title-copy > * {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .chart-title-copy > .mt-1 {
+      margin-top: 0;
+      flex-wrap: nowrap;
+    }
+    .chart-stage-header :is(.chart-ohlcv-row, .chart-study-row) {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-top: 0;
+      scrollbar-width: thin;
+    }
+    .chart-ohlcv-row > *, .chart-study-row > * {
+      flex-shrink: 0;
+    }
   }
 
   .chart-legend-pill {

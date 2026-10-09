@@ -82,8 +82,10 @@ export function ReplayController({
   const [customSpeed, setCustomSpeed] = useState(() =>
     formatBarsPerSecond(msToBarsPerSecond(speedMs)),
   );
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [replayTimeframeMenuOpen, setReplayTimeframeMenuOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigationTriggerRef = useRef<HTMLButtonElement>(null);
+  const navigationSurfaceRef = useRef<HTMLDivElement>(null);
+  const navigationId = useId();
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const customSpeedRef = useRef<HTMLInputElement | null>(null);
   const currentOffset = state?.session.current_offset ?? 0;
@@ -115,18 +117,25 @@ export function ReplayController({
 
   useEffect(() => {
     onTransientOverlayOpenChange?.(
-      datePickerOpen || replayTimeframeMenuOpen || speedMenuOpen,
+      // Options owns its nested menus; an unmounted child cannot block chart shortcuts.
+      navigationOpen || speedMenuOpen,
     );
     return () => onTransientOverlayOpenChange?.(false);
   }, [
-    datePickerOpen,
+    navigationOpen,
     onTransientOverlayOpenChange,
-    replayTimeframeMenuOpen,
     speedMenuOpen,
   ]);
 
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const frame = window.requestAnimationFrame(() => customSpeedRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [navigationOpen]);
+
   function handlePresetSpeedChange(value: string) {
     if (value === CUSTOM_SPEED_VALUE) {
+      setNavigationOpen(true);
       window.requestAnimationFrame(() => customSpeedRef.current?.focus());
       return;
     }
@@ -160,7 +169,7 @@ export function ReplayController({
   }
 
   return (
-    <section aria-label="Replay transport" data-ui-panel="replay-transport" className="replay-controller-bar rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
+    <section aria-label="Replay transport" data-ui-panel="replay-transport" className="replay-controller-bar">
       {replayComplete ? (
         <div
           className="mb-3 flex flex-col gap-3 border-b border-emerald-300/15 pb-3 sm:flex-row sm:items-center sm:justify-between"
@@ -183,8 +192,8 @@ export function ReplayController({
           </button>
         </div>
       ) : null}
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="replay-transport-layout">
+        <div className="replay-transport-primary">
           {showOrderToggle && (
             <button
               className={`control-button ${isOrderPaneOpen ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
@@ -236,6 +245,7 @@ export function ReplayController({
           <button
             className="icon-button"
             onClick={() => void resetReplay()}
+            aria-label="Reset replay"
             title="New replay session"
             type="button"
           >
@@ -259,10 +269,21 @@ export function ReplayController({
               portal
               value={selectedSpeedValue}
             />
-            <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">
+          </div>
+          <span className="replay-current-bar">
+            Bar {currentOffset.toLocaleString()}
+          </span>
+
+          <button aria-label="Replay options" aria-controls={navigationId} aria-expanded={navigationOpen} aria-haspopup="dialog" className="control-button" onClick={() => setNavigationOpen(!navigationOpen)} ref={navigationTriggerRef} type="button">
+            <CalendarDays aria-hidden="true" size={16} />Options
+          </button>
+          <OverlaySurface anchorRef={navigationTriggerRef} surfaceRef={navigationSurfaceRef} triggerRef={navigationTriggerRef} open={navigationOpen} onDismiss={() => setNavigationOpen(false)} mobileSheet preferredWidth={460} estimatedHeight={320} id={navigationId} role="dialog" ariaLabel="Replay options" className="chart-tool-panel">
+            <div className="chart-tool-panel-header"><h3>Replay options</h3><button aria-label="Close replay options" className="chart-tool-panel-close" onClick={() => setNavigationOpen(false)} type="button"><X aria-hidden="true" size={17} /></button></div>
+            <div className="chart-tool-panel-body">
+            <label className="replay-custom-speed">
               <input
                 aria-label="Custom replay speed in replay bars per second"
-                className="w-16 bg-transparent text-right text-sm font-semibold text-slate-100 outline-none"
+                className="w-16 bg-transparent text-right text-sm font-semibold text-[var(--text-primary)] outline-none"
                 inputMode="decimal"
                 max={MAX_CUSTOM_BARS_PER_SECOND}
                 min={MIN_CUSTOM_BARS_PER_SECOND}
@@ -274,10 +295,6 @@ export function ReplayController({
               />
               replay bars/s
             </label>
-          </div>
-          <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
-            Bar {currentOffset.toLocaleString()}
-          </span>
           {replayTimeframeLabel && (
             replayTimeframe && replayTimeframeOptions.length > 1 && onReplayTimeframeChange ? (
               <div className="replay-timeframe-control">
@@ -286,7 +303,6 @@ export function ReplayController({
                   ariaLabel="Replay timeframe"
                   className="replay-timeframe-select h-8 w-28"
                   onChange={onReplayTimeframeChange}
-                  onOpenChange={setReplayTimeframeMenuOpen}
                   options={replayTimeframeOptions}
                   portal
                   value={replayTimeframe}
@@ -297,13 +313,11 @@ export function ReplayController({
                 Replay {replayTimeframeLabel}
               </span>
             )
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+          )}        <div className="flex flex-wrap items-center gap-2">
           <input
             className="input-control h-10 w-32"
             onChange={(event) => setJumpOffset(event.target.value)}
+            aria-label="Replay bar offset"
             placeholder="Offset"
             type="number"
             value={jumpOffset}
@@ -323,7 +337,6 @@ export function ReplayController({
               dayOfWeekLabels={dayOfWeekLabels}
               disabled={!state}
               onChange={setJumpTime}
-              onOpenChange={setDatePickerOpen}
               timeHoursFormat={timeHoursFormat}
               value={jumpTime}
             />
@@ -336,7 +349,11 @@ export function ReplayController({
               Go Date
             </button>
           </div>
+        </div>            </div>
+          </OverlaySurface>
         </div>
+
+
       </div>
     </section>
   );

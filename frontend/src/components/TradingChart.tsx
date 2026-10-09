@@ -3144,11 +3144,11 @@ export function TradingChart({
         <div className="min-w-0">
           <div className="min-w-0 flex-1">
             {chartSettings.title && (
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
+              <div className="chart-title-summary flex items-center gap-3">
+                <div aria-hidden="true" className="chart-symbol-badge grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
                   {symbolBadge(symbol)}
                 </div>
-                <div className="min-w-0">
+                <div className="chart-title-copy min-w-0">
                   <div className="flex items-center gap-2 text-base font-semibold text-white">
                     {formatMarketSymbol(symbol)}
                   </div>
