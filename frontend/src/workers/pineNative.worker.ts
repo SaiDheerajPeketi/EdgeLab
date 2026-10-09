@@ -4,7 +4,7 @@ import { pineInputActive, validatePineInputCondition } from "../lib/pineInputAct
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings } from "../lib/pineProtocol";
-import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
+import { advancePineLiveSource, PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
@@ -87,12 +87,14 @@ type RequestContext = Context & {
   _edgelabRequestDependencies?: readonly string[];
   _edgelabStaticPath?: readonly string[];
   _ltfTruncatedBodies?: Record<string, Function>;
+  _explicitBarstate?: { isrealtime: boolean };
 };
-function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>()) {
+function chartProvider(request: PineRequest, realtime = false, encounteredAlerts = new Set<string>(), initialConfirmed = true, initialSourceConfirmed = true) {
   const context = request.context!;
   const timeframe = canonicalPineTimeframe(context.timeframe);
   let failure: PineProtocolError | undefined;
   let calls = 0, requestedBars = 0, retainedSlots = 0;
+  let requestedMutableCells = 0, requestedNodes = 0;
   const notices: string[] = [];
   const reject = (symbol: string, tf?: string) => {
     failure ??= new PineProtocolError("UNAVAILABLE_DATA", `Only loaded ${context.symbol} ${context.timeframe} chart data is available; requested ${symbol}${tf ? ` ${tf}` : ""}.`);
@@ -114,20 +116,21 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
   };
   const snapshots = new Map<string, Kline[]>([[timeframe, candles]]);
-  const source = request.sourceSnapshot?.timeframe === timeframe ? undefined : request.sourceSnapshot;
-  if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source.timeframe)));
+  let source = request.sourceSnapshot?.timeframe === timeframe ? undefined : request.sourceSnapshot;
+  let revision = 0, chartConfirmed = initialConfirmed, sourceConfirmed = initialSourceConfirmed;
+  if (realtime && request.sourceSnapshot && request.sourceSnapshot.timeframe === timeframe) error("UNAVAILABLE_DATA", "Live source history must use a lower chart timeframe.");
+  if (source && source.timeframe !== timeframe) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
   const dataFor = (tf: string): Kline[] => {
     const existing = snapshots.get(tf);
     if (existing) return existing;
-    if (realtime) { reject(symbol, tf); throw failure!; }
     const duration = pineHigherTimeframeDuration(tf), chartDuration = pineHigherTimeframeDuration(timeframe);
     const lower = duration !== undefined && chartDuration !== undefined && duration < chartDuration;
     if (lower && !source) { reject(symbol, tf); throw failure!; }
     // Actual source children prove completeness even when the displayed chart tail is partial.
     const baseBars = source ? source.bars : request.bars!;
     const baseTimeframe = source ? source.timeframe : timeframe;
-    const data = aggregatePineHigherTimeframe(baseBars, baseTimeframe, tf).map(bar => candle(bar, tf));
-    if (data.length * duration! / pineHigherTimeframeDuration(baseTimeframe)! < baseBars.length) {
+    const data = aggregatePineHigherTimeframe(baseBars, baseTimeframe, tf, realtime).map(bar => candle(bar, tf));
+    if (!realtime && data.length * duration! / pineHigherTimeframeDuration(baseTimeframe)! < baseBars.length) {
       notices.push(`Requested ${tf} values use complete loaded candles; partial or missing groups are omitted.`);
     }
     snapshots.set(tf, data);
@@ -155,6 +158,40 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   };
   const captures = new WeakMap<Context, { id: string; values: unknown[]; costs: number[]; count: number }>();
   const staticSnapshots = new Map<string, Promise<{ values: unknown[]; closes: number[] }>>();
+  const childSlots = new WeakMap<Context, number>();
+  const childPayloads = new WeakMap<Context, { mutableCells: number; nodes: number }>();
+  const intrabarCosts = new WeakMap<Context, Map<string, number>>();
+  const admitted = new WeakMap<Context, Set<string>>();
+  const liveOwners = new WeakMap<Context, Map<string, Promise<LiveRequestedState>>>();
+  const staticLiveOwners = new Map<string, Promise<LiveRequestedState>>();
+  type LiveRequestedState = { engine: PineTS & { updateRequestTail(child: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean> }; child: Context; revision: number };
+  const liveState = (tf: string, parent: RequestContext) => {
+    const data = dataFor(tf), tail = data.at(-1);
+    const latest = source?.bars.at(-1) ?? request.bars!.at(-1)!;
+    const base = pineHigherTimeframeDuration(source?.timeframe ?? timeframe);
+    const boundary = base ? (latest.time + base) * 1000 : candles.at(-1)!.closeTime;
+    return { revision, confirmed: !!tail && (tail.closeTime < boundary || tail.closeTime === boundary && (source ? sourceConfirmed : chartConfirmed)),
+      received: revision > 0, realtime: (parent.fullContext as RequestContext | undefined)?._explicitBarstate?.isrealtime === true };
+  };
+  const countChild = (child: Context, engine?: PineTS) => {
+    let slots = 0;
+    for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
+      for (const scope of [owner.const, owner.var, owner.varip, owner.let, owner.params]) {
+        for (const value of Object.values(scope ?? {})) slots += Array.isArray(value) ? value.length : (value as { data?: unknown[] })?.data?.length ?? 0;
+      }
+    }
+    retainedSlots += slots - (childSlots.get(child) ?? 0);
+    childSlots.set(child, slots);
+    if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much secondary series history.");
+    if (engine) {
+      const stats = (engine as PineTS & { getRealtimeStats(child: Context): { mutableCells: number; nodes: number } }).getRealtimeStats(child);
+      const previous = childPayloads.get(child);
+      requestedMutableCells += stats.mutableCells - (previous?.mutableCells ?? 0);
+      requestedNodes += stats.nodes - (previous?.nodes ?? 0);
+      childPayloads.set(child, { mutableCells: stats.mutableCells, nodes: stats.nodes });
+      if (requestedMutableCells > 262_144 || requestedNodes > 16_384) error("REQUEST_LIMIT", "Pine requested too much retained secondary mutable state.");
+    }
+  };
   const requestSlice = (parent: RequestContext, expressionName: string): Function | undefined => {
     const id = expressionName?.match(/p\d+$/)?.[0] ?? expressionName;
     const slice = parent._ltfTruncatedBodies?.[id] as (Function & { _edgelabCallSlices?: Readonly<Record<string, Function>> }) | undefined;
@@ -162,13 +199,13 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     return path ? slice?._edgelabCallSlices?.[path] : slice;
   };
   const runRequest = async (engine: PineTS, slice: Function | undefined, parent: RequestContext, expressionName: string,
-    captureExpression?: string, staticPath?: readonly string[]) => {
+    captureExpression?: string, staticPath?: readonly string[], liveTimeframe?: string) => {
     slice = requestSlice(parent, expressionName);
     if (!slice) error("UNSUPPORTED_REQUEST_EXPRESSION", "This requested expression cannot be isolated safely by the Pine compiler.");
     const depth = (parent._edgelabRequestDepth ?? 0) + 1;
     if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
     const prepared = { fn: slice } as PreparedScript;
-    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, false, context.quantityStep);
+    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, context.quantityStep);
     const bound = prepared.fn;
     const fn = (child: Context) => {
       Object.assign(child, { _edgelabStaticPath: staticPath ?? parent._edgelabStaticPath, _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
@@ -178,18 +215,34 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
     bindViewport(engine, request);
     engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
+    if (liveTimeframe !== undefined) (engine as RealtimeEngine).setRealtimeMode(true, { initialTail: liveState(liveTimeframe, parent).confirmed ? "historical" : "deferred" });
     const child = await engine.runPretranspiled(fn, parent.inputs);
-    for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
-      for (const scope of [owner.const, owner.var, owner.varip, owner.let, owner.params]) {
-        for (const value of Object.values(scope ?? {})) retainedSlots += Array.isArray(value) ? value.length : (value as { data?: unknown[] })?.data?.length ?? 0;
-      }
-    }
-    if (retainedSlots > PINE_LIMITS.points) error("REQUEST_LIMIT", "Pine requested too much secondary series history.");
+    countChild(child, liveTimeframe !== undefined ? engine : undefined);
     return child;
+  };
+  const requestedOwner = async (owners: Map<string, Promise<LiveRequestedState>>, key: string, parent: RequestContext, expressionName: string, tf: string,
+    count?: number, captureExpression?: string, staticPath?: readonly string[]) => {
+    let pending = owners.get(key);
+    if (!pending) {
+      if (liveState(tf, parent).realtime) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
+      if (!dataFor(tf).length) error("UNAVAILABLE_DATA", "The requested timeframe has no complete or developing owned candles.");
+      const engine = new PineTS(provider, symbol, tf, count) as LiveRequestedState["engine"];
+      engine.markAsSecondary();
+      pending = runRequest(engine, undefined, parent, expressionName, captureExpression, staticPath, tf).then(child => ({ engine, child, revision }));
+      owners.set(key, pending);
+    }
+    const owner = await pending;
+    if (owner.revision !== revision || liveState(tf, parent).realtime && (owner.child as Context & { _realtimeLifecycle?: { deferred?: boolean } })._realtimeLifecycle?.deferred) {
+      const event = liveState(tf, parent);
+      await owner.engine.updateRequestTail(owner.child, { confirmed: event.confirmed, received: event.received || event.realtime });
+      countChild(owner.child, owner.engine);
+      owner.revision = revision;
+    }
+    return owner.child;
   };
   // The provider owns immutable policies, captured before executing any authored script.
   Object.defineProperties(provider, {
-    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext, _expression?: string, ignoreInvalidTimeframe = false, invalidTimeframe = false) => {
+    _edgelabRequestContext: { value: (requested: unknown, requestedTimeframe: unknown, kind: string, parent: RequestContext, expression?: string, ignoreInvalidTimeframe = false, invalidTimeframe = false) => {
       const rawTimeframe = String(requestedTimeframe ?? "");
       let tf: string | undefined;
       try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
@@ -200,15 +253,38 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       if (!tf || kind === "security_lower_tf" && invalidTimeframe) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
+      if (realtime) {
+        const root = parent.fullContext ?? parent;
+        let identities = admitted.get(root);
+        if (!identities) admitted.set(root, identities = new Set());
+        const key = `${kind}:${symbol}:${tf}:${expression}`;
+        if (liveState(tf, parent).realtime && !identities.has(key)) error("UNAVAILABLE_DATA", "Live Pine requests must initialize their context and expression on historical bars.");
+        if (!identities.has(key) && identities.size >= 64) error("REQUEST_LIMIT", "Pine requested too many distinct contexts.");
+        identities.add(key);
+      }
       try { dataFor(tf); } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }
       return { symbol, timeframe: tf };
     } },
     _edgelabRunRequest: { value: runRequest },
-    _edgelabRetainIntrabars: { value: (slots: number) => {
-      if (!Number.isSafeInteger(slots) || slots < 0 || retainedSlots + slots > PINE_LIMITS.points) {
+    ...(realtime ? {
+      _edgelabRequestLiveState: { value: liveState },
+      _edgelabLiveRequest: { value: (parent: RequestContext, expressionName: string, _symbol: string, tf: string, count?: number, kind = "security") => {
+        const root = parent.fullContext ?? parent;
+        let owners = liveOwners.get(root);
+        if (!owners) liveOwners.set(root, owners = new Map());
+        return requestedOwner(owners, `${kind}:${symbol}:${tf}:${expressionName}:${count ?? ""}`, parent, expressionName, tf, count);
+      } },
+    } : {}),
+    _edgelabRetainIntrabars: { value: (slots: number, parent?: Context, expressionName?: string) => {
+      let costs = parent && intrabarCosts.get(parent.fullContext ?? parent);
+      if (parent && !costs) intrabarCosts.set(parent.fullContext ?? parent, costs = new Map());
+      const key = `${expressionName}:${parent?.idx}`;
+      const previous = costs?.get(key) ?? 0;
+      if (!Number.isSafeInteger(slots) || slots < 0 || retainedSlots + slots - previous > PINE_LIMITS.points) {
         error("REQUEST_LIMIT", "Pine requested too much retained intrabar array history.");
       }
-      retainedSlots += slots;
+      retainedSlots += slots - previous;
+      costs?.set(key, slots);
     } },
     _edgelabStaticRequest: { value: async (parent: RequestContext, expressionName: string, evaluate: () => Promise<unknown>, codec?: { encode(value: unknown): unknown; decode(value: unknown): unknown }) => {
       const dynamic = (parent.indicator as { dynamic_requests?: boolean } | undefined)?.dynamic_requests
@@ -219,18 +295,24 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
         // Static requests are computed independently on the original chart. Never rebind their blank context to an outer request.
         const path = parent._edgelabStaticPath ?? [];
         if (path.includes(expressionName)) error("REQUEST_LIMIT", "Pine static request dependencies contain a cycle.");
+        // A fresh viewport run may warm this snapshot before its original
+        // chart tail executes. Demand that tail when the requesting child
+        // reaches realtime, even though this provider's revision is still zero.
+        if (realtime && liveState(timeframe, parent).realtime) staticSnapshots.delete(expressionName);
         let snapshot = staticSnapshots.get(expressionName);
         if (!snapshot) {
           const slice = requestSlice(parent, expressionName);
           if (slice && Object.getOwnPropertyDescriptor(slice, "_edgelabStaticReplaySafe")?.value === false) {
             error("UNSUPPORTED_REQUEST_EXPRESSION", "Static requests that depend on shared mutable state cannot be isolated safely.");
           }
-          const engine = new PineTS(provider, symbol, timeframe, request.bars!.length);
-          engine.markAsSecondary();
-          snapshot = runRequest(engine, slice, parent, expressionName, expressionName, [...path, expressionName]).then((child) => {
+          const original = realtime
+            ? requestedOwner(staticLiveOwners, expressionName, parent, expressionName, timeframe, undefined, expressionName, [...path, expressionName])
+            : (() => { const engine = new PineTS(provider, symbol, timeframe, request.bars!.length); engine.markAsSecondary(); return runRequest(engine, slice, parent, expressionName, expressionName, [...path, expressionName]); })();
+          snapshot = original.then((child) => {
             const capture = captures.get(child);
             const values = capture?.values;
-            if (!values || capture?.count !== request.bars!.length || values.length !== request.bars!.length) error("UNSUPPORTED_REQUEST_EXPRESSION", "The original static request history could not be isolated completely.");
+            const expected = child.data.closeTime.data.length;
+            if (!values || capture?.count !== expected || values.length !== expected) error("UNSUPPORTED_REQUEST_EXPRESSION", "The original static request history could not be isolated completely.");
             return { values, closes: child.data.closeTime.data };
           });
           staticSnapshots.set(expressionName, snapshot);
@@ -275,9 +357,14 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   return {
     provider, notices,
     unavailable: () => failure,
-    reset() { calls = 0; failure = undefined; },
-    update(bar: Candle, append: boolean) {
+    reset() { calls = 0; requestedBars = 0; failure = undefined; if (realtime) staticSnapshots.clear(); },
+    update(bar: Candle, append: boolean, confirmed: boolean, sourceSnapshot = request.sourceSnapshot, confirmedSource = true) {
       if (append) candles.push(candle(bar)); else candles[candles.length - 1] = candle(bar);
+      request = { ...request, bars: append ? [...request.bars!, bar] : [...request.bars!.slice(0, -1), bar], sourceSnapshot };
+      source = sourceSnapshot;
+      chartConfirmed = confirmed; sourceConfirmed = confirmedSource; revision++;
+      snapshots.clear(); snapshots.set(timeframe, candles);
+      if (source) snapshots.set(source.timeframe, source.bars.map(bar => candle(bar, source!.timeframe)));
     },
     nextTime: () => candles[candles.length - 1].closeTime / 1000,
   };
@@ -1280,12 +1367,12 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
 
 
 type RealtimeEngine = PineTS & {
-  setRealtimeMode(enabled: boolean, options: { initialTail: "historical" | "open" }): void;
+  setRealtimeMode(enabled: boolean, options: { initialTail: "historical" | "open" | "deferred" }): void;
   updateTail(context: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean>;
 };
 /** Fresh owned data and identical limits for initial runs and viewport reloads. */
-function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "historical" | "open") {
-  const local = chartProvider(request, initialTail !== undefined, alerts);
+function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "historical" | "open", sourceConfirmed = true) {
+  const local = chartProvider(request, initialTail !== undefined, alerts, initialTail !== "open", sourceConfirmed);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
   bindViewport(engine, request);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -1294,7 +1381,7 @@ function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "h
   return { local, engine };
 }
 type LiveState = {
-  sessionId: string; sequence: number; confirmed: boolean; request: PineRequest;
+  sessionId: string; sequence: number; confirmed: boolean; sourceConfirmed: boolean; request: PineRequest;
   engine: RealtimeEngine; context?: Context; local: ReturnType<typeof chartProvider>;
   indicator: Indicator; descriptor: PinePrepareResult; inputs: Record<string, PineInputValue>; alerts: Set<string>;
 };
@@ -1328,7 +1415,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           const alerts = new Set<string>();
           bindClosedSnapshot(prepared, false, alerts, true, request.context?.quantityStep);
           const { local, engine } = ownedEngine(request, alerts, "historical");
-          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, request, engine, local, indicator, descriptor, inputs, alerts };
+          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, sourceConfirmed: true, request, engine, local, indicator, descriptor, inputs, alerts };
           state = owner;
           const context = await engine.run(indicator);
           active(owner);
@@ -1340,7 +1427,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           if (command.action === "viewport") {
             owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), viewport: command.viewport };
             if (owner.descriptor.usesVisibleRange) {
-              const { local, engine } = ownedEngine(owner.request, owner.alerts, owner.confirmed ? "historical" : "open");
+              const { local, engine } = ownedEngine(owner.request, owner.alerts, owner.confirmed ? "historical" : "open", owner.sourceConfirmed);
               const context = await engine.run(owner.indicator);
               active(owner);
               owner.engine = engine; owner.local = local; owner.context = context;
@@ -1356,13 +1443,15 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
               if (command.bar.time !== owner.local.nextTime()) error("INVALID_BARS", "Live Pine accepts exactly the next UTC/calendar chart bucket; gaps require a new session.");
               if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
             } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
+            const sourceSnapshot = advancePineLiveSource(owner.request.sourceSnapshot, owner.sourceConfirmed, command, owner.request.context!.timeframe);
             owner.local.reset();
-            owner.local.update(command.bar, append);
-            owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+            owner.local.update(command.bar, append, command.confirmed, sourceSnapshot, command.source?.confirmed ?? true);
+            owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), sourceSnapshot, bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
             const changed = await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
             active(owner);
             if (!changed) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
             owner.confirmed = command.confirmed;
+            if (command.source) owner.sourceConfirmed = command.source.confirmed;
             owner.sequence = command.sequence;
           }
         }
@@ -1377,6 +1466,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         dispose();
         if (unavailable) throw unavailable;
         if (cause instanceof PineProtocolError) throw cause;
+        if ((cause as { code?: unknown } | null)?.code === "UNSUPPORTED_REQUEST_EXPRESSION") error("UNSUPPORTED_REQUEST_EXPRESSION", cause instanceof Error ? cause.message.slice(0, 4_096) : "The requested expression cannot cross this live context safely.");
         if ((cause as { code?: unknown } | null)?.code === "REALTIME_STATE_LIMIT") error("REALTIME_STATE_LIMIT", cause instanceof Error ? cause.message : "Realtime retained-state limit exceeded.");
         error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native realtime Pine execution failed.");
       } finally { busy = false; }

@@ -431,7 +431,7 @@ function pruneUnrelatedRequests(body: any[], name: string, dependencies: readonl
                     || owner === '$' && ['get', 'init', 'initVar', 'toTuple', 'precision', 'peekCtx'].includes(member)
                     || owner === '$' && member === 'set' && /^\$\$\.(?:var|varip|let|const)\.[^.]+$/.test(fieldKey(node.arguments?.[0]) ?? '')
                     || owner === 'ta' && namespaces.has(owner)
-                    || owner === 'array' && namespaces.has(owner) && ['get', 'size'].includes(member)
+                    || owner === 'array' && namespaces.has(owner) && ['get', 'size', 'sum'].includes(member)
                     || owner === 'plot' && namespaces.has(owner) && member === 'any';
                 if (!allowed) return false;
             }

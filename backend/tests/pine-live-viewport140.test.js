@@ -53,7 +53,7 @@ const hookBundle = await build({ bundle: true, format: "esm", platform: "node", 
 });
 const { useLivePineRuntime } = await import('data:text/javascript;base64,' + Buffer.from(hookBundle.outputFiles[0].text).toString('base64'));
 function harness(configure) {
-  const current = { epoch: 1, event: { sequence: 1 }, chart: { history: [bar(60), bar(120)], bar: bar(180), confirmed: false } };
+  const current = { epoch: 1, bars: [bar(60), bar(120), bar(180)], event: { sequence: 1, bar: bar(180), confirmed: false }, chart: { history: [bar(60), bar(120)], bar: bar(180), confirmed: false } };
   const listeners = new Set();
   const feed = { getSnapshot: () => current, subscribe(fn) { listeners.add(fn); fn(current); return () => listeners.delete(fn); } };
   fixture = { cursor: 0, slots: [], effects: [], pending: [], sessions: [], preparations: [], auth: { user: { id: 1 }, token: "owner1" }, dirty: false };

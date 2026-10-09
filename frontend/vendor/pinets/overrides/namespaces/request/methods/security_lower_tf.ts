@@ -284,10 +284,11 @@ export function security_lower_tf(context: any) {
     // Capture the host policy before user execution. Never infer identity from a stripped ticker.
     const validateRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestContext')?.value;
     const runRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRunRequest')?.value;
+    const liveRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabLiveRequest')?.value;
     const staticRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabStaticRequest')?.value;
     const retainIntrabars = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRetainIntrabars')?.value;
     // Only this namespace's genuine primitive arrays can cross a static sampling boundary.
-    const codecFor = (arity: number) => ({
+    const codecFor = (arity: number, expressionName: string | undefined) => ({
         encode(value: any): any {
             if (typeof value === 'number' && Number.isNaN(value)) return value;
             if (!arity && value instanceof PineArrayObject) return value.array;
@@ -304,7 +305,7 @@ export function security_lower_tf(context: any) {
                 isolatedExpressionError('Invalid intrabar array snapshot.');
             }
             const columns = arity ? rows : [rows];
-            retainIntrabars?.(columns.reduce((total: number, items: any[]) => total + items.length + 1, 0));
+            retainIntrabars?.(columns.reduce((total: number, items: any[]) => total + items.length + 1, 0), context, expressionName);
             const result = columns.map((items: any[]) => new PineArrayObject(items.slice(), items.length ? detectArrayType(items[0]) : PineArrayType.float, context));
             return arity ? [result] : result[0];
         },
@@ -373,7 +374,7 @@ export function security_lower_tf(context: any) {
         }
 
         if (formatTimeframe(reqTimeframe) === formatTimeframe(ctxTimeframe)) {
-            retainIntrabars?.(Array.isArray(_expression) ? _expression.length * 2 : 2);
+            retainIntrabars?.(Array.isArray(_expression) ? _expression.length * 2 : 2, context, _expression_name);
             if (Array.isArray(_expression)) {
                 // Tuple: each element becomes a 1-element PineArrayObject
                 const arrays = _expression.map((v: any) =>
@@ -385,14 +386,19 @@ export function security_lower_tf(context: any) {
             }
         }
 
-        if (typeof runRequest === 'function') {
-            const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}:lower`;
-            let secondary = context.cache[key];
-            if (!secondary) {
-                const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
-                engine.markAsSecondary();
-                secondary = await runRequest(engine, undefined, context, _expression_name);
-                context.cache[key] = secondary;
+        if (typeof runRequest === 'function' || typeof liveRequest === 'function') {
+            let secondary: any;
+            if (typeof liveRequest === 'function') {
+                secondary = await liveRequest(context, _expression_name, _symbol, _timeframe, _calc_bars_count, 'security_lower_tf');
+            } else {
+                const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}:lower`;
+                secondary = context.cache[key];
+                if (!secondary) {
+                    const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
+                    engine.markAsSecondary();
+                    secondary = await runRequest(engine, undefined, context, _expression_name);
+                    context.cache[key] = secondary;
+                }
             }
             const opens = secondary.data.openTime.data;
             const values = secondary.params[_expression_name];
@@ -415,11 +421,19 @@ export function security_lower_tf(context: any) {
             const length = low - first;
             const tuple = Array.isArray(_expression) || length > 0 && Array.isArray(values[first]);
             const arity = tuple ? (length > 0 ? values[first].length : _expression.length) : 1;
-            retainIntrabars?.(length * arity + arity);
+            if (typeof liveRequest === 'function' && arity > 128) isolatedExpressionError('Live requested tuples exceed 128 elements.');
+            retainIntrabars?.(length * arity + arity, context, _expression_name);
             const columns: PineArrayObject[] = [];
             for (let column = 0; column < arity; column++) {
                 const items = [];
-                for (let index = first; index < low; index++) items.push(tuple ? values[index][column] : values[index]);
+                for (let index = first; index < low; index++) {
+                    const value = tuple ? values[index][column] : values[index];
+                    if (typeof liveRequest === 'function' && !(value == null || typeof value === 'boolean'
+                        || typeof value === 'string' && value.length <= 4096
+                        || typeof value === 'number' && (Number.isFinite(value) || Number.isNaN(value))))
+                        isolatedExpressionError('Live intrabar collections and objects cannot cross execution contexts safely.');
+                    items.push(value);
+                }
                 columns.push(new PineArrayObject(items, items.length ? detectArrayType(items[0]) : PineArrayType.float, context));
             }
             return tuple ? [columns] : columns[0];
@@ -589,7 +603,7 @@ export function security_lower_tf(context: any) {
         const args = unwrapParamTuples(rawArgs, argNames);
         const parsed = parseArgsForPineParams<any>(args, SECURITY_LOWER_TF_SIGNATURES, SECURITY_LOWER_TF_TYPES);
         return typeof staticRequest === 'function'
-            ? staticRequest(context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames), codecFor(Array.isArray(resolveSlotValue(parsed.expression)) ? resolveSlotValue(parsed.expression).length : 0))
+            ? staticRequest(context, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression), () => evaluate(parsed, argNames), codecFor(Array.isArray(resolveSlotValue(parsed.expression)) ? resolveSlotValue(parsed.expression).length : 0, resolveSlotName('expression', SECURITY_LOWER_TF_SIGNATURES, argNames, parsed.expression)))
             : evaluate(parsed, argNames);
     };
 }

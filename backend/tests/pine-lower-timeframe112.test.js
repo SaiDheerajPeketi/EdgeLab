@@ -247,7 +247,7 @@ test("snapshot boundaries, grids, dense order and shape validation fail before p
   ];
   assert.deepEqual(pine.validatePineRequest(protocolRequest({timeframe:"1S",bars:[]})).sourceSnapshot,{timeframe:"1S",bars:[]});
   for(const [snapshot,code]of snapshots)assert.throws(()=>pine.validatePineRequest(protocolRequest(snapshot)),error=>{assert.equal(error.code,code,error.message);return true;});
-  assert.throws(()=>pine.validatePineRequest(protocolRequest({timeframe:"1",bars:minuteBars},{mode:"live"})),error=>error.code==="UNAVAILABLE_DATA");
+  assert.deepEqual(pine.validatePineRequest(protocolRequest({timeframe:"1",bars:minuteBars},{mode:"live"})).sourceSnapshot.bars.map(bar=>bar.time),minuteBars.map(bar=>bar.time));
 });
 
 test("owned source validation freezes copies without invoking source accessors or inherited metadata",()=>{

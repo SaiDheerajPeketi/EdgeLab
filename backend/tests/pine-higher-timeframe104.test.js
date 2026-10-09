@@ -216,13 +216,20 @@ test("derived higher data never expands exchange session or chart-type identity 
   }
 });
 
-test("persistent live higher requests reject until secondary rollback is supported", async () => {
+test("persistent live higher requests retain historical merging and develop on actual chart ticks", async () => {
   for (const version of [5, 6]) {
     const executor = pine.createPineLiveExecutor(), sessionId = "higher-context104-" + version;
     try {
-      await assert.rejects(executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start",
+      const warm = await executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start",
         request: { id: sessionId + ":0", action: "run", source: source(plot(remote("close", 3), "Remote"), version),
-          bars, context, inputs: {}, mode: "live" } }), failUnavailable);
+          bars, context, inputs: {}, mode: "live" } });
+      assert.deepEqual(values(warm, "Remote"), merge(bars, complete(bars, 3), bar => bar.close));
+      const current = await executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 1, action: "update", bar: candle(45), confirmed: false });
+      assert.equal(values(current, "Remote").at(-1), candle(45).close);
+      const revised = { ...candle(45), close: 60, high: 62 };
+      const next = await executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 2, action: "update", bar: revised, confirmed: false });
+      assert.equal(values(next, "Remote").at(-1), 60);
+      assert.deepEqual(values(next, "Remote").slice(0, bars.length), values(warm, "Remote"));
     } finally { executor.dispose(); }
   }
 });

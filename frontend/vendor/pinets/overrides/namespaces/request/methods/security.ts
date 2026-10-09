@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified by EdgeLab, 2026-10-08: owned historical intrabar selection.
+// Modified by EdgeLab, 2026-10-09: owned historical and persistent live request selection.
 
 import { PineTS } from '../../../PineTS.class';
 import { Series } from '../../../Series';
@@ -110,7 +110,19 @@ export function security(context: any) {
     // Capture the host policy before user execution. Never infer identity from a stripped ticker.
     const validateRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestContext')?.value;
     const runRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRunRequest')?.value;
+    const liveRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabLiveRequest')?.value;
+    const liveState = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabRequestLiveState')?.value;
     const staticRequest = Object.getOwnPropertyDescriptor(context.source ?? {}, '_edgelabStaticRequest')?.value;
+    const ownValue = (value: any) => {
+        if (typeof liveRequest !== 'function') return value;
+        const primitive = (item: any) => item == null || typeof item === 'boolean'
+            || typeof item === 'string' && item.length <= 4096
+            || typeof item === 'number' && (Number.isFinite(item) || Number.isNaN(item));
+        if (primitive(value)) return value;
+        if (Array.isArray(value) && value.length <= 128 && value.every(primitive)) return value.slice();
+        throw Object.assign(new Error('Live requested collections and objects cannot cross execution contexts safely.'),
+            { code: 'UNSUPPORTED_REQUEST_EXPRESSION' });
+    };
     const evaluate = async (parsed: any, argNames: (string | undefined)[]) => {
         // Slots filled via named-args bag may still contain wrapped [val, name] tuples
         // (e.g. `lookahead: p54` where p54 is a request.param wrapper). Unwrap each.
@@ -204,21 +216,27 @@ export function security(context: any) {
             return Array.isArray(resolved) ? [resolved] : resolved;
         }
 
-        if (typeof runRequest === 'function') {
-            // Owned closed snapshots use complete higher candles, never a wall-clock realtime heuristic.
-            const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}`;
-            let secondary = context.cache[key];
-            if (!secondary) {
-                const sliceKey = String(_expression_name).match(/p\d+$/)?.[0] ?? _expression_name;
-                const slice = context._ltfTruncatedBodies?.[sliceKey];
-                const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
-                engine.markAsSecondary();
-                secondary = await runRequest(engine, slice, context, _expression_name);
-                context.cache[key] = secondary;
+        if (typeof runRequest === 'function' || typeof liveRequest === 'function') {
+            let secondary: any;
+            if (typeof liveRequest === 'function') {
+                secondary = await liveRequest(context, _expression_name, _symbol, _timeframe, _calc_bars_count);
+            } else {
+                const key = `edgelab:${_symbol}:${_timeframe}:${_expression_name}:${_calc_bars_count ?? ''}`;
+                secondary = context.cache[key];
+                if (!secondary) {
+                    const sliceKey = String(_expression_name).match(/p\d+$/)?.[0] ?? _expression_name;
+                    const slice = context._ltfTruncatedBodies?.[sliceKey];
+                    const engine = new PineTS(context.source, _symbol, _timeframe, _calc_bars_count);
+                    engine.markAsSecondary();
+                    secondary = await runRequest(engine, slice, context, _expression_name);
+                    context.cache[key] = secondary;
+                }
             }
             const opens = secondary.data.openTime.data, closes = secondary.data.closeTime.data;
             const chartOpen = Series.from(context.data.openTime).get(0);
             const chartClose = Series.from(context.data.closeTime).get(0);
+            const state = typeof liveState === 'function' ? liveState(_timeframe, context) : undefined;
+            const realtime = state?.realtime === true;
             if (reqSeconds < ctxSeconds) {
                 // Supplied complete children belong to the chart bar by opening time.
                 // A missing child is never replaced by an invented candle.
@@ -233,9 +251,9 @@ export function security(context: any) {
                     const middle = (low + high) >>> 1;
                     if (opens[middle] < chartClose) low = middle + 1; else high = middle;
                 }
-                let index = first < low ? (_lookahead ? first : low - 1) : (_gaps ? -1 : first - 1);
+                let index = first < low ? (_lookahead && !realtime ? first : low - 1) : (_gaps ? -1 : first - 1);
                 if (index < 0) return NaN;
-                if (first === low && _lookahead) {
+                if (first === low && _lookahead && !realtime) {
                     // Carry the prior chart bucket's selected FIRST child, not its last child.
                     const previousOpen = Math.floor(opens[index] / (ctxSeconds * 1000)) * ctxSeconds * 1000;
                     let left = 0, right = index + 1;
@@ -245,7 +263,17 @@ export function security(context: any) {
                     }
                     index = left;
                 }
-                const value = secondary.params[_expression_name]?.[index];
+                const value = ownValue(secondary.params[_expression_name]?.[index]);
+                return Array.isArray(value) ? [value] : value;
+            }
+            if (realtime) {
+                // Both lookahead policies see the same actual developing HTF
+                // candle on realtime bars. gaps_on waits for its confirmation.
+                // Requested buckets can turn over inside a chart bucket (5m -> 6m).
+                // The provider exposes only actually available requested candles.
+                const index = opens.length - 1;
+                if (index < 0 || (_gaps && state.confirmed !== true)) return NaN;
+                const value = ownValue(secondary.params[_expression_name]?.[index]);
                 return Array.isArray(value) ? [value] : value;
             }
             const times = _lookahead ? opens : closes;
@@ -257,7 +285,7 @@ export function security(context: any) {
             }
             const index = low - 1;
             if (index < 0 || (_gaps && (_lookahead ? opens[index] !== chartOpen : !(chartOpen < closes[index] && closes[index] <= chartClose)))) return NaN;
-            const value = secondary.params[_expression_name]?.[index];
+            const value = ownValue(secondary.params[_expression_name]?.[index]);
             return Array.isArray(value) ? [value] : value;
         }
 

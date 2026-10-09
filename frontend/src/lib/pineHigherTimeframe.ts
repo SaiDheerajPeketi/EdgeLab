@@ -18,6 +18,7 @@ export function aggregatePineHigherTimeframe(
   bars: readonly Candle[],
   baseTimeframe: string,
   targetTimeframe: string,
+  developingTail = false,
 ): Candle[] {
   const base = pineHigherTimeframeDuration(baseTimeframe);
   const target = pineHigherTimeframeDuration(targetTimeframe);
@@ -32,8 +33,8 @@ export function aggregatePineHigherTimeframe(
   let contiguous = false;
   let previousTime: number | undefined;
 
-  const finish = () => {
-    if (!current || !contiguous || count !== children) return;
+  const finish = (allowPartial = false) => {
+    if (!current || !contiguous || count !== children && !allowPartial) return;
     if (!Number.isFinite(current.volume)) unavailable("Aggregated volume exceeds the supported finite range.");
     result.push(current);
   };
@@ -73,6 +74,6 @@ export function aggregatePineHigherTimeframe(
     }
     previousTime = bar.time;
   }
-  finish();
+  finish(developingTail);
   return result;
 }

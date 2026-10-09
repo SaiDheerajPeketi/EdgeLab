@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-09: explicit realtime rollback and chart-owned historical intrabar fill scheduling.
+// EdgeLab modification, 2026-10-09: explicit realtime rollback, persistent requested contexts and chart-owned historical intrabar fill scheduling.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only. Upstream notices retained below.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
@@ -38,7 +38,7 @@ function getTimeframeDurationMs(timeframe: string | undefined): number {
 /** Realtime retained-state limits; these do not limit transient allocations in user code. */
 const REALTIME_LIMITS = Object.freeze({ nodes: 16_384, cells: 262_144, seriesSlots: 1_280_000 });
 type RealtimeLimits = { nodes: number; cells: number; seriesSlots: number };
-type RealtimeOptions = { initialTail?: 'open' | 'historical'; limits?: Partial<RealtimeLimits> };
+type RealtimeOptions = { initialTail?: 'open' | 'historical' | 'deferred'; limits?: Partial<RealtimeLimits> };
 const REALTIME_SCOPES = ['const', 'var', 'let', 'params', 'varip'];
 function limitError(metric: string, counts: { nodes: number; mutableCells: number; seriesSlots?: number }) {
     const error: any = new Error(`Realtime retained-state ${metric} limit exceeded.`);
@@ -68,6 +68,9 @@ function* realtimeRoots(context: any, varipOnly = false): Generator<any> {
         for (const key in container[kind] ?? {}) {
             const item = container[kind][key];
             if (item instanceof Series) yield* item.data;
+            // request.param retains a plain forward history array. Include its
+            // shifted working slot in bounded rollback, like Series bindings.
+            else if (Array.isArray(item)) yield item;
         }
     if (!varipOnly) {
         yield context.taState; yield context.cache;
@@ -308,7 +311,7 @@ export class PineTS {
     private _realtimeMode = false;
     private _realtimeContext: Context | null = null;
     private _realtimeUpdating = false;
-    private _realtimeInitialTail: 'open' | 'historical' = 'open';
+    private _realtimeInitialTail: 'open' | 'historical' | 'deferred' = 'open';
     private _realtimeLimits: RealtimeLimits = { ...REALTIME_LIMITS };
     /** Opt-in indicator tick execution; explicit events, never wall-clock inference. */
     public setRealtimeMode(enabled: boolean, options: RealtimeOptions = {}) {
@@ -323,8 +326,10 @@ export class PineTS {
                 throw new Error('Realtime options must contain only data fields.');
             selected[key] = descriptor.value;
         }
-        if (selected.initialTail !== undefined && selected.initialTail !== 'open' && selected.initialTail !== 'historical')
+        if (selected.initialTail !== undefined && selected.initialTail !== 'open' && selected.initialTail !== 'historical' && selected.initialTail !== 'deferred')
             throw new Error('Invalid realtime initial tail.');
+        if (selected.initialTail === 'deferred' && !this._isSecondaryContext)
+            throw new Error('Deferred realtime tails require an owned secondary engine.');
         const limits = selected.limits === undefined ? {} : selected.limits;
         if (!limits || Object.getPrototypeOf(limits) !== Object.prototype)
             throw new Error('Invalid realtime limits.');
@@ -779,9 +784,36 @@ export class PineTS {
         const slices = (transpiledFn as any)._ltfSlices;
         if (slices) (context as any)._ltfTruncatedBodies = slices;
 
-        await this._executeIterations(context, transpiledFn, this.data.length - periods, this.data.length);
+        const startIdx = this.data.length - periods;
+        if (this._realtimeMode) return this._runRealtimeComplete(context, transpiledFn, startIdx, this.data.length);
+        await this._executeIterations(context, transpiledFn, startIdx, this.data.length);
 
         return context;
+    }
+
+    private async _runRealtimeComplete(context: Context, fn: Function, startIdx: number, endIdx: number): Promise<Context> {
+        this._realtimeContext = context;
+        const historical = this._realtimeInitialTail === 'historical';
+        const deferred = this._realtimeInitialTail === 'deferred';
+        (context as any)._realtimeLifecycle = { index: historical ? endIdx : endIdx - 1, confirmed: historical, newBar: !historical, deferred };
+        try {
+            if (endIdx === 0) throw new Error('Realtime execution requires at least one initial bar.');
+            if (historical) {
+                await this._executeIterations(context, fn, startIdx, endIdx);
+                (context as any)._realtimeLifecycle.index = endIdx - 1;
+            } else {
+                await this._executeIterations(context, fn, startIdx, endIdx - 1);
+                (context as any)._realtimeSnapshot = this._takeRealtimeSnapshot(context);
+                if (!deferred) await this._executeIterations(context, fn, endIdx - 1, endIdx);
+            }
+            this._measureRealtimeState(context);
+            return context;
+        } catch (error) {
+            (context as any)._realtimeLifecycle.failed = true;
+            if ((error as any).stats) (context as any)._realtimeMetrics = { nodes: 0, mutableCells: 0,
+                seriesSlots: 0, baselineNodes: 0, newbornNodes: 0, prunedNodes: 0, ...(error as any).stats };
+            throw error;
+        }
     }
 
     /**
@@ -816,29 +848,7 @@ export class PineTS {
         const startIdx = this.data.length - periods;
         const endIdx = this.data.length;
 
-        if (this._realtimeMode) {
-            this._realtimeContext = context;
-            const historical = this._realtimeInitialTail === 'historical';
-            (context as any)._realtimeLifecycle = { index: historical ? endIdx : endIdx - 1, confirmed: historical, newBar: !historical };
-            try {
-                if (endIdx === 0) throw new Error('Realtime execution requires at least one initial bar.');
-                if (historical) {
-                    await this._executeIterations(context, prepared.fn, startIdx, endIdx);
-                    (context as any)._realtimeLifecycle.index = endIdx - 1;
-                } else {
-                    await this._executeIterations(context, prepared.fn, startIdx, endIdx - 1);
-                    (context as any)._realtimeSnapshot = this._takeRealtimeSnapshot(context);
-                    await this._executeIterations(context, prepared.fn, endIdx - 1, endIdx);
-                }
-                this._measureRealtimeState(context);
-                return context;
-            } catch (error) {
-                (context as any)._realtimeLifecycle.failed = true;
-                if ((error as any).stats) (context as any)._realtimeMetrics = { nodes: 0, mutableCells: 0,
-                    seriesSlots: 0, baselineNodes: 0, newbornNodes: 0, prunedNodes: 0, ...(error as any).stats };
-                throw error;
-            }
-        }
+        if (this._realtimeMode) return this._runRealtimeComplete(context, prepared.fn, startIdx, endIdx);
 
         if (endIdx - startIdx > 1) {
             await this._executeIterations(context, prepared.fn, startIdx, endIdx - 1);
@@ -1259,6 +1269,57 @@ export class PineTS {
         return true;
     }
 
+    /** Advance an owned secondary through actual chronological provider candles.
+     * Unlike primary updates, one chart event may deliver several requested bars.
+     * Each completed child is committed before the next child opens; the current
+     * child's ordinary state rolls back while varip retains actual tick state.
+     */
+    public async updateRequestTail(context: Context, event: { confirmed: boolean; received?: boolean }): Promise<boolean> {
+        if (!this._realtimeMode || context !== this._realtimeContext || !event || typeof event.confirmed !== 'boolean'
+            || (event.received !== undefined && typeof event.received !== 'boolean')
+            || Object.keys(event).some(key => key !== 'confirmed' && key !== 'received'))
+            throw new Error('Requested realtime update requires the owning context and a boolean confirmed event.');
+        if (this._realtimeUpdating) throw new Error('A realtime update is already running.');
+        if (Array.isArray(this.source)) throw new Error('Realtime updates require a provider.');
+        const lifecycle = (context as any)._realtimeLifecycle;
+        if (lifecycle.failed) throw new Error('Realtime execution is halted after a script runtime error.');
+        this._realtimeUpdating = true;
+        try {
+            const previous = this.data[this.data.length - 1];
+            const fetched = await (this.source as IProvider).getMarketData(this.tickerId!, this.timeframe!, undefined, previous.openTime, this.eDate);
+            const relevant = (fetched ?? []).filter(bar => bar.openTime >= previous.openTime);
+            if (relevant.length > this._realtimeLimits.seriesSlots) throw limitError('requested bars', { nodes: 0, mutableCells: 0 });
+            if (relevant.some((bar, index) => !Number.isFinite(bar.openTime)
+                || (index > 0 && bar.openTime <= relevant[index - 1].openTime)))
+                throw new Error('Realtime provider bars must have strictly increasing times.');
+            if (!lifecycle.confirmed && relevant.some(bar => bar.openTime > previous.openTime)
+                && relevant[0]?.openTime !== previous.openTime)
+                throw new Error('A developing requested bar requires its actual final candle before the next bar.');
+            let changed = false;
+            for (let index = 0; index < relevant.length; index++) {
+                const bar = relevant[index], last = index === relevant.length - 1;
+                const current = this.data[this.data.length - 1];
+                if (bar.openTime === current.openTime && lifecycle.confirmed) {
+                    if (['open', 'high', 'low', 'close', 'volume', 'closeTime'].some(key => bar[key] !== current[key]))
+                        throw new Error('A committed requested bar cannot be revised.');
+                    continue;
+                }
+                if (bar.openTime > current.openTime && !lifecycle.confirmed) {
+                    changed = await this._updateRealtimeTail(context, { confirmed: true }, [current]) || changed;
+                }
+                changed = await this._updateRealtimeTail(context, {
+                    confirmed: !last || event.confirmed, received: last && event.received === true,
+                }, [bar]) || changed;
+            }
+            return changed;
+        } catch (error) {
+            lifecycle.failed = true;
+            throw error;
+        } finally {
+            this._realtimeUpdating = false;
+        }
+    }
+
     private _takeRealtimeSnapshot(context: Context): any {
         // Establish graph and per-binding history bounds before allocating any copies.
         const graph = realtimeGraph(context, this._realtimeLimits);
@@ -1326,14 +1387,14 @@ export class PineTS {
         snapshot.graph.prune(); // Scope rollback has removed transient roots; release only dead births.
     }
 
-    private async _updateRealtimeTail(context: Context, event?: { confirmed: boolean; received?: boolean }): Promise<boolean> {
+    private async _updateRealtimeTail(context: Context, event?: { confirmed: boolean; received?: boolean }, suppliedCandles?: any[]): Promise<boolean> {
         if (context !== this._realtimeContext || !event || typeof event.confirmed !== 'boolean' || (event.received !== undefined && typeof event.received !== 'boolean') || Object.keys(event).some(key => key !== 'confirmed' && key !== 'received'))
             throw new Error('Realtime update requires the owning context and a boolean confirmed event.');
         if (Array.isArray(this.source)) throw new Error('Realtime updates require a provider.');
         const lifecycle = (context as any)._realtimeLifecycle;
         if (lifecycle.failed) throw new Error('Realtime execution is halted after a script runtime error.');
         const previous = this.data[this.data.length - 1];
-        const fetched = await (this.source as IProvider).getMarketData(this.tickerId!, this.timeframe!, undefined, previous.openTime, this.eDate);
+        const fetched = suppliedCandles ?? await (this.source as IProvider).getMarketData(this.tickerId!, this.timeframe!, undefined, previous.openTime, this.eDate);
         if (!fetched?.length) return false;
         const relevant = fetched.filter((bar: any) => bar.openTime >= previous.openTime);
         if (!relevant.length) return false;
@@ -1357,14 +1418,15 @@ export class PineTS {
                 throw new Error('A committed bar cannot receive another tick.');
             }
             if (!replacement) return false;
-            if (!event.confirmed && event.received !== true && ['open','high','low','close','volume','closeTime'].every(key => replacement[key] === previous[key])) return false;
+            if (!lifecycle.deferred && !event.confirmed && event.received !== true && ['open','high','low','close','volume','closeTime'].every(key => replacement[key] === previous[key])) return false;
             this._restoreRealtimeSnapshot(context, (context as any)._realtimeSnapshot);
             this._replaceCandle(lifecycle.index, replacement);
             lifecycle.confirmed = event.confirmed;
-            lifecycle.newBar = false;
+            lifecycle.newBar = lifecycle.deferred === true;
         }
         context.dataVersion = (context.dataVersion || 0) + 1;
         await this._executeIterations(context, this._transpiledCode as Function, lifecycle.index, lifecycle.index + 1);
+        lifecycle.deferred = false;
         this._measureRealtimeState(context);
         return true;
     }

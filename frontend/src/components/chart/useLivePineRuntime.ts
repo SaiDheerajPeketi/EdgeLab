@@ -5,11 +5,12 @@ import type { ChartIndicatorInstance, ChartTimeframe } from "../../lib/charting"
 import { isPersistentPineIndicator, pineContextForChart, sanitizePinePrepared } from "../../lib/customIndicators";
 import { pineFeedChartSnapshot, type PineFeedSnapshot, type PineLiveFeed } from "../../lib/pineLiveFeed";
 import { createPineLiveRuntimeSession, createPineRuntimeJob, type PineLiveRuntimeSession } from "../../lib/pineRuntime";
+import { pineSourceSnapshotForChart } from "../../lib/pineSourceSnapshot";
 import { PINE_LIMITS, type PineContext, type PineExecutionResult, type PineViewport } from "../../lib/pineProtocol";
 
 type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string };
 export type LivePineStudy = { sourceId: string; owner: Owner; bars: Candle[]; viewport?: PineViewport | null; usesVisibleRange?: boolean; result?: PineExecutionResult; error?: string };
-type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; session?: PineLiveRuntimeSession; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob> };
+type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; sourceOwned?: boolean; session?: PineLiveRuntimeSession; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob> };
 function sameViewport(a: PineViewport | null | undefined, b: PineViewport | null | undefined) {
   return a === b || (a != null && b != null && a.from === b.from && a.to === b.to);
 }
@@ -161,9 +162,13 @@ export function useLivePineRuntime(options: {
             if (options.contextError) throw new Error(options.contextError);
             if (!chart.history.length) throw new Error("There are no earlier closed candles for this timeframe. Choose a shorter timeframe or load more history.");
             entry.bars = recovering && chart.confirmed ? [...chart.history, chart.bar] : chart.history;
+            const sourceBars = snapshot.bars.filter(bar => recovering && chart.confirmed ? bar.time <= snapshot.event!.bar.time : bar.time < snapshot.event!.bar.time);
+            const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, "1", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
+            entry.sourceOwned = sourceSnapshot !== undefined;
             entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
               inputMetadata: sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!),
-              context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: entry.bars, viewport: entry.viewport });
+              context: options.context ?? pineContextForChart(options.symbol, options.timeframe), bars: entry.bars, viewport: entry.viewport,
+              sourceSnapshot });
             const currentEntry = entry, initialBars = entry.bars, initialViewport = entry.viewport;
             void entry.session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, initialViewport))
               .catch(error => report(indicator.id, currentEntry, error, initialViewport));
@@ -174,7 +179,7 @@ export function useLivePineRuntime(options: {
           if (recovering && chart.confirmed) continue;
           entry.bars = entry.bars.at(-1)?.time === chart.bar.time ? [...entry.bars.slice(0, -1), chart.bar] : [...entry.bars, chart.bar];
           const currentEntry = entry, bars = entry.bars, viewport = entry.viewport;
-          void entry.session.update(chart.bar, chart.confirmed).then(result => publish(indicator.id, currentEntry, result, bars, viewport))
+          void entry.session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined).then(result => publish(indicator.id, currentEntry, result, bars, viewport))
             .catch(error => report(indicator.id, currentEntry, error, viewport));
         } catch (error) { report(indicator.id, entry, error, entry.viewport); }
       }

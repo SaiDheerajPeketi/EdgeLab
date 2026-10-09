@@ -182,7 +182,7 @@ function ordinaryFields(value: unknown): Record<string, unknown> {
   }
   return raw;
 }
-function validateSourceSnapshot(value: unknown, bars: Candle[], context: PineContext): PineSourceSnapshot {
+function validateSourceSnapshot(value: unknown, bars: Candle[], context: PineContext, live = false): PineSourceSnapshot {
   const raw = ordinaryFields(value);
   if (Object.keys(raw).some(key => !["timeframe", "bars"].includes(key))
     || !Object.prototype.hasOwnProperty.call(raw, "timeframe") || !Object.prototype.hasOwnProperty.call(raw, "bars")) fail("Source snapshots contain only timeframe and bars.", "INVALID_CONTEXT");
@@ -202,7 +202,9 @@ function validateSourceSnapshot(value: unknown, bars: Candle[], context: PineCon
     if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= input.length
       || !("value" in descriptor) || !descriptor.enumerable) fail("Source history requires ordinary dense candle slots.", "INVALID_BARS");
   }
-  const first = bars[0].time, cutoff = bars[bars.length - 1].time + chart;
+  // A live initialization owns closed chart history plus already received,
+  // confirmed children in its next developing chart bucket.
+  const first = bars[0].time, cutoff = bars[bars.length - 1].time + chart * (live ? 2 : 1);
   let previous = -Infinity;
   const copied: Candle[] = [];
   for (let index = 0; index < input.length; index++) {
@@ -300,8 +302,8 @@ export function validatePineRequest(value: unknown): PineRequest {
   const sourceDescriptor = Object.getOwnPropertyDescriptor(raw, "sourceSnapshot");
   if (sourceDescriptor && (!("value" in sourceDescriptor) || !sourceDescriptor.enumerable)) fail("Source snapshots require an ordinary request field.", "INVALID_BARS");
   if (sourceDescriptor?.value !== undefined) {
-    if (raw.action !== "run" || mode !== "historical" || !context || !bars?.length) fail("Intrabar source snapshots are available only for historical execution.", "UNAVAILABLE_DATA");
-    sourceSnapshot = validateSourceSnapshot(sourceDescriptor.value, bars, context);
+    if (raw.action !== "run" || !context || !bars?.length) fail("Intrabar source snapshots require an owned chart execution.", "UNAVAILABLE_DATA");
+    sourceSnapshot = validateSourceSnapshot(sourceDescriptor.value, bars, context, mode === "live");
   }
   return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}), ...(viewport !== undefined ? { viewport } : {}) };
 }

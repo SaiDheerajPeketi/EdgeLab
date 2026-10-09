@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-table-drawings-132",
+  "patch": "edgelab-live-secondary-143",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "0bcddcac30e354d469975421f1b3b958bcd3a248905139ae3bc02059d8efeb89"
+      "sha256": "cc388da3c2d456d4287aed10737ddf9972bf1f573bf445f7c1a87a344b49ae67"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -128,13 +128,13 @@
       "source": "src/namespaces/request/methods/security.ts",
       "file": "overrides/namespaces/request/methods/security.ts",
       "upstreamSha256": "06e8d41952b525ecf3285f9017441846f81701f12eb6275e5f9f12fd78d6425c",
-      "sha256": "e104b7d692ae16e0ec62923cc260b95e914674fd2337d5a210e6e932d3a2d4ea"
+      "sha256": "31daf10410b40858d41f640d9bb811374e63d50f7c565d3ab4e012a70937b191"
     },
     {
       "source": "src/namespaces/request/methods/security_lower_tf.ts",
       "file": "overrides/namespaces/request/methods/security_lower_tf.ts",
       "upstreamSha256": "485ac978a33ae3b9101fd51d6acea92c8e465fa118c1f5434d13e2959fb9ed0a",
-      "sha256": "1484cb91605db6fa3ea2184b9f4751bab9e2b7f037b245b6a629bff6dfc1f5e3"
+      "sha256": "c917385ea0cbe1ce58d3eea1df91f250e54d54fca9d9ba964c2e427fae7c23b9"
     },
     {
       "source": "src/namespaces/Ticker.ts",
@@ -146,7 +146,7 @@
       "source": "src/transpiler/slicing/buildLtfSlices.ts",
       "file": "overrides/transpiler/slicing/buildLtfSlices.ts",
       "upstreamSha256": "f9c2739804c09bd9b6088f9948c1343d7a08b572e8a68696207fe187ba7c878f",
-      "sha256": "eee83b99f095ac93e7d0badeec9975331e988c8d36644799989f1aad2c362cd2"
+      "sha256": "74ba90af8dfd212679cabc0f48a6f974a6b2c9df2702ffa8ae999bede34e57f4"
     },
     {
       "source": "src/namespaces/Core.ts",
@@ -211,6 +211,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "95c0d2116f8bea78cc32b251a8c0f5f7e86ed9832de83d35b3432a0d1bb253e9"
+    "sha256": "6c2e046fa216e2092c8bec18af87cd0dfc2b54c660bff33a47672c9296e983b2"
   }
 }
