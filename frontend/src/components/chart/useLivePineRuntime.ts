@@ -65,6 +65,13 @@ export function useLivePineRuntime(options: {
       && visible().some(indicator => indicator.id === id && signature(indicator) === entry.key);
     const registerAlert = (id: string, entry: Entry) => options.alerts?.store.register({ name: entry.alertName ?? "Pine indicator", symbol: options.symbol, timeframe: options.timeframe,
       readCurrent: () => { const current = feed.getSnapshot(); return { epoch: current.epoch, sequence: current.event?.sequence ?? -1, error: !!current.error }; },
+      readConditions: () => {
+        const state = entry.session?.readConditionState?.(), event = feed.getSnapshot().event;
+        if (!state || !event) return;
+        const end = (event.closeTime + 1) / 1000;
+        const primaryCutoff = event.confirmed ? end : Math.max(event.bar.time, Math.min(event.eventTime / 1000, end));
+        return Number.isFinite(primaryCutoff) ? { ...state, primaryCutoff } : undefined;
+      },
       owns: () => ownsStudy(id, entry) && !entry.failed && feed.getSnapshot().epoch === entry.owner.epoch && !feed.getSnapshot().error });
     const report = (id: string, entry: Entry, failure: unknown, viewport: PineViewport | null | undefined, session?: PineLiveRuntimeSession) => {
       if (!ownsStudy(id, entry) || entry.failed) return;
@@ -122,7 +129,7 @@ export function useLivePineRuntime(options: {
       entry.alert?.disarm("Chart view changed.");
       void session.setViewport(viewport).then(result => {
         if (entry.session === session && ownsStudy(id, entry) && !entry.failed && feed.getSnapshot().epoch === entry.owner.epoch && !feed.getSnapshot().error) {
-          if (sameViewport(viewport, latest.current.viewport ?? null)) entry.alert?.setReady();
+          if (sameViewport(viewport, latest.current.viewport ?? null)) entry.alert?.setReady(result.alertConditions);
           publish(id, entry, result, bars, viewport);
         }
       }).catch(error => report(id, entry, error, viewport, session)).finally(() => {
@@ -146,7 +153,7 @@ export function useLivePineRuntime(options: {
     };
     const started = (id: string, entry: Entry, session: PineLiveRuntimeSession, result: PineExecutionResult, bars: Candle[], viewport: PineViewport | null | undefined) => {
       if (!ownsStudy(id, entry) || entry.failed || entry.session !== session || feed.getSnapshot().epoch !== entry.owner.epoch || feed.getSnapshot().error) return;
-      entry.alert?.setReady();
+      entry.alert?.setReady(result.alertConditions);
       publish(id, entry, result, bars, viewport);
     };
     const accept = (snapshot: PineFeedSnapshot) => {
@@ -259,9 +266,11 @@ export function useLivePineRuntime(options: {
           const currentEntry = entry, bars = entry.bars, viewport = entry.viewport;
           const session = entry.session;
           const nonce = entry.alert?.capture(snapshot.epoch, snapshot.event.sequence);
-          void session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined, nonce !== undefined ? true : undefined).then(result => {
+          const collectConditions = nonce !== undefined && entry.alert?.collectConditions(nonce);
+          void session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined,
+            nonce !== undefined && !collectConditions ? true : undefined, collectConditions ? true : undefined).then(result => {
             if (nonce !== undefined && ownsStudy(indicator.id, currentEntry) && !currentEntry.failed && currentEntry.session === session
-              && feed.getSnapshot().epoch === snapshot.epoch && !feed.getSnapshot().error) currentEntry.alert?.receive(nonce, result.alertEvents);
+              && feed.getSnapshot().epoch === snapshot.epoch && !feed.getSnapshot().error) currentEntry.alert?.receive(nonce, result.alertEvents, result.conditionSamples);
             publish(indicator.id, currentEntry, result, bars, viewport);
           })
             .catch(error => report(indicator.id, currentEntry, error, viewport, session));

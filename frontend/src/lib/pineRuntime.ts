@@ -3,7 +3,7 @@ import { migratePineEnumInputs } from "./pineInputMigration";
 import type { PinePrepareResult } from "./pineProtocol";
 import type { Candle } from "./api";
 import { createSandboxWorkerJob, createSandboxWorkerSession } from "./pineSandbox";
-import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, validatePineRequest, validatePineResponse, type PineAlertConditionDefinition, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
+import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, validatePineRequest, validatePineResponse, type PineAlertConditionDefinition, type PineContext, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
 import { preparePineCalculationPrefix, selectPineCalculationSnapshot, type PineCalculationPrefix } from "./pineCalculationSnapshot";
 import type { PineConditionSampleProof } from "./pineConditionSamples";
 import { pineMarketSymbol } from "./pineMarketProtocol";
@@ -38,12 +38,17 @@ export function createPineRuntimeJob(input: Omit<PineRequest, "id">, options: { 
   return createJob(request);
 }
 
+export type PineConditionState = {
+  conditions: PineAlertConditionDefinition[]; timeframe: string;
+  frontier: { time: number; confirmed: boolean }; context: PineContext;
+};
 export type PineLiveRuntimeSession = {
   id: string;
   promise: Promise<PineExecutionResult>;
   update(bar: Candle, confirmed: boolean, source?: PineLiveSourceEvent, collectAlerts?: boolean, collectConditions?: boolean): Promise<PineExecutionResult>;
   setViewport(viewport: PineViewport | null): Promise<PineExecutionResult>;
   updateMarkets(events: PineLiveMarketEvent[]): Promise<PineLiveMarketReceipt>;
+  readConditionState(): PineConditionState | undefined;
   cancel(): void;
 };
 
@@ -85,7 +90,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         return run(owned);
       }).catch((error) => { cancel(); throw error; }).finally(() => { pending--; });
     };
-    return { id: preparation.id, promise, cancel, update: (bar, confirmed, source, collectAlerts, collectConditions) => enqueue(owned => owned.update(bar, confirmed, source, collectAlerts, collectConditions)),
+    return { id: preparation.id, promise, cancel, readConditionState: () => halted ? undefined : session?.readConditionState(), update: (bar, confirmed, source, collectAlerts, collectConditions) => enqueue(owned => owned.update(bar, confirmed, source, collectAlerts, collectConditions)),
       setViewport: viewport => enqueue(owned => owned.setViewport(viewport)), updateMarkets: events => {
         try { const ownedEvents = validatePineLiveMarketEvents(events); return enqueue(owned => owned.updateMarkets(ownedEvents)); }
         catch (error) { cancel(); return Promise.reject(error); }
@@ -102,6 +107,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
   const expectedConditions = new Map<number, { ledger: PineLiveMarketLedger; sourceConfirmed: boolean; revision: number }>();
   const initialSource = request.sourceSnapshot ?? { timeframe: canonicalPineTimeframe(request.context!.timeframe), bars: request.bars! };
   let conditionOwner: { conditions: readonly PineAlertConditionDefinition[]; timeframe: string; prefix?: PineCalculationPrefix } | undefined;
+  let conditionFrontier: { revision: number; ledger: PineLiveMarketLedger; value: PineConditionState["frontier"] } | undefined;
   let revision = 0;
   let bars = request.bars!;
   let sourceSnapshot = request.sourceSnapshot, sourceConfirmed = true;
@@ -150,7 +156,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
       return result;
     },
   });
-  const cancel = () => { halted = true; expected.clear(); expectedMarkets.clear(); expectedConditions.clear(); conditionOwner = undefined; marketLedger = Object.freeze([]); session.cancel(); };
+  const cancel = () => { halted = true; expected.clear(); expectedMarkets.clear(); expectedConditions.clear(); conditionOwner = undefined; conditionFrontier = undefined; marketLedger = Object.freeze([]); session.cancel(); };
   void session.promise.catch(cancel);
   const chartResult = (result: PineExecutionResult | PineLiveMarketReceipt): PineExecutionResult => {
     if (result.kind === "market-update") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "A chart command returned a market acknowledgement.");
@@ -160,6 +166,21 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
     id,
     promise: session.promise.then(chartResult),
     cancel,
+    readConditionState: () => {
+      if (halted || !conditionOwner) return undefined;
+      if (!conditionFrontier || conditionFrontier.revision !== revision || conditionFrontier.ledger !== marketLedger) {
+        try {
+          const selected = selectPineCalculationSnapshot({ request: { ...request, bars, sourceSnapshot },
+            timeframe: conditionOwner.timeframe, realtime: true, chartConfirmed: confirmedTail, sourceConfirmed,
+            revision, initialSource, marketLedger, prefix: conditionOwner.prefix });
+          const tail = selected.bars.at(-1);
+          if (!tail) return undefined;
+          conditionFrontier = { revision, ledger: marketLedger, value: { time: tail.time, confirmed: selected.confirmed } };
+        } catch { return undefined; }
+      }
+      return { conditions: conditionOwner.conditions.map(item => ({ ...item })), timeframe: conditionOwner.timeframe,
+        frontier: { ...conditionFrontier.value }, context: { ...request.context! } };
+    },
     setViewport: value => {
       if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped."));
       try {

@@ -213,6 +213,10 @@ export function createPineLiveMarketCoordinator(input: PineRequest, scope: PineM
     };
     const session: PineLiveRuntimeSession = { id, promise: Promise.resolve(undefined as never),
       cancel: () => { if ((halted as PineProtocolError)?.code === PINE_MARKETS_RELOADING) return; cancel(); },
+      readConditionState: () => {
+        if (halted || !admitted) return undefined;
+        try { assertActive(); return inner?.readConditionState(); } catch { return undefined; }
+      },
       update: (bar, confirmed, source, collectAlerts, collectConditions) => enqueue({ action: "update", bar, confirmed, ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}), ...(collectConditions !== undefined ? { collectConditions } : {}) }),
       setViewport: viewport => enqueue({ action: "viewport", viewport }),
       updateMarkets: () => Promise.reject(new PineProtocolError("INVALID_LIVE_MARKET", "Requested live updates belong to the coordinator's native transports.")),
