@@ -1376,12 +1376,18 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       }
       const condition = alertCondition.value;
       Object.defineProperty(pine, "alertcondition", { ...alertCondition, value: function(this: unknown, ...args: unknown[]) {
-        encounteredAlerts.add("alertcondition"); return Reflect.apply(condition, this, args);
+        encounteredAlerts.add("alertcondition");
+        try { return Reflect.apply(condition, this, args); }
+        finally { context.alerts.length = 0; }
       } });
       // AlertHelper.any is inherited; shadow only this context's instance.
       const send = alert.any;
       Object.defineProperty(alert, "any", { configurable: true, writable: true, value: function(this: unknown, ...args: unknown[]) {
-        encounteredAlerts.add("alert"); return Reflect.apply(send, this, args);
+        encounteredAlerts.add("alert");
+        // Delivery is unavailable. Retire the evaluated event immediately,
+        // including secondary/viewport contexts and failed calls; keep gates.
+        try { return Reflect.apply(send, this, args); }
+        finally { context.alerts.length = 0; }
       } });
       if (!realtime) Object.defineProperties(context.pine.barstate, {
         ishistory: { get: () => true },

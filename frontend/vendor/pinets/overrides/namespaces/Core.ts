@@ -1,8 +1,9 @@
+// EdgeLab modification, 2026-10-10: validate alert frequencies and retire old bar gates.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Series } from '../Series';
 import { PineTypeObject } from './PineTypeObject';
-import { parseArgsForPineParams } from './utils';
+import { extractCallsiteId, parseArgsForPineParams } from './utils';
 import type { IndicatorOptions, PlotCharOptions } from '../types/PineTypes';
 import { silentInSecondary } from './silentInSecondary';
 
@@ -123,10 +124,11 @@ export const ALERT_FREQ = {
  */
 export class AlertHelper {
     /**
-     * Per-callsite, per-bar frequency gating.
-     * Key: `${callsiteId}:${barIdx}`, tracks which (callsite, bar) pairs have fired.
+     * Per-callsite gating for the current native bar only. These gates stay
+     * outside script rollback, and draining events does not reset them.
      */
     private _firedKeys: Set<string> = new Set();
+    private _firedBar: number = -1;
 
     /** Fallback counter for PineTS-syntax (non-transpiled) calls without __callsiteId. */
     private _fallbackCounter: number = 0;
@@ -144,16 +146,31 @@ export class AlertHelper {
     }
 
     @silentInSecondary
-    any(message: any, freq?: any, opts?: any): void {
+    any(...args: any[]): void {
+        // The compiler appends its sentinel after the authored arguments, so
+        // an omitted frequency puts it second rather than third.
+        const injectedId = extractCallsiteId(args);
+        let [message, freq] = args;
+        const named = args.find(arg => arg && typeof arg === 'object'
+            && Object.getPrototypeOf(arg) === Object.prototype
+            && Object.keys(arg).length > 0
+            && Object.keys(arg).every(key => key === 'message' || key === 'freq'));
+        if (named) {
+            message = Object.prototype.hasOwnProperty.call(named, 'message') ? named.message : message === named ? undefined : message;
+            freq = Object.prototype.hasOwnProperty.call(named, 'freq') ? named.freq : freq === named ? undefined : freq;
+        }
         const msg = Series.from(message).get(0);
         // Earlier PineTS versions used 'alert.freq_all', ...: accept those strings too.
-        const given = freq ? Series.from(freq).get(0) : ALERT_FREQ.freq_once_per_bar;
+        const given = freq === undefined ? ALERT_FREQ.freq_once_per_bar : Series.from(freq).get(0);
         const f = typeof given === 'string' && given.startsWith('alert.freq_') ? given.slice('alert.freq_'.length) : given;
+        if (f !== ALERT_FREQ.freq_all && f !== ALERT_FREQ.freq_once_per_bar && f !== ALERT_FREQ.freq_once_per_bar_close) {
+            throw new TypeError('alert() frequency must be alert.freq_all, alert.freq_once_per_bar or alert.freq_once_per_bar_close.');
+        }
 
         // Extract callsite ID: from transpiler-injected __callsiteId, or fallback counter
         let callsiteId: string;
-        if (opts && typeof opts === 'object' && opts.__callsiteId) {
-            callsiteId = opts.__callsiteId;
+        if (injectedId) {
+            callsiteId = injectedId;
         } else {
             const execTick = this.context._execTick || 0;
             if (execTick !== this._fallbackLastExecTick) {
@@ -164,6 +181,10 @@ export class AlertHelper {
         }
 
         const barIdx = this.context.idx;
+        if (barIdx !== this._firedBar) {
+            this._firedKeys.clear();
+            this._firedBar = barIdx;
+        }
         const isRealtime = this.context.pine?.barstate?.isrealtime ?? (barIdx === this.context.length - 1);
         const alertMode = this.context._alertMode || 'realtime';
 
@@ -171,7 +192,7 @@ export class AlertHelper {
         if (alertMode === 'realtime' && !isRealtime) return;
 
         // Per-callsite frequency gating
-        const gateKey = `${callsiteId}:${barIdx}`;
+        const gateKey = callsiteId;
 
         if (f === ALERT_FREQ.freq_once_per_bar) {
             if (this._firedKeys.has(gateKey)) return;
@@ -270,12 +291,17 @@ export class Core {
     private _acLastExecTick: number = -1;
     /** Per-callsite, per-bar dedup for alertcondition (prevents duplicate fires on live re-execution). */
     private _acFiredKeys: Set<string> = new Set();
+    private _acFiredBar: number = -1;
 
     @silentInSecondary
     alertcondition(condition: any, title?: any, message?: any) {
         const cond = Series.from(condition).get(0);
 
         const barIdx = this.context.idx;
+        if (barIdx !== this._acFiredBar) {
+            this._acFiredKeys.clear();
+            this._acFiredBar = barIdx;
+        }
 
         // Reset counter each time a bar starts executing (including re-executions).
         // _execTick is incremented by _executeIterations at the start of each bar run,
@@ -297,7 +323,7 @@ export class Core {
 
         // Per-callsite, per-bar dedup — alertcondition fires once per bar per callsite
         // (prevents duplicate emissions when stream() re-executes the live bar)
-        const gateKey = `${callsiteId}:${barIdx}`;
+        const gateKey = callsiteId;
         if (this._acFiredKeys.has(gateKey)) return;
         this._acFiredKeys.add(gateKey);
 

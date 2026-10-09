@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "4fbc19964985f3b0e553c6f48c9359a52662a9bac72d1659f3cb69c60576213c",
+  "namespaceSourcesSha256": "a4798e9c26c11c887772a7ca26b006da31c7dcbd8e52e4ac897362b898d5cc79",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -22,7 +22,7 @@
     },
     {
       "source": "src/namespaces/Core.ts",
-      "sha256": "91b81102f53135e8b462060f8584b76055843e8c81ccbd99206f65e3d5b8ba8c"
+      "sha256": "0640251e8fa6cf1c0ca590fb25aa1c10470cbbb4ad4bf8349f6a615825dc643d"
     },
     {
       "source": "src/namespaces/input/methods/enum.ts",
