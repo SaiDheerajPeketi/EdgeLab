@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "6d1adb188150a88f50108e05b14bcb62ee3436025426964658f42d0c1cc615d2",
+  "namespaceSourcesSha256": "525ffe6ccea59aa544c8122d287f4ddb3ece0d6a91ea8d42ecba99eb335b04f9",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -83,6 +83,14 @@
     {
       "source": "src/namespaces/strategy/utils.ts",
       "sha256": "130fee1785db6bc9e7462b7aeb631bc52ec45cf8cedf0c882f09f8a3d34831f9"
+    },
+    {
+      "source": "src/namespaces/table/TableHelper.ts",
+      "sha256": "cfd95d435588abb3ec525ba1180c5c3d607b475585ac74330add71c23a57086a"
+    },
+    {
+      "source": "src/namespaces/table/TableObject.ts",
+      "sha256": "58317994aacb5f828c784aa2d36fbe15f1004b0a8f1b6b064caf61b8f2ed39dc"
     },
     {
       "source": "src/namespaces/Ticker.ts",

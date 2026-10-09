@@ -3,13 +3,13 @@ import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../li
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
-import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata } from "../lib/pineProtocol";
+import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings } from "../lib/pineProtocol";
 import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PinePolylineDrawing, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineDiagnostic, PineTableDrawing, PineTableCell, PinePolylineDrawing, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -467,6 +467,50 @@ function boxResults(raw: Record<string, unknown>, overlay: boolean, diagnostics:
   return boxes;
 }
 
+function tableResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[]): PineTableDrawing[] {
+  const tables: PineTableDrawing[] = [], sizes: Record<string, number> = { auto: 0, tiny: 8, small: 10, normal: 14, large: 20, huge: 36 };
+  let count = 0, allocated = 0, omitted = false;
+  const shade = (value: unknown) => value === '' ? null : plainScalar(value);
+  for (const value of Object.values(raw)) {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (plot.options?.style !== 'table') continue;
+    const snapshot = plot.data?.at(-1)?.value;
+    if (!Array.isArray(snapshot)) error('UNSUPPORTED_RESULT', 'Native tables require a final object snapshot.');
+    count += snapshot.length;
+    if (count > PINE_LIMITS.tables) error('DRAWING_LIMIT', 'Pine output exceeds nine active tables.');
+    for (const item of snapshot) {
+      const table = item as Record<string, unknown>;
+      if (!table || typeof table !== 'object') error('UNSUPPORTED_RESULT', 'Invalid native table drawing.');
+      if (table._deleted === true) continue;
+      const columns = table.columns, rows = table.rows;
+      if (typeof columns !== 'number' || typeof rows !== 'number' || !Number.isSafeInteger(columns) || !Number.isSafeInteger(rows)
+        || columns < 1 || rows < 1 || columns > PINE_LIMITS.tableCells || rows > PINE_LIMITS.tableCells) error('UNSUPPORTED_RESULT', 'Invalid native table dimensions.');
+      allocated += columns * rows;
+      if (allocated > PINE_LIMITS.tableCells) error('DRAWING_LIMIT', 'Pine output exceeds 4096 allocated table cells.');
+      if (!Array.isArray(table.cells) || table.cells.length !== rows || table.cells.some(row => !Array.isArray(row) || row.length !== columns)
+        || !Array.isArray(table.merges) || table.merges.length > columns * rows) error('UNSUPPORTED_RESULT', 'Invalid native table cell or merge shape.');
+      const cells = table.cells.map(row => (row as unknown[]).map((value): PineTableCell | null => {
+        if (value === null) return null;
+        if (!value || typeof value !== 'object') error('UNSUPPORTED_RESULT', 'Invalid native table cell.');
+        const cell = value as Record<string, unknown>;
+        return { populated: cell.populated as boolean, text: cell.text as string, width: cell.width as number, height: cell.height as number,
+          textColor: shade(cell.text_color) as string | null, textHalign: cell.text_halign as PineTableCell['textHalign'], textValign: cell.text_valign as PineTableCell['textValign'],
+          textSize: typeof cell.text_size === 'number' ? cell.text_size : typeof cell.text_size === 'string' ? sizes[cell.text_size] : NaN, bgcolor: shade(cell.bgcolor) as string | null,
+          tooltip: cell.tooltip as string, textFontFamily: cell.text_font_family as PineTableCell['textFontFamily'],
+          textFormatting: (typeof cell.text_formatting === 'string' ? cell.text_formatting.replace(/^format_/, '').replace('italicbold', 'bolditalic') : cell.text_formatting) as PineTableCell['textFormatting'] };
+      }));
+      const normalized = { id: `table:${String(table.id)}`, position: table.position, columns, rows, cells,
+        merges: table.merges.map(value => { const merge = value as Record<string, unknown>; return { startCol: merge.startCol, startRow: merge.startRow, endCol: merge.endCol, endRow: merge.endRow }; }),
+        bgcolor: shade(table.bgcolor), frameColor: shade(table.frame_color), frameWidth: table.frame_width, borderColor: shade(table.border_color), borderWidth: table.border_width,
+        overlay: overlay || table.force_overlay === true, forceOverlay: table.force_overlay };
+      try { tables.push(validatePineTableDrawings([normalized], overlay)[0]); }
+      catch (error) { if (!(error instanceof PineProtocolError)) throw error; omitted = true; }
+    }
+  }
+  if (omitted) diagnostics.push(warning('UNSUPPORTED_TABLE_SETTING', 'Some native tables use unsupported settings and are not drawn. Table dimensions and text are bounded; cell percentages from 0 to 1,000,000 and text sizes 0–512 are supported.'));
+  return validatePineTableDrawings(tables, overlay);
+}
+
 function lineFillResults(raw: Record<string, unknown>, lines: readonly PineLineDrawing[], overlay: boolean, diagnostics: PineDiagnostic[]): PineLineFillDrawing[] {
   const fills: PineLineFillDrawing[] = [], ids = new Set(lines.map(line => line.id));
   let count = 0, omitted = false;
@@ -496,7 +540,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
     if (!drawings.has(plot.options?.style ?? "")) return true;
-    if (!["drawing_line", "linefill", "drawing_box", "label", "drawing_polyline"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    if (!["drawing_line", "linefill", "drawing_box", "label", "drawing_polyline", "table"].includes(plot.options?.style ?? "") && plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
   if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
@@ -1223,8 +1267,9 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const boxes = boxResults(context.plots, overlay, diagnostics, request.bars!);
   const labels = labelResults(context.plots, overlay, diagnostics, request.bars!);
   const polylines = polylineResults(context.plots, overlay, diagnostics, request.bars!);
+  const tables = tableResults(context.plots, overlay, diagnostics);
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 

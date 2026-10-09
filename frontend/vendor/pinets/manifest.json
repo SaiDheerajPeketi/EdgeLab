@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-polyline-drawings-126",
+  "patch": "edgelab-table-drawings-132",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -44,7 +44,7 @@
       "source": "src/PineTS.class.ts",
       "file": "overrides/PineTS.class.ts",
       "upstreamSha256": "dc9ca76b7690905b2c467ec8dd0530726a53a54b12ab81af8919940377ce1028",
-      "sha256": "8abc8459906bf12bfa74c8671cc798f780a04a55159c0605f7877a8856514444"
+      "sha256": "0bcddcac30e354d469975421f1b3b958bcd3a248905139ae3bc02059d8efeb89"
     },
     {
       "source": "src/namespaces/Barstate.ts",
@@ -195,10 +195,22 @@
       "file": "overrides/namespaces/polyline/PolylineHelper.ts",
       "upstreamSha256": "9571d2bcc43cc6b1477933cbb2d25ce94c6842a3998f17c049d4a4ad097c4ffb",
       "sha256": "8c1f05afc9eafaefa0fe3306b95a6024d2fc99d707100713708df13844687f53"
+    },
+    {
+      "source": "src/namespaces/table/TableHelper.ts",
+      "file": "overrides/namespaces/table/TableHelper.ts",
+      "upstreamSha256": "969b8429d1f560bc21a32731f94d1c44d62f3cb0519775e52689cfbb1cfafb27",
+      "sha256": "cfd95d435588abb3ec525ba1180c5c3d607b475585ac74330add71c23a57086a"
+    },
+    {
+      "source": "src/namespaces/table/TableObject.ts",
+      "file": "overrides/namespaces/table/TableObject.ts",
+      "upstreamSha256": "8045a5e1d381517077f6b742a60b893c1b767bc17683a374035b65fef6f2379a",
+      "sha256": "58317994aacb5f828c784aa2d36fbe15f1004b0a8f1b6b064caf61b8f2ed39dc"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "e18d7be26fbd5e18b1e63637e4700a6126c6183585f38222be4fa912137f1e2e"
+    "sha256": "95c0d2116f8bea78cc32b251a8c0f5f7e86ed9832de83d35b3432a0d1bb253e9"
   }
 }

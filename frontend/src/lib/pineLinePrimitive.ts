@@ -9,14 +9,14 @@ type Target = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 type Point = { x: number; y: number };
 const drawingBehind = (plot: PineChartPlot, drawing: { forceOverlay?: boolean }) => plot.behindChart !== false && drawing.forceOverlay !== true;
 const tooltipContainers = new WeakMap<HTMLDivElement, { count: number; previous: string }>();
-function acquireTooltipContainer(element: HTMLDivElement) {
+export function acquireTooltipContainer(element: HTMLDivElement) {
   const owned = tooltipContainers.get(element);
   if (owned) { owned.count++; return; }
   if (typeof window !== "undefined" && window.getComputedStyle(element).position === "static") {
     tooltipContainers.set(element, { count: 1, previous: element.style.position }); element.style.position = "relative";
   }
 }
-function releaseTooltipContainer(element: HTMLDivElement) {
+export function releaseTooltipContainer(element: HTMLDivElement) {
   const owned = tooltipContainers.get(element);
   if (!owned || --owned.count) return;
   if (element.style.position === "relative") element.style.position = owned.previous;

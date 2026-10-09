@@ -5558,6 +5558,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const tableOnly = plots.every(plot => plot.kind === "table");
   useLayoutEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
@@ -5570,6 +5571,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
     const installed = installPineChartPlots(chart, plots);
     const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
     const syncRange = () => {
+      if (tableOnly) return;
       const range = priceChart?.timeScale().getVisibleRange();
       if (range) chart.timeScale().setVisibleRange(range);
       else chart.timeScale().fitContent();
@@ -5582,7 +5584,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       installed.dispose();
       chart.remove();
     };
-  }, [plots, priceChart]);
+  }, [plots, priceChart, tableOnly]);
   return <section className="border-t border-white/10 bg-ink-950 px-4 py-3" aria-label={`${label} native Pine pane`}>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
       <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
@@ -5591,8 +5593,8 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
         <p className="max-h-24 overflow-y-auto py-2 leading-5">{plots.map((plot) => plot.name).join(" · ")}</p>
       </details>}
     </div>
-    <div ref={container} className="h-32 w-full" />
-    <p className="sr-only">{plots.map((plot) => `${plot.name}: ${latestPineChartPoint(plot)?.value ?? "No numeric value"}`).join(". ")}</p>
+    <div ref={container} className={`${tableOnly ? "h-48" : "h-32"} w-full`} />
+    <p className="sr-only">{plots.map((plot) => plot.kind === "table" ? `${plot.name}: ${plot.table?.tables.length ?? 0} current tables` : `${plot.name}: ${latestPineChartPoint(plot)?.value ?? "No numeric value"}`).join(". ")}</p>
   </section>;
 }
 

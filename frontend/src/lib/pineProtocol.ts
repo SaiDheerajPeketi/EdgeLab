@@ -4,7 +4,7 @@ import type { Candle } from "./api";
 import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 
-export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500, boxes: 500, labels: 500, polylines: 100, polylinePoints: 10_000, polylineTotalPoints: 32_000 });
+export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, sourceBars: 200_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100, lines: 500, lineFills: 500, boxes: 500, labels: 500, polylines: 100, polylinePoints: 10_000, polylineTotalPoints: 32_000, tables: 9, tableCells: 4096, tablePercent: 1_000_000 });
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
@@ -64,13 +64,27 @@ export type PinePolylineDrawing = {
   xloc: "bar_index" | "bar_time"; lineColor: string | null; fillColor: string | null;
   lineStyle: PineLineDrawing["style"]; lineWidth: number; overlay: boolean; forceOverlay: boolean;
 };
+export const PINE_TABLE_POSITIONS = ['top_left', 'top_center', 'top_right', 'middle_left', 'middle_center', 'middle_right', 'bottom_left', 'bottom_center', 'bottom_right'] as const;
+export type PineTableCell = {
+  populated: boolean; text: string; width: number; height: number; textColor: string | null;
+  textHalign: 'left' | 'center' | 'right'; textValign: 'top' | 'center' | 'bottom'; textSize: number;
+  bgcolor: string | null; tooltip: string; textFontFamily: 'default' | 'monospace';
+  textFormatting: 'none' | 'bold' | 'italic' | 'bolditalic';
+};
+export type PineTableMerge = { startCol: number; startRow: number; endCol: number; endRow: number };
+export type PineTableDrawing = {
+  id: string; position: typeof PINE_TABLE_POSITIONS[number]; columns: number; rows: number;
+  cells: (PineTableCell | null)[][]; merges: PineTableMerge[]; bgcolor: string | null;
+  frameColor: string | null; frameWidth: number; borderColor: string | null; borderWidth: number;
+  overlay: boolean; forceOverlay: boolean;
+};
 export type PineLineFillDrawing = { id: string; line1: string; line2: string; color: string | null; overlay: boolean };
 export type PineStrategyResult = {
   config: Record<string, PineScalar>; metrics: Record<string, PineScalar>;
   closedTrades: Record<string, PineScalar>[]; openTrades: Record<string, PineScalar>[]; pendingOrders: Record<string, PineScalar>[];
 };
 export type PineExecutionResult = Omit<PinePrepareResult, "kind"> & {
-  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; boxes?: PineBoxDrawing[]; labels?: PineLabelDrawing[]; polylines?: PinePolylineDrawing[]; strategy?: PineStrategyResult;
+  kind: "run"; inputs: Record<string, PineInputValue>; plots: PinePlot[]; lines?: PineLineDrawing[]; lineFills?: PineLineFillDrawing[]; boxes?: PineBoxDrawing[]; labels?: PineLabelDrawing[]; polylines?: PinePolylineDrawing[]; tables?: PineTableDrawing[]; strategy?: PineStrategyResult;
   audit: { engine: "PineTS"; engineVersion: "0.11.0"; bars: number; sourceBytes: number; mode: "historical" | "live"; elapsedMs: number };
 };
 export type PineResult = PinePrepareResult | PineExecutionResult;
@@ -311,6 +325,74 @@ export function boundedPineMetadataBytes(value: unknown): number {
   if (bytes > PINE_LIMITS.metadataBytes) fail("Pine result metadata exceeds 1 MB.", "RESULT_LIMIT");
   return bytes;
 }
+/** Table payloads are final viewport drawings, outside numeric plot channel budgets. */
+export function validatePineTableDrawings(value: unknown, declarationOverlay: boolean): PineTableDrawing[] {
+  const slots = (value: unknown, limit: number, expected?: number) => {
+    const result = array(value, limit);
+    if (Object.getPrototypeOf(result) !== Array.prototype || expected !== undefined && result.length !== expected) fail('Invalid Pine table array shape.');
+    const keys = Reflect.ownKeys(result);
+    if (keys.length !== result.length + 1) fail('Pine tables require dense arrays.');
+    for (const key of keys) {
+      if (key === 'length') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(result, key)!;
+      if (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= result.length || !('value' in descriptor) || !descriptor.enumerable) fail('Pine tables require ordinary array slots.');
+    }
+    return result;
+  };
+  const fields = (value: unknown, keys: string[]) => {
+    const result = ordinaryFields(value);
+    if (Object.keys(result).length !== keys.length || Object.keys(result).some(key => !keys.includes(key))) fail('Invalid Pine table fields.');
+    return result;
+  };
+  const color = (value: unknown) => {
+    if (value === null) return null;
+    const shade = string(value, 128);
+    if (!/^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(shade)) fail('Invalid Pine table color.');
+    return shade;
+  };
+  const measure = (value: unknown, max: number, integer = false) => {
+    const size = finite(value);
+    if (size < 0 || size > max || integer && !Number.isSafeInteger(size)) fail('Pine table size exceeds supported bounds.');
+    return size;
+  };
+  let allocated = 0;
+  const ids = new Set<string>(), positions = new Set<string>();
+  return slots(value, PINE_LIMITS.tables).map((item): PineTableDrawing => {
+    const table = fields(item, ['id', 'position', 'columns', 'rows', 'cells', 'merges', 'bgcolor', 'frameColor', 'frameWidth', 'borderColor', 'borderWidth', 'overlay', 'forceOverlay']);
+    const id = string(table.id, 128), position = table.position;
+    if (!id || ids.has(id) || !PINE_TABLE_POSITIONS.includes(position as PineTableDrawing['position']) || positions.has(String(position))) fail('Invalid or duplicate Pine table identity/position.');
+    ids.add(id); positions.add(String(position));
+    const columns = measure(table.columns, PINE_LIMITS.tableCells, true), rows = measure(table.rows, PINE_LIMITS.tableCells, true);
+    allocated += columns * rows;
+    if (columns < 1 || rows < 1 || allocated > PINE_LIMITS.tableCells) fail('Pine tables exceed 4096 allocated cells.', 'RESULT_LIMIT');
+    const cells = slots(table.cells, rows, rows).map(row => slots(row, columns, columns).map((value): PineTableCell | null => {
+      if (value === null) return null;
+      const cell = fields(value, ['populated', 'text', 'width', 'height', 'textColor', 'textHalign', 'textValign', 'textSize', 'bgcolor', 'tooltip', 'textFontFamily', 'textFormatting']);
+      if (!['left', 'center', 'right'].includes(cell.textHalign as string) || !['top', 'center', 'bottom'].includes(cell.textValign as string)
+        || !['default', 'monospace'].includes(cell.textFontFamily as string) || !['none', 'bold', 'italic', 'bolditalic'].includes(cell.textFormatting as string)) fail('Invalid Pine table cell settings.');
+      return { populated: bool(cell.populated), text: string(cell.text), width: measure(cell.width, PINE_LIMITS.tablePercent), height: measure(cell.height, PINE_LIMITS.tablePercent),
+        textColor: color(cell.textColor), textHalign: cell.textHalign as PineTableCell['textHalign'], textValign: cell.textValign as PineTableCell['textValign'], textSize: measure(cell.textSize, 512, true),
+        bgcolor: color(cell.bgcolor), tooltip: string(cell.tooltip), textFontFamily: cell.textFontFamily as PineTableCell['textFontFamily'], textFormatting: cell.textFormatting as PineTableCell['textFormatting'] };
+    }));
+    const occupied = new Uint8Array(columns * rows);
+    const merges = slots(table.merges, columns * rows).map((value): PineTableMerge => {
+      const merge = fields(value, ['startCol', 'startRow', 'endCol', 'endRow']);
+      const startCol = measure(merge.startCol, columns - 1, true), endCol = measure(merge.endCol, columns - 1, true);
+      const startRow = measure(merge.startRow, rows - 1, true), endRow = measure(merge.endRow, rows - 1, true);
+      if (startCol > endCol || startRow > endRow) fail('Pine table merge must be ordered.');
+      for (let row = startRow; row <= endRow; row++) for (let col = startCol; col <= endCol; col++) {
+        const index = row * columns + col;
+        if (occupied[index]) fail('Pine table merge regions cannot overlap.');
+        occupied[index] = 1;
+      }
+      return { startCol, startRow, endCol, endRow };
+    });
+    const overlay = bool(table.overlay), forceOverlay = bool(table.forceOverlay);
+    if (overlay !== (declarationOverlay || forceOverlay)) fail('Pine tables require consistent forced overlay placement.');
+    return { id, position: position as PineTableDrawing['position'], columns, rows, cells, merges, bgcolor: color(table.bgcolor), frameColor: color(table.frameColor),
+      frameWidth: measure(table.frameWidth, 16, true), borderColor: color(table.borderColor), borderWidth: measure(table.borderWidth, 16, true), overlay, forceOverlay };
+  });
+}
 /** Titles are display data. Only declared member IDs cross the execution boundary. */
 export function validatePineEnumMetadata(value: unknown): PineEnumMetadata {
   boundedPineMetadataBytes(value);
@@ -370,7 +452,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -529,6 +611,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     return { id, points, xloc: xloc as PinePolylineDrawing["xloc"], curved: bool(polyline.curved), closed: bool(polyline.closed), lineColor: color(polyline.lineColor), fillColor: color(polyline.fillColor), lineStyle: polyline.lineStyle as PinePolylineDrawing["lineStyle"], lineWidth, overlay, forceOverlay };
   });
   if (polylines && new Set(polylines.map(polyline => polyline.id)).size !== polylines.length) fail("Duplicate Pine polyline ID.");
+  const tables = raw.tables === undefined ? undefined : validatePineTableDrawings(raw.tables, base.overlay);
   let strategy: PineStrategyResult | undefined;
   if (raw.strategy !== undefined) {
     if (base.declaration !== "strategy") fail("Indicator returned a strategy ledger.");
@@ -546,5 +629,5 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     strategy = { config: scalarRecord(state.config), metrics: scalarRecord(state.metrics), closedTrades, openTrades, pendingOrders };
     for (const [key, value] of Object.entries(request.strategySettings ?? {})) if (strategy.config[key] !== value) fail("Pine result changed a requested strategy setting.", "INVALID_STRATEGY_SETTINGS");
   } else if (base.declaration === "strategy") fail("Strategy execution is missing its engine ledger.");
-  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(polylines ? { polylines } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
+  return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(lines ? { lines } : {}), ...(lineFills ? { lineFills } : {}), ...(boxes ? { boxes } : {}), ...(labels ? { labels } : {}), ...(polylines ? { polylines } : {}), ...(tables ? { tables } : {}), ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
 }

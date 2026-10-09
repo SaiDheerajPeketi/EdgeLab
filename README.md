@@ -18,6 +18,8 @@ Native Pine `plotchar` signals support Unicode characters, separate text, bar co
 
 Native Pine signal shapes include crosses, diamonds and flags alongside circles, squares, triangles, arrows and labels. Pane-top and pane-bottom signals follow their bars horizontally while staying at the pane edge and leaving price autoscale unchanged. Shape dimensions, text metrics and edge spacing use local canvas rules; exact TradingView pixels are not guaranteed.
 
+Native Pine tables render their latest cells at nine fixed pane positions, including separate panes and `force_overlay`. Custom inputs, automatic or percentage sizing, merged cells, colors, text formatting and tooltips are supported. Tables own no time or price data and do not alter chart scaling. Active scripts are limited to nine tables and 4,096 allocated cells; individual text/tooltip strings are limited to 4,096 characters, with a shared 1 MB metadata limit. Browser font/padding metrics, merge-only automatic sizing and table layering use local policies; TradingView pixel equivalence and its bottom-panel table view are not provided.
+
 ## What is here
 
 - Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.

@@ -1,16 +1,18 @@
 import type { Candle } from "./api";
-import type { PineExecutionResult, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PinePolylineDrawing, PineLineDrawing, PinePlot, PineScalar } from "./pineProtocol";
+import type { PineExecutionResult, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PinePolylineDrawing, PineLineDrawing, PinePlot, PineScalar, PineTableDrawing } from "./pineProtocol";
 import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 import { PineLinePrimitive } from "./pineLinePrimitive";
+import { PineTablePrimitive } from "./pineTablePrimitive";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
 import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } from "lightweight-charts";
 
 export type PineChartPoint = { time: UTCTimestamp; value?: number; color?: string; open?: number; high?: number; low?: number; close?: number; wickColor?: string; borderColor?: string };
 export type PineChartPlot = {
-  id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor" | "drawing_line";
+  id: string; name: string; overlay: boolean; behindChart?: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor" | "drawing_line" | "table";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
   drawing?: { lines: readonly PineLineDrawing[]; lineFills?: readonly PineLineFillDrawing[]; boxes?: readonly PineBoxDrawing[]; labels?: readonly PineLabelDrawing[]; polylines?: readonly PinePolylineDrawing[]; bars: readonly Candle[] };
+  table?: { tables: readonly PineTableDrawing[] };
   visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot; upperOffset: number; lowerOffset: number } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
@@ -27,7 +29,7 @@ function* shownPoints(plot: PinePlot, time: number) {
 
 /** Header values need one sample; chart geometry already owns the full rendered data. */
 export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp; value: number } | null {
-  if (plot.kind === "drawing_line" || plot.kind === "fill" || plot.kind === "background" || plot.kind === "barcolor") return null;
+  if (plot.kind === "table" || plot.kind === "drawing_line" || plot.kind === "fill" || plot.kind === "background" || plot.kind === "barcolor") return null;
   if (plot.visual?.level) {
     const price = plot.visual.level.price, time = plot.visual.bars.at(-1)?.time;
     return price === null || time === undefined ? null : { time: time as UTCTimestamp, value: price };
@@ -325,6 +327,16 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
         step: false, pointsOnly: false, base: 0, segments: [], markers: [], drawing: { lines, lineFills, boxes, labels, polylines, bars } });
     }
   }
+  if (result.tables?.length) {
+    for (const overlay of [true, false]) {
+      const tables = result.tables.filter(table => table.overlay === overlay);
+      if (!tables.length) continue;
+      plots.push({ id: `pine-tables-${overlay ? "overlay" : "pane"}`, name: "Tables", overlay, kind: "table", color: FALLBACK_COLOR,
+        width: 1, step: false, pointsOnly: false, base: 0, segments: [], markers: [], table: { tables } });
+    }
+    if (result.tables.length) warnings.push("Tables use local browser fonts and padding; size.auto uses 14 typographic points. Merge-only empty axes use distributed auto text sizing. Tables appear above chart drawings; exact TradingView pixel and behind_chart calibration, and its bottom-panel view, are not provided.");
+    if (result.tables.some(table => [table.bgcolor, table.frameColor, table.borderColor, ...table.cells.flatMap(row => row.flatMap(cell => cell ? [cell.textColor, cell.bgcolor] : []))].some(shade => shade !== null && pineGradientColor(shade) === undefined))) warnings.push("Unsupported table colors are not painted.");
+  }
   const strategyMarkers: SeriesMarker<UTCTimestamp>[] = [];
   for (const trade of [...result.strategy?.closedTrades ?? [], ...result.strategy?.openTrades ?? []]) {
     for (const leg of ["entry", "exit"] as const) {
@@ -429,10 +441,10 @@ function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, price
 
 
 /** A single owned host/primitive per placement keeps gaps and plot count independent of series count. */
-export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close"> } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; drawingPrimitive?: PineLinePrimitive; dispose: () => void } {
-  const native = plots.filter((plot) => plot.kind !== "barcolor" && !plot.visual && !plot.drawing).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
+export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close"> } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; drawingPrimitive?: PineLinePrimitive; tablePrimitive?: PineTablePrimitive; dispose: () => void } {
+  const native = plots.filter((plot) => plot.kind !== "barcolor" && plot.kind !== "table" && !plot.visual && !plot.drawing).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
   const visual = plots.filter((plot) => plot.kind !== "barcolor" && plot.visual);
-  const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => plot.kind !== "barcolor" && !plot.visual && !plot.drawing), options) : undefined;
+  const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => plot.kind !== "barcolor" && plot.kind !== "table" && !plot.visual && !plot.drawing), options) : undefined;
   let host: ISeriesApi<"Line"> | undefined;
   if (primitive) {
     const timeline = new Map<number, Candle>();
@@ -456,7 +468,7 @@ export function installPineChartPlots(chart: IChartApi, plots: readonly PineChar
     if (primitive?.rangeForVisible()) return true;
     const scale = chart.timeScale(), range = scale.getVisibleLogicalRange();
     if (!range) return false;
-    return plots.filter(plot => !plot.drawing && !plot.visual && plot.kind !== "barcolor").some(plot => plot.segments.some(segment => {
+    return plots.filter(plot => !plot.drawing && !plot.visual && plot.kind !== "barcolor" && plot.kind !== "table").some(plot => plot.segments.some(segment => {
       const locate = (point: PineChartPoint) => {
         const coordinate = scale.timeToCoordinate(point.time);
         return coordinate === null ? null : scale.coordinateToLogical(coordinate);
@@ -495,12 +507,21 @@ export function installPineChartPlots(chart: IChartApi, plots: readonly PineChar
     if (anchor && Number.isFinite(anchor.time) && Number.isFinite(anchor.close) && anchor.time > (bars.at(-1)?.time ?? -Infinity)) data.push({ time: anchor.time as UTCTimestamp, value: anchor.close, color: "transparent" });
     drawingHost.setData(data); drawingHost.attachPrimitive(drawingPrimitive); native.push(drawingHost);
   }
+  const tables = plots.flatMap(plot => plot.table?.tables ?? []);
+  const tablePrimitive = tables.length ? new PineTablePrimitive(tables) : undefined;
+  let tableHost: ISeriesApi<"Line"> | undefined;
+  if (tablePrimitive) {
+    tableHost = chart.addLineSeries({ priceScaleId, color: "transparent", lineVisible: false, crosshairMarkerVisible: false,
+      lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: () => null });
+    tableHost.setData([]); tableHost.attachPrimitive(tablePrimitive); native.push(tableHost);
+  }
   let disposed = false;
-  return { series: native, primitive, drawingPrimitive, dispose() {
+  return { series: native, primitive, drawingPrimitive, tablePrimitive, dispose() {
     if (disposed) return;
     disposed = true;
     if (host && primitive) host.detachPrimitive(primitive);
     if (drawingHost && drawingPrimitive) drawingHost.detachPrimitive(drawingPrimitive);
+    if (tableHost && tablePrimitive) tableHost.detachPrimitive(tablePrimitive);
     for (const series of native) chart.removeSeries(series);
   } };
 }
