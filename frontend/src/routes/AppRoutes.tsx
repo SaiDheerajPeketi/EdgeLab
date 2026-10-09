@@ -407,10 +407,12 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   }, [location.pathname]);
 
   const modernUiEnabled = routeUsesModernUi(location.pathname, rollout.flags);
+  // Session writes and presentation refreshes must not remount a pending handoff.
+  const googleCallback = location.pathname === "/auth/callback/google";
 
   return (
     <DataTransferProvider><div
-      key={session?.user.id ?? "anonymous"}
+      key={googleCallback ? "google-callback" : session?.user.id ?? "anonymous"}
       className={`ui-route-transition ${modernUiEnabled ? "" : "ui-route-fallback"}`}
       data-route-group={group}
       data-ui-rollout-revision={rollout.revision}
@@ -418,7 +420,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       data-ui-version={modernUiEnabled ? "v2" : "fallback"}
       ref={boundaryRef}
     >
-      {modernUiEnabled ? children : <Suspense fallback={<AppRouteFallback />}><CompatibilityRouteRenderer group={group} /></Suspense>}
+      {googleCallback || modernUiEnabled ? children : <Suspense fallback={<AppRouteFallback />}><CompatibilityRouteRenderer group={group} /></Suspense>}
     </div></DataTransferProvider>
   );
 }

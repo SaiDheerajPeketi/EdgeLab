@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
-import { hasWorkspaceAccess, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
+import { getStoredAuthSession, hasWorkspaceAccess, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import {
   buildAuthSignInHref,
   buildPricingHref,
@@ -28,119 +28,175 @@ const CALLBACK_STEPS = [
 
 type ConsumedGoogleAuthState = ReturnType<typeof consumeGoogleAuthState>;
 
-let cachedStateKey: string | null | undefined;
-let cachedAuthState: ConsumedGoogleAuthState = null;
-let cachedExchangeKey: string | null = null;
-let cachedExchangePromise: ReturnType<typeof exchangeGoogleAuthCode> | null = null;
+const AUTH_STORAGE_KEY = "edgelab.auth.session.v1";
+const GOOGLE_AUTH_STATE_TTL_MS = 15 * 60 * 1000;
 
-function consumeGoogleAuthStateOnce(stateKey: string | null) {
-  if (stateKey === cachedStateKey) {
-    return cachedAuthState;
-  }
-  cachedStateKey = stateKey;
-  cachedAuthState = consumeGoogleAuthState(stateKey);
-  cachedExchangeKey = null;
-  cachedExchangePromise = null;
-  return cachedAuthState;
+type CallbackAttempt = {
+  search: string;
+  state: ConsumedGoogleAuthState;
+  owner: string;
+  invalidated: boolean;
+  handled: boolean;
+  cancelled: boolean;
+  pending: ReturnType<typeof exchangeGoogleAuthCode> | null;
+};
+
+function authIdentity() {
+  const session = getStoredAuthSession();
+  return session ? JSON.stringify([session.user.id, session.token]) : "";
 }
 
-function exchangeGoogleAuthCodeOnce(
-  code: string,
-  stateKey: string | null,
-  redirectUri: string,
-) {
-  const exchangeKey = `${stateKey ?? "missing"}:${code}`;
-  if (exchangeKey === cachedExchangeKey && cachedExchangePromise) {
-    return cachedExchangePromise;
+function storedIdentity(raw: string | null) {
+  try {
+    const session = JSON.parse(raw ?? "null");
+    return session ? JSON.stringify([session.user?.id, session.token]) : "";
+  } catch {
+    return "invalid";
   }
-  cachedExchangeKey = exchangeKey;
-  cachedExchangePromise = exchangeGoogleAuthCode({ code, redirect_uri: redirectUri });
-  return cachedExchangePromise;
 }
 
 export function AuthCallbackPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
+  const attemptRef = useRef<CallbackAttempt | null>(null);
+  const searchRef = useRef(location.search);
+  searchRef.current = location.search;
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const code = searchParams.get("code");
     const providerError = searchParams.get("error");
     const stateKey = searchParams.get("state");
-    const authState = consumeGoogleAuthStateOnce(stateKey);
+    let attempt = attemptRef.current;
+    if (!attempt || attempt.search !== location.search) {
+      if (attempt) attempt.invalidated = true;
+      attempt = {
+        search: location.search,
+        state: consumeGoogleAuthState(stateKey),
+        owner: authIdentity(),
+        invalidated: false,
+        handled: false,
+        cancelled: false,
+        pending: null,
+      };
+      attemptRef.current = attempt;
+    }
+    const ownedAttempt = attempt;
+    const authState = attempt.state;
     const fromPath = safeAuthDestination(authState?.fromPath);
     const pricingDestination = authState?.pricingDestination;
-
     let active = true;
     let handoffFrame = 0;
+    let settling = false;
 
-    if (providerError) {
-      navigate(buildAuthSignInHref({ error: providerError, fromPath }), {
-        replace: true,
-        state: { fromPath, pricingDestination },
-      });
-      return () => {
-        active = false;
-      };
-    }
+    const currentAttempt = () => active && attemptRef.current === ownedAttempt &&
+      searchRef.current === ownedAttempt.search;
+    const cancelHandoff = () => {
+      if (!currentAttempt() || ownedAttempt.cancelled) return;
+      ownedAttempt.cancelled = true;
+      if (handoffFrame) window.cancelAnimationFrame(handoffFrame);
+      const currentOwner = authIdentity();
+      // The new account never inherits the old attempt's destination or share
+      // capability. Cancellation has its own current-identity handoff.
+      if (currentAttempt() && authIdentity() === currentOwner) {
+        navigate(currentOwner ? "/account" : buildAuthSignInHref({ reason: "sign-in-cancelled" }), { replace: true });
+      }
+    };
+    const ownsAttempt = () => {
+      if (authIdentity() !== ownedAttempt.owner) ownedAttempt.invalidated = true;
+      if (ownedAttempt.invalidated) cancelHandoff();
+      return currentAttempt() && !ownedAttempt.invalidated;
+    };
+    const fresh = () => Boolean(authState && authState.issuedAt <= Date.now() &&
+      Date.now() - authState.issuedAt <= GOOGLE_AUTH_STATE_TTL_MS);
+    const observeIdentity = () => { ownsAttempt(); };
+    const observeStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_STORAGE_KEY && event.key !== null) return;
+      // The event's transitions matter even if later writes already restored the
+      // original account before this tab receives the storage event.
+      if (event.key === null || storedIdentity(event.oldValue) !== storedIdentity(event.newValue)) {
+        ownedAttempt.invalidated = true;
+      }
+      observeIdentity();
+    };
+    window.addEventListener("edgelab:auth-session-change", observeIdentity);
+    window.addEventListener("storage", observeStorage);
+    const go = (href: string, state?: Record<string, unknown>) => {
+      if (ownsAttempt()) navigate(href, { replace: true, state });
+    };
+    const expired = () => {
+      // Sign-in routes may automatically forward an existing session. Never
+      // give that guard an expired destination or share capability.
+      if (authIdentity()) go("/account");
+      else go(buildAuthSignInHref({ fromPath, reason: "oauth-state-expired" }), { fromPath, pricingDestination });
+    };
 
-    if (!code || !authState) {
-      navigate(buildAuthSignInHref({ fromPath, reason: "oauth-state-expired" }), {
-        replace: true,
-        state: { fromPath, pricingDestination },
-      });
-      return () => {
-        active = false;
-      };
-    }
-
-    setActiveStep(1);
-    exchangeGoogleAuthCodeOnce(code, stateKey, authState.redirectUri)
-      .then((response) => {
-        if (!active) {
-          return;
-        }
-        const session = toStoredAuthSession(response.session);
-        setStoredAuthSession(session);
-        setActiveStep(2);
-        if (hasWorkspaceAccess(session) || isBillingAuthDestination(fromPath)) {
-          handoffFrame = window.requestAnimationFrame(() => {
-            navigate(fromPath, { replace: true, state: isBillingAuthDestination(fromPath) && pricingDestination ? { fromPath: pricingDestination } : undefined });
-          });
-          return;
-        }
-
-        if (session.user.deploymentMode !== "beta") {
-          navigate(buildPricingHref(fromPath), { replace: true, state: { fromPath } });
-          return;
-        }
-
-        navigate(buildAuthSignInHref({ fromPath, waitlist: true }), {
-          replace: true,
-          state: { fromPath, pricingDestination },
+    if (!ownedAttempt.handled && ownsAttempt()) {
+      if (providerError) {
+        ownedAttempt.handled = true;
+        go(buildAuthSignInHref({ error: providerError, fromPath }), { fromPath, pricingDestination });
+      } else if (!code || !authState || !fresh()) {
+        ownedAttempt.handled = true;
+        expired();
+      } else {
+        setActiveStep(1);
+        // Only pending work survives StrictMode's effect replay. A real remount
+        // must consume a new state, and settled responses are never cached.
+        ownedAttempt.pending ??= exchangeGoogleAuthCode({ code, redirect_uri: authState.redirectUri });
+        ownedAttempt.pending.then((response) => {
+          if (!ownsAttempt() || ownedAttempt.handled) return;
+          settling = true;
+          ownedAttempt.handled = true;
+          ownedAttempt.pending = null;
+          if (!fresh()) { expired(); return; }
+          const session = toStoredAuthSession(response.session);
+          // Permit exactly this synchronous write's identity event, then fence
+          // every later transition, including token renewal and account ABA.
+          const previousOwner = ownedAttempt.owner;
+          ownedAttempt.owner = JSON.stringify([session.user.id, session.token]);
+          try {
+            setStoredAuthSession(session);
+          } catch (error) {
+            // A blocked storage write leaves the original owner in place. Keep
+            // that owner's retry path, without accepting a concurrent change.
+            if (!ownedAttempt.invalidated && authIdentity() === previousOwner) ownedAttempt.owner = previousOwner;
+            throw error;
+          }
+          if (!ownsAttempt()) return;
+          setActiveStep(2);
+          if (hasWorkspaceAccess(session) || isBillingAuthDestination(fromPath)) {
+            handoffFrame = window.requestAnimationFrame(() => {
+              if (!fresh()) { expired(); return; }
+              go(fromPath, isBillingAuthDestination(fromPath) && pricingDestination ? { fromPath: pricingDestination } : undefined);
+            });
+          } else if (session.user.deploymentMode !== "beta") {
+            if (fresh()) go(buildPricingHref(fromPath), { fromPath });
+            else expired();
+          } else {
+            if (fresh()) go(buildAuthSignInHref({ fromPath, waitlist: true }), { fromPath, pricingDestination });
+            else expired();
+          }
+        }).catch((error: unknown) => {
+          if (!ownsAttempt() || (ownedAttempt.handled && !settling)) return;
+          ownedAttempt.handled = true;
+          ownedAttempt.pending = null;
+          if (!fresh()) { expired(); return; }
+          const message = error instanceof ApiError ? error.message : "beta-auth-error";
+          go(buildAuthSignInHref({
+            error: message,
+            fromPath,
+            reason: error instanceof ApiError && error.status === 403 ? "access-denied" : null,
+          }), { fromPath, pricingDestination });
         });
-      })
-      .catch((error: unknown) => {
-        if (!active) {
-          return;
-        }
-        const message = error instanceof ApiError ? error.message : "beta-auth-error";
-        navigate(buildAuthSignInHref({
-          error: message,
-          fromPath,
-          reason: error instanceof ApiError && error.status === 403 ? "access-denied" : null,
-        }), {
-          replace: true,
-          state: { fromPath, pricingDestination },
-        });
-      });
+      }
+    }
 
     return () => {
       active = false;
-      if (handoffFrame) {
-        window.cancelAnimationFrame(handoffFrame);
-      }
+      window.removeEventListener("edgelab:auth-session-change", observeIdentity);
+      window.removeEventListener("storage", observeStorage);
+      if (handoffFrame) window.cancelAnimationFrame(handoffFrame);
     };
   }, [location.search, navigate]);
 
