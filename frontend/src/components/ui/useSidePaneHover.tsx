@@ -37,12 +37,7 @@ export function useSidePaneHover({ open, onOpenChange, label, contextKey, width 
       dismiss();
     }, 180);
   };
-  useEffect(() => {
-    const media = window.matchMedia("(hover: hover)");
-    const changed = () => { if (!media.matches) dismiss(); };
-    media.addEventListener("change", changed);
-    return () => { cancelLeave(); media.removeEventListener("change", changed); };
-  }, [contextKey]);
+  useEffect(() => () => cancelLeave(), [contextKey]);
   useEffect(() => { if (open) dismiss(); }, [open, contextKey]);
 
   const pin = () => { dismiss(); onOpenChange(true); };
@@ -57,8 +52,8 @@ export function useSidePaneHover({ open, onOpenChange, label, contextKey, width 
     "aria-controls": preview ? id : undefined,
     "aria-haspopup": "dialog" as const,
     onPointerEnter: (event: PointerEvent<HTMLButtonElement>) => {
-      if (open || event.pointerType !== "mouse"
-        || !window.matchMedia("(hover: hover)").matches) return;
+      // The actual pointer supports hybrid devices whose primary input is touch.
+      if (open || event.pointerType !== "mouse") return;
       cancelLeave();
       anchorRef.current = event.currentTarget;
       setHover({ key: contextKey, visible: true });

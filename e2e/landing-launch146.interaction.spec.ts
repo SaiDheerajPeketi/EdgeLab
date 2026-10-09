@@ -137,7 +137,7 @@ test("hero contains clean product scenarios and a continuous market without repl
   await capture(page, info, "readable-narrow-candles152", { narrow }, hero);
   await page.setViewportSize(originalViewport); await hero.scrollIntoViewIfNeeded();
   continuous(await settledChart(hero));
-  const reduce = page.getByRole("button", { name: /^(Pause|Resume) animations$/ });
+  const reduce = page.getByRole("button", { name: /^(Pause|Resume) page movement$/ });
   await reduce.click(); await hero.scrollIntoViewIfNeeded(); await page.waitForTimeout(350);
   const paused = await chart(hero); await page.waitForTimeout(850); expect((await chart(hero)).cursor).toBe(paused.cursor);
   await reduce.click(); await hero.scrollIntoViewIfNeeded();
@@ -233,7 +233,7 @@ test("launch is default and beta marketing CTA changes without mutating auth", a
 test("footer motion preference preserves the session choice while the header stays clean", async ({ page }, info) => {
   await openLanding(page, "/", "reduce");
   const shell = page.locator("[data-marketing-motion]");
-  const reduce = page.getByRole("button", { name: /^(Pause|Resume) animations$/ }), heading = page.locator("#how-it-works h2");
+  const reduce = page.getByRole("button", { name: /^(Pause|Resume) page movement$/ }), heading = page.locator("#how-it-works h2");
   const header = page.locator(".marketing-shell header");
   await expect(header.getByRole("button", { name: "Page animations", exact: true })).toHaveCount(0);
   await expect(header).not.toContainText("Animations");
@@ -245,7 +245,7 @@ test("footer motion preference preserves the session choice while the header sta
   const preference = () => page.evaluate(() => ({ osReduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
     sessionChoice: sessionStorage.getItem("edgelab.marketing.motion.v1") }));
   await expect(shell).toHaveAttribute("data-marketing-motion", "reduced");
-  await expect(reduce).toHaveText("Resume animations"); expect(await preference()).toEqual({ osReduced: true, sessionChoice: null });
+  await expect(reduce).toHaveText("Resume page movement"); expect(await preference()).toEqual({ osReduced: true, sessionChoice: null });
   await position(heading, "below"); const defaultStatic = await pose(heading);
   expect(defaultStatic.opacity).toBe(1); expect(defaultStatic.y).toBe(0); expect(defaultStatic.owners).toBe(0);
 
@@ -257,7 +257,7 @@ test("footer motion preference preserves the session choice while the header sta
   await position(heading, "below"); const restoredStatic = await pose(heading);
   expect(restoredStatic.opacity).toBe(1); expect(restoredStatic.y).toBe(0); expect(restoredStatic.owners).toBe(0);
   await reduce.click(); await page.reload();
-  await expect(shell).toHaveAttribute("data-marketing-motion", "full"); await expect(reduce).toHaveText("Pause animations");
+  await expect(shell).toHaveAttribute("data-marketing-motion", "full"); await expect(reduce).toHaveText("Pause page movement");
   expect(await preference()).toEqual({ osReduced: true, sessionChoice: "full" });
   await position(heading, "below"); await finished(heading, false);
   await position(heading, "entry"); const reloadedEntry = await finished(heading, true);

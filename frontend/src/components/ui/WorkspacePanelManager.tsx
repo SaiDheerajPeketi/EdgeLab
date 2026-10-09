@@ -38,11 +38,7 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
     return () => { window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
   }, [hoverPreview, preferences.collapsed, preferences.dock, preferences.mode, preferences.width]);
   useEffect(() => {
-    const desktopHover = window.matchMedia("(hover: hover)");
-    const clearPreview = () => { if (!desktopHover.matches) setHoverPreview(false); };
-    desktopHover.addEventListener("change", clearPreview);
     return () => {
-      desktopHover.removeEventListener("change", clearPreview);
       if (leaveTimerRef.current !== null) clearTimeout(leaveTimerRef.current);
     };
   }, []);
@@ -84,7 +80,7 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
     <div className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-label={active.label}>{active.content}</div>
   </aside>;
   return <div className="flex min-w-0 flex-col lg:flex-row"><div className="min-w-0 flex-1">{children}</div>{active ? <div ref={toolsRef} className={`relative shrink-0 ${preferences.collapsed ? "sticky top-3 self-start" : ""} ${preferences.dock === "left" ? "lg:order-first" : ""}`} onPointerEnter={enterPreview} onPointerLeave={leavePreview} onBlurCapture={(event) => { if (!pointerInsideRef.current && !event.currentTarget.contains(event.relatedTarget)) setHoverPreview(false); }} onKeyDown={(event) => { if (event.key === "Escape" && preview) { event.preventDefault(); setHoverPreview(false); triggerRef.current?.focus(); } }}>
-    {preferences.collapsed ? <button ref={triggerRef} type="button" title={`Open ${active.label}`} data-motion="workspace-panel-trigger" aria-expanded={preview} onPointerEnter={(event) => { if (event.pointerType === "mouse" && window.matchMedia("(hover: hover)").matches) setHoverPreview(true); }} onClick={() => update({ collapsed: false })} className="ui-workspace-panel-trigger relative z-10 m-2 inline-flex min-h-[var(--control-height)] items-center gap-2 self-start rounded-[var(--radius-sm)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--elevation-raised)] ring-1 ring-[var(--ui-border-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><PanelsTopLeft aria-hidden="true" className="h-4 w-4 text-[var(--interaction)]" />Tools</button> : null}
+    {preferences.collapsed ? <button ref={triggerRef} type="button" title={`Open ${active.label}`} data-motion="workspace-panel-trigger" aria-expanded={preview} onPointerEnter={(event) => { if (event.pointerType === "mouse") setHoverPreview(true); }} onClick={() => update({ collapsed: false })} className="ui-workspace-panel-trigger relative z-10 m-2 inline-flex min-h-[var(--control-height)] items-center gap-2 self-start rounded-[var(--radius-sm)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--elevation-raised)] ring-1 ring-[var(--ui-border-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><PanelsTopLeft aria-hidden="true" className="h-4 w-4 text-[var(--interaction)]" />Tools</button> : null}
     {panel}
   </div> : null}</div>;
 }

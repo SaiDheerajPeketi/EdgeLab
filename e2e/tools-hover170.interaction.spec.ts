@@ -285,7 +285,7 @@ async function candles(hero: Locator) {
     throw Error("Actual landing Candlestick series unavailable");
   }) as Promise<Array<{ time: number; open: number; high: number; low: number; close: number }>>;
 }
-test("footer Pause animations freezes real hero candles and resumes them when cleared", async ({ page }, info) => {
+test("footer Pause page movement freezes real hero candles and resumes them when cleared", async ({ page }, info) => {
   await installDeterminism(page, { motionLock: false, freezeTime: false });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.route("**/api/billing/catalog", route => route.fulfill({ json: {
@@ -294,15 +294,15 @@ test("footer Pause animations freezes real hero candles and resumes them when cl
   } }));
   await gotoStable(page, "/");
   const root = page.locator("[data-marketing-motion]").first(), hero = page.locator("[data-landing-stage]");
-  const state = hero.locator("[data-replay-cursor]"), pause = page.getByRole("button", { name: /^(Pause|Resume) animations$/ });
+  const state = hero.locator("[data-replay-cursor]"), pause = page.getByRole("button", { name: /^(Pause|Resume) page movement$/ });
   await expect(page.getByRole("checkbox", { name: "Reduce motion", exact: true })).toHaveCount(0);
   await center(hero.locator("canvas").first());
   await expect(state).toHaveAttribute("data-market-following", "true");
   const initial = Number(await state.getAttribute("data-market-last-index"));
   await expect.poll(async () => Number(await state.getAttribute("data-market-last-index"))).toBeGreaterThan(initial + 4);
-  await expect(pause).toHaveText("Pause animations");
+  await expect(pause).toHaveText("Pause page movement");
   await pause.click();
-  await expect(pause).toHaveText("Resume animations");
+  await expect(pause).toHaveText("Resume page movement");
   await expect(root).toHaveAttribute("data-marketing-motion", "reduced");
   expect(await page.evaluate(key => sessionStorage.getItem(key), preferenceKey)).toBe("reduced");
   await capture(page, info, "footer-paused", { preference: "reduced" });
@@ -317,7 +317,7 @@ test("footer Pause animations freezes real hero candles and resumes them when cl
   await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   await capture(page, info, "hero-paused", { pausedIndex, paused });
   await pause.click();
-  await expect(pause).toHaveText("Pause animations");
+  await expect(pause).toHaveText("Pause page movement");
   await expect(root).toHaveAttribute("data-marketing-motion", "full");
   expect(await page.evaluate(key => sessionStorage.getItem(key), preferenceKey)).toBe("full");
   await center(hero.locator("canvas").first());
