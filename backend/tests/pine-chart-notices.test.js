@@ -61,24 +61,28 @@ test("filtered or removed studies cannot leave stale sources and grouping never 
   assert.deepEqual(groupPineChartNotices([]), { assumptions: [], warnings: [] });
   assert.deepEqual(input, before);
 });
-test("real notice markup gives one keyboard disclosure and keeps distinct warnings outside its closed body", () => {
+test("real notice markup separates compact warnings from shared calculation details", () => {
   const inputs = [study("a", "Alpha <source>"), study("b", "Beta", assumptions, ["Buy label unsupported"]), study("c", "Gamma", [diagnostic("ALERT_DELIVERY_UNAVAILABLE", "Alerts unavailable")])];
   const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: inputs }));
-  assert.equal((html.match(/<details/g) ?? []).length, 1);
+  assert.equal((html.match(/<details/g) ?? []).length, 2);
   assert.equal((html.match(/aria-label="Pine execution assumptions"/g) ?? []).length, 1);
-  assert.ok(html.includes("Closed historical snapshot · 3 assumptions · 2 scripts"));
+  assert.ok(html.includes("Candle snapshot</summary>"));
+  assert.ok(html.includes("3 calculation notes for 2 scripts."));
+  assert.ok(html.includes('aria-label="Indicator notices"'));
+  assert.ok(html.includes("Chart notices (2)</summary>"));
   assert.ok(html.includes('aria-label="Assumption details and affected scripts"'));
   assert.ok(html.includes('tabindex="0"')); assert.ok(!html.includes("<details open"));
   assert.ok(html.includes("Alpha &lt;source&gt;")); assert.ok(!html.includes("<source>"));
-  const shared = html.slice(html.indexOf("<details"));
+  const shared = html.slice(html.indexOf('<details aria-label="Pine execution assumptions"'));
   assert.ok(!shared.includes("Buy label unsupported")); assert.ok(!shared.includes("Alerts unavailable"));
-  assert.ok(html.indexOf("Beta:") < html.indexOf("<details")); assert.ok(html.indexOf("Gamma:") < html.indexOf("<details"));
-  assert.equal((html.match(/role="status"/g) ?? []).length, 3);
+  assert.ok(html.includes("<strong class=\"block\">Beta</strong>"));
+  assert.ok(html.includes("<strong class=\"block\">Gamma</strong>"));
+  assert.equal((html.match(/role="status"/g) ?? []).length, 2);
 });
 test("no notices renders no empty status; a single exact source uses singular provenance", () => {
   assert.equal(renderToStaticMarkup(createElement(PineChartNotices, { studies: [] })), "");
   const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("only", "One")] }));
-  assert.ok(html.includes("3 assumptions · 1 script")); assert.ok(!html.includes("1 scripts"));
+  assert.ok(html.includes("3 calculation notes for 1 script.")); assert.ok(!html.includes("1 scripts"));
 });
 
 test("live informational details never label the running chart as a closed snapshot", () => {
@@ -87,19 +91,44 @@ test("live informational details never label the running chart as a closed snaps
   assert.equal(grouped.assumptions.length, 3);
   assert.deepEqual(grouped.warnings, []);
   const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [live] }));
-  assert.ok(html.includes("Live chart updates · 3 assumptions · 1 script"));
+  assert.ok(html.includes("Live chart updates</summary>"));
   assert.ok(!html.includes("Closed historical snapshot"));
   for (const item of live.diagnostics) assert.ok(html.slice(html.indexOf("<details")).includes(item.code));
   const mixed = renderToStaticMarkup(createElement(PineChartNotices, { studies: [live, study("closed", "Strategy")] }));
-  assert.ok(mixed.includes("Pine execution details"));
+  assert.ok(mixed.includes("Calculation details</summary>"));
   const metadata = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("meta", "Metadata", [diagnostic("DEFAULT_SYMBOL_METADATA")])] }));
-  assert.ok(metadata.includes("Pine execution details"));
+  assert.ok(metadata.includes("Calculation details</summary>"));
 });
 
-test("live execution failures and unsupported capabilities remain outside the disclosure", () => {
+test("execution failures remain immediately visible while full capability notices stay reachable", () => {
   const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("live", "Live study", [diagnostic("REALTIME_CONTEXT"), diagnostic("REALTIME_STATE_LIMIT", "Session halted", { severity: "error" }), diagnostic("ALERT_DELIVERY_UNAVAILABLE", "Alerts unavailable")], ["Drawing unavailable"])] }));
   const visible = html.slice(0, html.indexOf("<details"));
   assert.ok(visible.includes("Session halted"));
-  assert.ok(visible.includes("Alerts unavailable"));
-  assert.ok(visible.includes("Drawing unavailable"));
+  assert.ok(visible.includes('role="alert"'));
+  assert.ok(!visible.includes("Alerts unavailable"));
+  assert.ok(!visible.includes("Drawing unavailable"));
+  const warningBody = html.slice(html.indexOf('<details aria-label="Indicator notices"'), html.indexOf('<details aria-label="Pine execution assumptions"'));
+  assert.ok(warningBody.includes("Alerts unavailable"));
+  assert.ok(warningBody.includes("Drawing unavailable"));
+  assert.ok(!warningBody.includes("Session halted"));
+});
+
+test("include filters never conceal errors behind warning or assumption disclosures", () => {
+  const inputs = [study("one", "Same name", [diagnostic("FAIL", "Cannot calculate", { severity: "error" }), ...assumptions], ["Partial drawing"]),
+    study("two", "Same name", [diagnostic("OTHER", "Other owner failed", { severity: "error" })])];
+  const all = renderToStaticMarkup(createElement(PineChartNotices, { studies: inputs }));
+  assert.equal((all.match(/role="alert"/g) ?? []).length, 2);
+  assert.ok(all.indexOf("Cannot calculate") < all.indexOf("<details"));
+  assert.ok(all.indexOf("Other owner failed") < all.indexOf("<details"));
+  const warningsOnly = renderToStaticMarkup(createElement(PineChartNotices, { studies: inputs, include: "warnings" }));
+  assert.ok(warningsOnly.includes("Cannot calculate"));
+  assert.ok(warningsOnly.includes("Partial drawing"));
+  assert.ok(!warningsOnly.includes('aria-label="Pine execution assumptions"'));
+  const assumptionsOnly = renderToStaticMarkup(createElement(PineChartNotices, { studies: inputs, include: "assumptions" }));
+  assert.ok(!assumptionsOnly.includes("Cannot calculate"));
+  assert.ok(!assumptionsOnly.includes("Partial drawing"));
+  assert.ok(assumptionsOnly.includes("Candle snapshot</summary>"));
+  const errorsOnly = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("errors", "Errors", [diagnostic("FAIL", "Only failure", { severity: "error" })])] }));
+  assert.ok(errorsOnly.includes('role="alert"'));
+  assert.ok(!errorsOnly.includes("<details"));
 });

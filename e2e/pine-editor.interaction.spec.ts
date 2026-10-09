@@ -237,7 +237,7 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   await outputs.locator("summary").click(); await expect(last).toBeHidden();
   await expect(edit).toBeVisible();
   const assumptions = page.getByRole("status").filter({ hasText: "CLOSED_BAR_SNAPSHOT:" }).locator("details");
-  await expect(assumptions.locator("summary")).toContainText("Closed historical snapshot");
+  await expect(assumptions.locator("summary")).toHaveText("Candle snapshot");
   await expect(assumptions.locator("p")).toBeHidden();
   await assumptions.locator("summary").focus(); await page.keyboard.press("Enter");
   await expect(assumptions.locator("p")).toBeVisible();
@@ -246,7 +246,7 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   if (placement === "pane") {
     const pane = page.getByRole("region", { name: `${String(saved.name)} native Pine pane` });
     await expect(pane).toBeVisible();
-    await expect(pane.locator("details summary")).toHaveText("Native Pine · 64 outputs");
+    await expect(pane.locator("details summary")).toHaveText("64 outputs");
     await expect(pane.locator("canvas").first()).toBeVisible();
     await pane.locator("details summary").focus(); await page.keyboard.press("Enter");
     const names = pane.locator("details p");
@@ -367,7 +367,7 @@ test("native horizontal level inputs survive save reload and paint the actual pa
   await pane.screenshot({ path: path.join(captures, `levels-pane-${info.project.name}.png`) });
 });
 
-test("plot names matching assumption codes keep unsupported-output warnings visible", async ({ page }) => {
+test("plot names matching assumption codes keep unsupported-output notices separate from calculation details", async ({ page }) => {
   await fixture(page);
   const editor = await openEditor(page);
   const codes = ["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"];
@@ -375,15 +375,15 @@ test("plot names matching assumption codes keep unsupported-output warnings visi
   await fillSource(editor, source); await check(editor);
   await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
   await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
-  const status = page.getByRole("status").filter({ hasText: "Warning names:" });
-  for (const code of codes) await expect(status).toContainText(`${code}: Plot offsets are not rendered`);
-  await expect(status.locator("details p")).toBeHidden();
-  const exposed = await status.evaluate((element) => {
-    const copy = element.cloneNode(true) as HTMLElement;
-    copy.querySelector("details")?.remove();
-    return copy.textContent;
-  });
-  for (const code of codes) expect(exposed).toContain(`${code}: Plot offsets are not rendered`);
+  const notices = page.getByLabel("Indicator notices", { exact: true });
+  const body = notices.getByRole("region", { name: "Indicator notice details", exact: true });
+  await expect(body).toBeHidden();
+  await notices.locator("summary").focus(); await page.keyboard.press("Enter");
+  await expect(body).toBeVisible(); await expect(body).toContainText("Warning names");
+  for (const code of codes) await expect(body).toContainText(`${code}: Plot offsets are not rendered`);
+  const assumptions = page.getByLabel("Pine execution assumptions", { exact: true });
+  await expect(assumptions.getByRole("region", { name: "Assumption details and affected scripts", exact: true }))
+    .not.toContainText("Plot offsets are not rendered");
 });
 
 test("native overlay and oscillator reach real chart canvases", async ({ page }, info) => {

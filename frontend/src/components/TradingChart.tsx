@@ -3894,7 +3894,7 @@ export function TradingChart({
           {[...pinePaneGroups].map(([sourceId, plots]) => {
             const indicator = indicatorInstances.find((item) => item.id === sourceId && item.visible !== false);
             return indicator ? <NativePineStudyPanel key={indicator.id} label={indicator.customScriptName ?? "Pine script"} plots={plots} priceChart={chartRef.current} onOpenSettings={(event) => openIndicatorToolbar(indicator.id, event)} selected={!captureMode && drawingControlsActive && renderedSelectedIndicatorId === indicator.id}
-              indicator={indicator} bars={displayBars} contextKey={inputOverlayContext}
+              indicator={indicator} bars={displayBars} contextKey={inputOverlayContext} chartSettings={chartSettings}
               pickInputId={inputAnchorPick?.indicatorId === indicator.id ? inputAnchorPick.inputId : undefined}
               onEndPick={endInputAnchorPick}
               onInputHost={(host, disposed) => setPineInputHosts(current => {
@@ -5685,14 +5685,15 @@ function PineStudyInputAnchors({ indicator, chart, series, bars, contextKey, pla
 
 type PineInputHost = { plots: PineChartPlot[]; contextKey: string; price: boolean; time: boolean };
 
-function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected, indicator, bars, contextKey, onChange, pickInputId, onEndPick, onInputHost }: {
+function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected, indicator, bars, contextKey, chartSettings, onChange, pickInputId, onEndPick, onInputHost }: {
   label: string; plots: PineChartPlot[]; priceChart: IChartApi | null;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
-  indicator: ChartIndicatorInstance; bars: readonly Candle[]; contextKey: string;
+  indicator: ChartIndicatorInstance; bars: readonly Candle[]; contextKey: string; chartSettings: ChartVisualSettings;
   onChange: (settings: Partial<IndicatorSettings>) => void; pickInputId?: string; onEndPick: () => void;
   onInputHost: (host: PineInputHost, disposed?: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const paneChart = useRef<IChartApi | null>(null);
   const [inputTarget, setInputTarget] = useState<{ chart: IChartApi; series: ISeriesApi<"Line">; plots: PineChartPlot[] } | null>(null);
   const tableOnly = plots.every(plot => plot.kind === "table");
   const hostCallback = useRef(onInputHost); hostCallback.current = onInputHost;
@@ -5718,6 +5719,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       timeScale: { visible: false, lockVisibleTimeRangeOnResize: true }, rightPriceScale: { borderVisible: false },
       handleScroll: false, handleScale: false,
     });
+    paneChart.current = chart;
     const installed = installPineChartPlots(chart, plots);
     if (installed.series[0]) setInputTarget({ chart, series: installed.series[0] as ISeriesApi<"Line">, plots });
     const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
@@ -5733,16 +5735,28 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       priceChart?.timeScale().unsubscribeVisibleTimeRangeChange(syncRange);
       stopObservingSize();
       installed.dispose();
+      paneChart.current = null;
       chart.remove();
     };
   }, [plots, priceChart, tableOnly]);
-  return <section className="border-t border-white/10 bg-ink-950 px-4 py-3" aria-label={`${label} native Pine pane`}>
+  useLayoutEffect(() => {
+    paneChart.current?.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: chartSettings.backgroundColor },
+        textColor: chartSettings.textColor, fontSize: chartSettings.textSize },
+      grid: { horzLines: { color: colorWithOpacity(chartSettings.gridColor, 0.28),
+        visible: chartSettings.gridMode === "both" || chartSettings.gridMode === "horizontal" },
+        vertLines: { color: colorWithOpacity(chartSettings.gridColor, 0.22),
+          visible: chartSettings.gridMode === "both" || chartSettings.gridMode === "vertical" } },
+    });
+  }, [plots, priceChart, tableOnly, chartSettings.backgroundColor, chartSettings.textColor, chartSettings.textSize,
+    chartSettings.gridColor, chartSettings.gridMode]);
+  return <section className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3" aria-label={`${label} native Pine pane`}>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
       <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
-      {plots.length <= 8 ? <span className="text-slate-400">Native Pine · {plots.map((plot) => plot.name).join(" · ")}</span> : <details className="min-w-0 max-w-full text-slate-400">
-        <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 max-md:min-h-11">Native Pine · {plots.length} outputs</summary>
-        <p className="max-h-24 overflow-y-auto py-2 leading-5">{plots.map((plot) => plot.name).join(" · ")}</p>
-      </details>}
+      <details className="min-w-0 max-w-full text-[var(--text-secondary)]">
+        <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">{plots.length} {plots.length === 1 ? "output" : "outputs"}</summary>
+        <p role="region" aria-label={`${label} output names`} tabIndex={0} className="max-h-24 overflow-y-auto overscroll-contain break-words py-2 leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]">{plots.map((plot) => plot.name).join(" · ")}</p>
+      </details>
     </div>
     <div ref={container} className={`${tableOnly ? "h-48" : "h-32"} w-full`} />
     {selected && inputTarget?.plots === plots && <PineStudyInputAnchors indicator={indicator} chart={inputTarget.chart}

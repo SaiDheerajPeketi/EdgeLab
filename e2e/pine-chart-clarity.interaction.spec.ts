@@ -240,7 +240,8 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   const notice = page.getByLabel("Pine execution assumptions", { exact: true });
   await expect(notice).toHaveCount(1);
   const summary = notice.locator("summary"), body = notice.getByLabel("Assumption details and affected scripts", { exact: true });
-  await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 7 scripts");
+  await expect(summary).toHaveText("Candle snapshot");
+  await expect(body).toContainText("3 calculation notes for 7 scripts.");
   await expect(notice).not.toHaveAttribute("open", "");
   const box = await summary.boundingBox(); expect(box!.height).toBeGreaterThanOrEqual(44);
   await summary.focus(); await page.keyboard.press("Enter"); await expect(notice).toHaveAttribute("open", "");
@@ -252,10 +253,15 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   if (scrollable) await expect.poll(() => body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   else expect(await body.evaluate((node) => node.scrollTop)).toBe(0);
   await summary.focus(); await page.keyboard.press("Enter"); await expect(notice).not.toHaveAttribute("open", "");
-  const stochWarning = page.getByRole("status").filter({ has: page.locator("strong").filter({ hasText: "Stochastic:" }) });
+  const warnings = page.getByLabel("Indicator notices", { exact: true });
+  await warnings.locator("summary").focus(); await page.keyboard.press("Enter");
+  const stochWarning = warnings.getByRole("region", { name: "Indicator notice details", exact: true }).locator("div")
+    .filter({ has: page.locator("strong").filter({ hasText: "Stochastic" }) });
+  await expect(stochWarning).toBeVisible();
   await expect(stochWarning).not.toContainText(/background.*not rendered|unsupported.*background/i);
   await expect(stochWarning).toContainText(/local pixel metrics/i);
   await expect(stochWarning).not.toContainText("CLOSED_BAR_SNAPSHOT");
+  await warnings.locator("summary").focus(); await page.keyboard.press("Enter");
   await certifyCatalog(page, notice);
   const pane = page.getByRole("region", { name: "Stochastic native Pine pane", exact: true });
   await expect(pane).toBeVisible(); await pane.scrollIntoViewIfNeeded();
@@ -301,7 +307,8 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   const settings = page.getByRole("group", { name: "Indicator settings", exact: true });
   await expect(settings).toContainText(names[0]);
   await activate(settings.getByTitle("Hide indicator", { exact: true }), "Hide Hull");
-  await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 6 scripts");
+  await expect(summary).toHaveText("Candle snapshot");
+  await expect(body).toContainText("3 calculation notes for 6 scripts.");
   await captureTouch("after-hide");
   const hideGeometry = await page.locator(".chart-stage").first().evaluate((stage) => {
     const bounds = (node: Element) => {
@@ -337,7 +344,8 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   await expect.poll(() => page.evaluate((source) => window.__nativeEditorResults.some((item) =>
     item.status === "completed" && item.result.kind === "run" && item.result.source === source
       && item.result.inputs.in_0 === 8 && item.result.audit.engineVersion === "0.11.0"), t3Source)).toBe(true);
-  await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 6 scripts");
+  await expect(summary).toHaveText("Candle snapshot");
+  await expect(body).toContainText("3 calculation notes for 6 scripts.");
   await captureTouch("edited-t3");
   const t3Trigger = page.locator(".chart-study-pill").filter({ hasText: names[5] }).first();
   await activate(settings.getByRole("button", { name: "Close indicator settings", exact: true }), "Close T3 settings");
@@ -354,7 +362,8 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   await activate(settings.getByTitle("Remove indicator", { exact: true }), "Remove T3");
   await expect(settings).toBeHidden();
   await expect(page.locator(".chart-study-pill").filter({ hasText: names[5] })).toHaveCount(0);
-  await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 5 scripts");
+  await expect(summary).toHaveText("Candle snapshot");
+  await expect(body).toContainText("3 calculation notes for 5 scripts.");
   await captureTouch("after-remove");
   if (touch) for (const target of targets) {
     expect(target.width, target.name + " touch width").toBeGreaterThanOrEqual(44);
