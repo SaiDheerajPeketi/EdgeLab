@@ -489,7 +489,22 @@ function checkEnumTypes(ast: any, version?: number | null): WeakSet<object> {
                     }
                 }
                 let functions = node.callee?.type === 'Identifier' ? scope.functionsFor(node.callee.name).filter(fn => !fn.node.id?.isMethod) : [];
-                if (userCall && !functions.length) functions = scope.functionsFor(node.callee.name).filter(fn => fn.node.id?.isMethod);
+                if (userCall && !functions.length) {
+                    const directMethods = scope.functionsFor(node.callee.name).filter(fn => fn.node.id?.isMethod);
+                    const fields = ['condition', 'title', 'message'];
+                    const conditionType = actual[0] ?? namedTypes.get('condition');
+                    const nativeCondition = node.callee.name === 'alertcondition' && actual.length <= fields.length
+                        && (actual.length > 0 || namedTypes.has('condition'))
+                        && [...namedTypes.keys()].every(key => fields.includes(key))
+                        && (conditionType === undefined || conditionType === 'bool'
+                            || version != null && version < 6 && ['int', 'float', '@na'].includes(conditionType))
+                        && !directMethods.some(fn => acceptsArguments(fn, actual, namedTypes, true));
+                    if (nativeCondition) {
+                        // An unrelated same-name method cannot replace the native
+                        // signature when codegen orders its named arguments.
+                        node._pineOverloadParams = fields;
+                    } else functions = directMethods;
+                }
                 if (node.callee?.type === 'MemberExpression' && !node.callee.computed) {
                     const method = node.callee.property?.name;
                     const parts = genericParts(receiver);

@@ -9,7 +9,7 @@ import { bucketTime } from "../lib/charting";
 import { pineFeedNextSourceTime } from "../lib/pineLiveFeed";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
-import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings } from "../lib/pineProtocol";
+import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings, validatePineAlertConditions } from "../lib/pineProtocol";
 import { advancePineLiveSource, PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
 import { advancePineLiveMarkets, assertPineLiveMarketBudget, createPineLiveMarketLedger, pineLiveMarketReceipt, type PineLiveMarketLedger, type PineLiveMarketReceipt } from "../lib/pineLiveMarkets";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
@@ -1482,6 +1482,9 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const dependency = Object.getOwnPropertyDescriptor(prepared.fn, "_edgelabUsesVisibleRange")?.value;
   if (typeof dependency !== "boolean") error("UNSUPPORTED_EXECUTION_CONTEXT", "Missing native viewport dependency metadata.");
   prepared.usesVisibleRange = dependency;
+  const conditionMetadata = Object.getOwnPropertyDescriptor(prepared.fn, "_edgelabAlertConditions")?.value;
+  if (conditionMetadata === undefined) error("UNSUPPORTED_EXECUTION_CONTEXT", "Missing native alert condition metadata.");
+  const alertConditions = validatePineAlertConditions(conditionMetadata);
   const declaration = indicator.getDeclarationType();
   if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
   const settings = request.strategySettings ?? {};
@@ -1522,7 +1525,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
   // Omitted declarations have the public schema default true; expressions can remain unresolved.
   const pendingLayer = typeof parsedLayer !== "boolean";
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, diagnostics: [
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, alertConditions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Historical strategies calculate at candle close and can recalculate after order fills. Bar magnification uses covered loaded smaller candles; uncovered candles use the inferred chart OHLC path. Historical callbacks see final OHLCV values. Live strategies calculate at candle close, on each received update when calc_on_every_tick=true, and additionally after fills when calc_on_order_fills=true. Fills use received prices without reconstructing unreceived trades. Historical-tick recalculation and intrabar margin-liquidation with chronological fills remain unavailable.")] : []),

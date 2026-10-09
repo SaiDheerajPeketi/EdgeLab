@@ -47,11 +47,12 @@ function bridgeHarness(persistent = false) {
   assert.equal(messages.pop().type, "ready");
   receive({ source: parent, origin: "https://edgelab.example", data: { nonce, type: "start", workerSource: "trusted-worker", request: { id: "packed136" } } });
   return { context, messages, revoked,
-    send(wire, mutation = "") {
+    send(wire, mutation = "", sequence = 0) {
       context.metadataJSON = JSON.stringify({ ...wire, buffers: [] });
       context.buffersJSON = JSON.stringify(wire.buffers.map(buffer => Array.from(new Uint8Array(buffer))));
       vm.runInContext('globalThis.payload=JSON.parse(metadataJSON);payload.buffers=JSON.parse(buffersJSON).map(bytes=>new Uint8Array(bytes).buffer);globalThis.getterReads=0;' + mutation, context);
-      const payload = persistent ? vm.runInContext('({protocol:"pine-live-v1",sessionId:"packed136-session",sequence:0,response:payload})', context) : context.payload;
+      context.receiptSequence = sequence;
+      const payload = persistent ? vm.runInContext('({protocol:"pine-live-v1",sessionId:"packed136-session",sequence:receiptSequence,response:payload})', context) : context.payload;
       worker.onmessage({ data: payload });
       return messages.at(-1);
     },
@@ -121,6 +122,38 @@ test("persistent bridge retains drawing metadata and transferable buffers under 
   assert.equal(decoded.audit.mode, "live");
   for (const field of fields) assert.deepEqual(decoded[field], result[field]);
   assert.throws(() => pine.validatePineLiveResponse({ ...message.payload, sequence: 1 }, command, liveRequest), pine.PineProtocolError);
+});
+
+test("packed owned live results preserve actual named definitions and alert messages through the trusted bridge", async () => {
+  const sessionId = "packed136-session";
+  const conditionSource = source.replace('plot(close+63,"Channel 63")', 'alertcondition(close>open,"Signal","{{close}}")')
+    + '\nalert("Packed owned update",alert.freq_all)';
+  assert.notEqual(conditionSource, source);
+  const initial = { ...request, id: sessionId + ":0", source: conditionSource, mode: "live" };
+  const executor = pine.createPineLiveExecutor();
+  try {
+    const started = await executor.execute({ protocol: "pine-live-v1", sessionId, sequence: 0, action: "start", request: initial });
+    assert.deepEqual(started.alertConditions, [{ id: "alertcondition_0", title: "Signal", message: "{{close}}" }]);
+    assert.equal(Object.hasOwn(started, "alertEvents"), false);
+    const bar = { time: bars.at(-1).time + 60, open: 115, high: 117, low: 114, close: 116, volume: 10 };
+    const command = { protocol: "pine-live-v1", sessionId, sequence: 1, action: "update", bar, confirmed: false, collectAlerts: true };
+    const result = await executor.execute(command), current = { ...initial, id: sessionId + ":1", bars: [...bars, bar] };
+    assert.deepEqual(result.alertConditions, [{ id: "alertcondition_0", title: "Signal", message: "{{close}}" }]);
+    assert.equal(result.alertEvents.events[0].message, "Packed owned update");
+    const wire = pine.toPineWireResponse(current.id, result, current.bars);
+    assert.equal(wire.encoding, "pine-packed-v1");
+    const harness = bridgeHarness(true), message = harness.send(wire, "", 1);
+    assert.equal(message.type, "result"); assert.equal(message.payload.sequence, 1);
+    assert.equal(message.payload.response.status, "completed"); assert.equal(harness.terminated(), false);
+    const decoded = pine.validatePineLiveResponse(message.payload, command, current);
+    assert.deepEqual(decoded.alertConditions, result.alertConditions); assert.deepEqual(decoded.alertEvents, result.alertEvents);
+    assert.equal(decoded.plots.length, 63);
+    for (const mutation of ['payload.result.alertConditions[0].id="foreign";', 'payload.result.alertEvents.events[0].time--;']) {
+      const invalid = bridgeHarness(true).send(pine.toPineWireResponse(current.id, result, current.bars), mutation, 1);
+      assert.equal(invalid.payload.response.status, "completed");
+      assert.throws(() => pine.validatePineLiveResponse(invalid.payload, command, current), pine.PineProtocolError);
+    }
+  } finally { executor.dispose(); }
 });
 
 test("unknown result and envelope keys remain rejected before packed transport reaches the parent", async () => {

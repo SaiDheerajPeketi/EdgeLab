@@ -33,10 +33,12 @@ export type PineRequest = {
   id: string; action: "prepare" | "run"; source: string; bars?: Candle[]; sourceSnapshot?: PineSourceSnapshot; viewport?: PineViewport | null;
   strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext; marketData?: PineMarketDataConfig; liveObservation?: PineLiveObservation;
 };
+export type PineAlertConditionDefinition = { id: string; title: string; message: string };
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
   declaration: "indicator" | "strategy"; name: string; overlay: boolean; behindChart?: boolean;
   inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[]; usesVisibleRange?: boolean;
+  alertConditions?: PineAlertConditionDefinition[];
 };
 export type PinePlot = {
   id: string; name: string; style: string; overlay: boolean; options: Record<string, PineScalar>;
@@ -469,6 +471,16 @@ function inputDefinition(value: unknown): PineInputDefinition {
   }
   return result;
 }
+/** Authored order defines condition identity; duplicate display titles are allowed. */
+export function validatePineAlertConditions(value: unknown): PineAlertConditionDefinition[] {
+  boundedPineMetadataBytes(value);
+  return array(value, 64).map((value, index) => {
+    const raw = record(value);
+    if (Object.keys(raw).length !== 3 || Object.keys(raw).some(key => !["id", "title", "message"].includes(key))
+      || raw.id !== `alertcondition_${index}`) fail("Invalid Pine alert condition metadata.");
+    return { id: raw.id as string, title: string(raw.title, 512), message: string(raw.message) };
+  });
+}
 export function validatePineResponse(value: unknown, request: PineRequest): PineResult {
   const response = record(value);
   const packed = response.encoding === "pine-packed-v1";
@@ -492,7 +504,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.alertEvents !== undefined && (request.action !== "run" || request.mode !== "live")) fail("Pine alerts require an owned live update.");
   const alertEvents = raw.alertEvents === undefined ? undefined : validatePineAlertEvents(raw.alertEvents);
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
@@ -509,7 +521,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}) };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(raw.alertConditions !== undefined ? { alertConditions: validatePineAlertConditions(raw.alertConditions) } : {}) };
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);

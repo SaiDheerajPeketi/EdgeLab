@@ -72,6 +72,10 @@ import { evalConst, finalizeConst, dottedName, type ConstValue } from './pineToJ
 function declarationCalculation(ast: any, version: number) {
     const bindings = new Map<string, ConstValue>(), mutated = new Set<string>();
     const types = new Set((ast.body ?? []).filter((node: any) => node.type === 'TypeDefinition').map((node: any) => node.name));
+    const functions = new Set((ast.body ?? []).filter((node: any) => node.type === 'FunctionDeclaration' && !node.id?.isMethod).map((node: any) => node.id?.name));
+    const globalCalls = new Set((ast.body ?? []).filter((node: any) => node.type === 'ExpressionStatement').map((node: any) => node.expression));
+    const nativeConditions = new Set<any>();
+    const alertConditions: Readonly<{ id: string; title: string; message: string }>[] = [];
     let effects = false, visits = 0;
     const walk = (node: any, shadowed = new Set<string>()) => {
         if (!node?.type) return;
@@ -102,6 +106,10 @@ function declarationCalculation(ast: any, version: number) {
             const custom = node._pineOverloadTarget || node._pineMethodCall || node.callee?._pineUdtReceiver || node.callee?._pinePrimitiveReceiver
                 || types.has(node.callee?.object?.name) && ['new', 'copy'].includes(node.callee?.property?.name);
             if (!custom && (name === 'alert' || name && /^(line|linefill|box|label|polyline|table)\./.test(name))) effects = true;
+            if (!custom && name === 'alertcondition' && !functions.has(name) && !shadowed.has(name)) {
+                if (!globalCalls.has(node)) throw new Error('alertcondition() must be called in global scope.');
+                nativeConditions.add(node);
+            }
         }
         for (const [key, child] of Object.entries(node)) {
             if (key === 'parent' || key.startsWith('_')) continue;
@@ -114,7 +122,7 @@ function declarationCalculation(ast: any, version: number) {
     const env = { lookup: (name: string) => bindings.get(name), enums: new Map<string, unknown>(), truncatingIntDivision: version < 6 };
     let result: { timeframe?: string; gaps?: boolean; hasTimeframe: boolean; hasGaps: boolean } | undefined;
     for (const node of ast.body ?? []) {
-        if (node.type === 'VariableDeclaration' && node.kind !== 'var' && node.kind !== 'varip') {
+        if (node.type === 'VariableDeclaration') {
             for (const binding of node.declarations ?? []) {
                 const qualifier = binding.id?.varType ?? binding.varType ?? node.varType ?? '';
                 if (binding.id?.type !== 'Identifier' || mutated.has(binding.id.name) || /\b(input|simple|series)\b/.test(qualifier)) continue;
@@ -123,6 +131,31 @@ function declarationCalculation(ast: any, version: number) {
             }
         }
         const call = node.type === 'ExpressionStatement' ? node.expression : node.declarations?.[0]?.init;
+        if (nativeConditions.has(call)) {
+            if (alertConditions.length >= 64) throw new Error('The script exceeds 64 named alert conditions.');
+            const args = call.arguments ?? [], named = args.at(-1)?.type === 'ObjectExpression' ? args.at(-1) : undefined;
+            const fields = ['condition', 'title', 'message'], supplied = new Map<string, any>();
+            const positional = args.slice(0, named ? -1 : args.length);
+            if (positional.length > fields.length) throw new Error('alertcondition() accepts condition, title and message.');
+            positional.forEach((arg: any, index: number) => supplied.set(fields[index], arg));
+            for (const property of named?.properties ?? []) {
+                const key = property.key?.name ?? property.key?.value;
+                if (property.type !== 'Property' || !fields.includes(key) || supplied.has(key))
+                    throw new Error('alertcondition() has an unknown or repeated argument.');
+                supplied.set(key, property.value);
+            }
+            if (!supplied.has('condition')) throw new Error('alertcondition() requires a condition.');
+            const constantText = (key: string, fallback: string, limit: number) => {
+                if (!supplied.has(key)) return fallback;
+                const value = evalConst(supplied.get(key), env);
+                if (!value?.exact || value.type !== 'string') throw new Error(`alertcondition ${key} must be a constant string.`);
+                const text = String(finalizeConst(value));
+                if (text.length > limit) throw new Error(`alertcondition ${key} exceeds ${limit} characters.`);
+                return text;
+            };
+            alertConditions.push(Object.freeze({ id: `alertcondition_${alertConditions.length}`,
+                title: constantText('title', 'Alert', 512), message: constantText('message', '', 4096) }));
+        }
         if (call?.type !== 'CallExpression' || call.callee?.name !== 'indicator') continue;
         const args = call.arguments ?? [], named = args.at(-1)?.type === 'ObjectExpression' ? args.at(-1) : undefined;
         // The positional order matches indicator's public declaration signature.
@@ -143,7 +176,7 @@ function declarationCalculation(ast: any, version: number) {
             result.gaps = gaps.value as boolean;
         }
     }
-    return result ?? { hasTimeframe: false, hasGaps: false };
+    return { calculation: result ?? { hasTimeframe: false, hasGaps: false }, alertConditions: Object.freeze(alertConditions) };
 }
 
 /**
@@ -151,7 +184,8 @@ function declarationCalculation(ast: any, version: number) {
  * `version` is null for PineTS-syntax / function input (no //@version marker):
  * such code is JavaScript-like and follows JS semantics, not a Pine version.
  */
-function getPineTSFromSource(source: string | Function): { code: string; version: number | null; calculation?: ReturnType<typeof declarationCalculation> } {
+function getPineTSFromSource(source: string | Function): { code: string; version: number | null;
+    calculation?: ReturnType<typeof declarationCalculation>['calculation']; alertConditions?: ReturnType<typeof declarationCalculation>['alertConditions'] } {
     if (typeof source === 'function') {
         return { code: source.toString(), version: null };
     } else {
@@ -164,7 +198,7 @@ function getPineTSFromSource(source: string | Function): { code: string; version
             //assume it's Pine Script syntax ==> use pineToJS to transpile it
             const pineToJSResult = pineToJS(source);
             if (pineToJSResult.success) {
-                return { code: pineToJSResult.code, version: pineScriptVersion, calculation: declarationCalculation(pineToJSResult.ast, pineScriptVersion) };
+                return { code: pineToJSResult.code, version: pineScriptVersion, ...declarationCalculation(pineToJSResult.ast, pineScriptVersion) };
             } else {
                 throw new Error(`Failed to transpile Pine Script version ${pineScriptVersion}: ${pineToJSResult.error}`);
             }
@@ -600,7 +634,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
 
     const { debug } = options;
 
-    const { code: sourceCode, version: pineVersion, calculation } = getPineTSFromSource(source);
+    const { code: sourceCode, version: pineVersion, calculation, alertConditions } = getPineTSFromSource(source);
     let code = sourceCode;
 
     // Pre-process: Wrap in context function if not already wrapped
@@ -900,6 +934,7 @@ export function transpile(source: string | Function, options: { debug: boolean; 
     }
     Object.defineProperty(mainFn, '_edgelabUsesVisibleRange', { value: usesVisibleRange });
     Object.defineProperty(mainFn, '_edgelabCalculation', { value: calculation && Object.freeze(calculation) });
+    Object.defineProperty(mainFn, '_edgelabAlertConditions', { value: alertConditions });
     (mainFn as any)._pineVersion = pineVersion;
     if (slices && Object.keys(slices).length > 0) {
         for (const slice of Object.values(slices)) (slice as any)._pineVersion = pineVersion;

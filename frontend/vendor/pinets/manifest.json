@@ -26,7 +26,7 @@
       "source": "src/transpiler/index.ts",
       "file": "overrides/transpiler/index.ts",
       "upstreamSha256": "f17badec7f474d68cbcedfc8fc2f769a5af47f04c8e4240872873d287cd4f9d0",
-      "sha256": "4f791d49589469875ae72de66ddbe17341be3d488738f14e33552945042d16d0"
+      "sha256": "68e67dce2fef8e7243fa64be3298f21f5d6f5b382f2513e20665a7e17e0f232b"
     },
     {
       "source": "src/transpiler/transformers/StatementTransformer.ts",
@@ -98,7 +98,7 @@
       "source": "src/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "file": "overrides/transpiler/pineToJS/inputs/analyzeInputs.ts",
       "upstreamSha256": "f6a75e0b4a9250a8115c2efecf0a26162cac7f519f43f5ee35ca4974f81bd940",
-      "sha256": "35cd1cb8e8635a260f36be9046665c730faa432ae4575c112fc85f869794c3f8"
+      "sha256": "98e1a9df155c94e1c2230bffc7e68230c281b34b7607446162bbfe46e0cb0453"
     },
     {
       "source": "src/Indicator/scanInputs.ts",
