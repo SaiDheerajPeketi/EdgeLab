@@ -212,6 +212,13 @@ export function ThemedColorPicker({
     <div
       aria-disabled={disabled}
       className={`themed-color-picker ${compact ? "themed-color-picker-compact" : ""} ${disabled ? "themed-color-picker-disabled" : ""} ${className}`}
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
       ref={rootRef}
     >
       <button

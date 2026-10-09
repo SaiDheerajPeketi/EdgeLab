@@ -219,6 +219,7 @@ export function ThemedSelect({
     }
     if (event.key === "Escape" && open) {
       event.preventDefault();
+      event.stopPropagation();
       setOpen(false);
       return;
     }

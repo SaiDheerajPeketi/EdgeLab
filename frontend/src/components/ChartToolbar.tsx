@@ -140,6 +140,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { isPineScriptSource, sanitizePinePrepared, type CustomIndicatorScript } from "../lib/customIndicators";
 import { pineSourceVersion } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
+import { parseEdgeIndicator } from "../lib/indicatorDsl";
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type ChartSyncToggleKey = Exclude<keyof ChartSyncSettings, "drawingMappingPolicy">;
@@ -1752,6 +1753,13 @@ export function ChartToolbar({
         <div className="study-manager-strip">
           <span className="study-manager-label">Active studies</span>
           {indicatorInstances.map((indicator) => {
+            if (indicator.kind === "custom" && !isPineScriptSource(indicator.customScriptSource ?? "")) {
+              const saved = customIndicatorScripts?.find((script) => script.id === indicator.customScriptId && script.source === indicator.customScriptSource);
+              return <ScriptStudyInputs indicator={indicator} key={indicator.id}
+                onEdit={saved && onEditCustomIndicator ? () => onEditCustomIndicator(saved) : undefined}
+                onRemove={(button) => removeStudy(indicator.id, button)}
+                onUpdate={(patch) => onUpdateIndicatorSettings(indicator.id, patch)} />;
+            }
             if (indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "")) {
               const saved = customIndicatorScripts?.find((script) => script.id === indicator.customScriptId && script.source === indicator.customScriptSource);
               return <NativeStudyInputs indicator={indicator} key={indicator.id}
@@ -1875,6 +1883,55 @@ function ChartToolbarGroup({ label, count, open, onOpenChange, children, trigger
   );
 }
 
+function ScriptStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
+  indicator: ChartIndicatorInstance;
+  onEdit?: () => void;
+  onRemove: (button: HTMLButtonElement) => void;
+  onUpdate: (settings: Partial<IndicatorSettings>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const disclosureId = useId();
+  const name = indicatorDisplayName(indicator);
+  const source = indicator.customScriptSource ?? "";
+  const parsed = parseEdgeIndicator(source);
+  const definitions = parsed.program?.inputs ?? [];
+  const inputs = indicator.settings.customInputs ?? {};
+  const close = () => { setExpanded(false); trigger.current?.focus({ preventScroll: true }); };
+  return <div className="study-chip native-study-chip" data-study-instance={indicator.id}>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="native-study-name min-w-0 flex-1 font-semibold text-[var(--text-primary)]">{name}</span>
+      <button aria-controls={disclosureId} aria-expanded={expanded} aria-label={`Inputs for ${name}`} className="study-action-button px-2 text-[var(--text-accent)]" data-study-action="true" data-study-instance={indicator.id} onClick={() => setExpanded(!expanded)} ref={trigger} type="button">Inputs</button>
+      <button aria-label={`Remove ${name}`} className="study-action-button" data-study-action="true" data-study-instance={indicator.id} onClick={(event) => onRemove(event.currentTarget)} title={`Remove ${name}`} type="button"><X aria-hidden="true" size={14} /></button>
+    </div>
+    <div aria-label={`Script inputs for ${name}`} className="native-study-inputs" hidden={!expanded} id={disclosureId} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }} role="group">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-[var(--text-primary)]">Script inputs</span>
+        <button aria-label={`Close inputs for ${name}`} className="study-action-button" onClick={close} type="button"><X aria-hidden="true" size={14} /></button>
+      </div>
+      <div className="native-study-input-list">
+        <label className="grid min-w-0 gap-1 text-xs text-[var(--text-secondary)]">
+          <span>Study color</span>
+          <ThemedColorPicker ariaLabel={`Study color for ${name}`} onChange={(color) => onUpdate({ color })} value={indicator.settings.color} />
+        </label>
+        {definitions.map((definition) => {
+          const value = inputs[definition.name] ?? definition.defaultValue;
+          const label = `${definition.name} for ${name}`;
+          const change = (next: boolean | number | string) => onUpdate({ customInputs: { ...inputs, [definition.name]: next } });
+          if (definition.type === "boolean") return <button aria-checked={Boolean(value)} aria-label={label} className={`chart-object-floating-toggle ${value ? "active" : ""}`} key={definition.name} onClick={() => change(!Boolean(value))} role="switch" type="button"><span>{definition.name}</span><span aria-hidden="true" className="ml-auto">{value ? "On" : "Off"}</span></button>;
+          return <label className="grid min-w-0 gap-1 text-xs text-[var(--text-secondary)]" key={definition.name}>
+            <span>{definition.name}</span>
+            {definition.type === "source" ? <ThemedSelect ariaLabel={label} className="h-9 w-full min-w-0" onChange={change} options={["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((item) => ({ label: item, value: item }))} portal value={String(value)} /> :
+              <NumericDraftInput label={label} max={definition.max} min={definition.min} onChange={change} resetKey={`${indicator.id}:${source}`} value={value} />}
+          </label>;
+        })}
+        {!definitions.length ? <p className="text-xs leading-5 text-[var(--text-secondary)]">{parsed.program ? "No configurable script inputs." : "Open this script in the editor to check its inputs."}</p> : null}
+        {onEdit ? <button className="study-action-button justify-start px-2 text-[var(--text-accent)]" onClick={onEdit} type="button">Open saved script in editor</button> : null}
+      </div>
+    </div>
+  </div>;
+}
+
 function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
   indicator: ChartIndicatorInstance;
   onEdit?: () => void;
@@ -1895,24 +1952,24 @@ function NativeStudyInputs({ indicator, onEdit, onRemove, onUpdate }: {
   const close = () => { setExpanded(false); trigger.current?.focus({ preventScroll: true }); };
   return <div className="study-chip native-study-chip" data-study-instance={indicator.id}>
     <div className="flex min-w-0 items-center gap-2">
-      <Code2 aria-hidden="true" className="shrink-0 text-slate-300" size={16} />
-      <span className="native-study-name min-w-0 flex-1 font-semibold text-slate-100">{name}</span>
-      <button aria-controls={disclosureId} aria-expanded={expanded} aria-label={`Inputs for ${name}`} className="study-action-button px-2 text-cyan-100" data-study-action="true" data-study-instance={indicator.id} onClick={() => setExpanded(!expanded)} ref={trigger} type="button">Inputs</button>
+      <Code2 aria-hidden="true" className="shrink-0 text-[var(--text-secondary)]" size={16} />
+      <span className="native-study-name min-w-0 flex-1 font-semibold text-[var(--text-primary)]">{name}</span>
+      <button aria-controls={disclosureId} aria-expanded={expanded} aria-label={`Inputs for ${name}`} className="study-action-button px-2 text-[var(--text-accent)]" data-study-action="true" data-study-instance={indicator.id} onClick={() => setExpanded(!expanded)} ref={trigger} type="button">Inputs</button>
       <button aria-label={`Remove ${name}`} className="study-action-button" data-study-action="true" data-study-instance={indicator.id} onClick={(event) => onRemove(event.currentTarget)} title={`Remove ${name}`} type="button"><X aria-hidden="true" size={14} /></button>
     </div>
-    <p className="native-study-caption mt-1 text-xs leading-5 text-slate-300">Native Pine{version ? ` v${version}` : ""} · revision {indicator.customScriptVersion ?? 1}</p>
-    {indicator.runtimeError ? <p className="native-study-caption mt-1 text-xs leading-5 text-amber-200">Runtime error · {indicator.runtimeError}</p> : null}
+    <p className="native-study-caption mt-1 text-xs leading-5 text-[var(--text-secondary)]">Native Pine{version ? ` v${version}` : ""} · revision {indicator.customScriptVersion ?? 1}</p>
+    {indicator.runtimeError ? <p className="native-study-caption mt-1 text-xs leading-5 text-[var(--warning-text)]">Runtime error · {indicator.runtimeError}</p> : null}
     <div aria-label={`Pine inputs for ${name}`} className="native-study-inputs" hidden={!expanded} id={disclosureId} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }} role="group">
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-slate-200">Pine inputs</span>
+        <span className="text-xs font-semibold text-[var(--text-primary)]">Pine inputs</span>
         <button aria-label={`Close inputs for ${name}`} className="study-action-button" onClick={close} type="button"><X aria-hidden="true" size={14} /></button>
       </div>
       <div className="native-study-input-list">
         {prepared?.inputDefinitions.map((definition) => <PineInputControl scopeKey={`${indicator.id}:${source}`} key={definition.id} definitions={prepared.inputDefinitions} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: prepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
         {!prepared ? <div className="grid min-w-0 gap-2">
-          <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p>
-          {onEdit ? <button className="study-action-button justify-start px-2 text-cyan-100" onClick={onEdit} type="button">Open saved script in editor</button> : null}
-        </div> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-slate-300">No configurable Pine inputs.</p> : null}
+          <p className="text-xs leading-5 text-[var(--text-secondary)]">Check and save this Pine script in the editor to configure its inputs.</p>
+          {onEdit ? <button className="study-action-button justify-start px-2 text-[var(--text-accent)]" onClick={onEdit} type="button">Open saved script in editor</button> : null}
+        </div> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-[var(--text-secondary)]">No configurable Pine inputs.</p> : null}
       </div>
     </div>
   </div>;

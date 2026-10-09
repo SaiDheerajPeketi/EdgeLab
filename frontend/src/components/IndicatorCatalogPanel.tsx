@@ -262,18 +262,18 @@ export function IndicatorCatalogPanel({
       surfaceRef={rootRef}
       triggerRef={anchorRef}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
+      <div className="flex items-start justify-between gap-4 border-b border-[var(--ui-border-subtle)] px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-white" id={titleId}>
+          <h2 className="text-base font-semibold text-[var(--text-primary)]" id={titleId}>
             Indicator library
           </h2>
-          <p className="mt-0.5 text-xs leading-5 text-slate-400">
+          <p className="mt-0.5 text-xs leading-5 text-[var(--text-secondary)]">
             Search, preview, and add supported studies to this chart.
           </p>
         </div>
         <button
           aria-label="Close indicator library"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-400 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/40"
+          className="grid h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 shrink-0 place-items-center rounded-md text-[var(--text-secondary)] outline-none transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
           onClick={() => onClose(true)}
           type="button"
         >
@@ -281,14 +281,14 @@ export function IndicatorCatalogPanel({
         </button>
       </div>
 
-      <div className="grid gap-2 border-b border-white/10 px-3 py-3">
-        <label className="relative flex h-11 min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 text-slate-400 focus-within:border-cyan-300/35 focus-within:ring-2 focus-within:ring-cyan-300/10">
+      <div className="grid gap-2 border-b border-[var(--ui-border-subtle)] px-3 py-3">
+        <label className="relative flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 text-[var(--text-secondary)] focus-within:border-[var(--ui-focus)] focus-within:ring-2 focus-within:ring-[var(--ui-focus)]">
           <span className="sr-only">Search indicators</span>
           <Search aria-hidden="true" size={15} />
           <input
             aria-controls={resultsId}
             aria-label="Search indicators by name, description, category, or synonym"
-            className="min-w-0 flex-1 bg-transparent text-base text-slate-100 outline-none placeholder:text-slate-600 sm:text-sm"
+            className="min-w-0 flex-1 bg-transparent text-base text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] sm:text-sm"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search RSI, volatility, moving average…"
@@ -299,7 +299,7 @@ export function IndicatorCatalogPanel({
           {query ? (
             <button
               aria-label="Clear indicator search"
-              className="grid h-7 w-7 place-items-center rounded text-slate-500 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/40"
+              className="grid h-7 w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 place-items-center rounded text-[var(--text-secondary)] outline-none transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
               onClick={() => {
                 setQuery("");
                 searchInputRef.current?.focus();
@@ -337,7 +337,7 @@ export function IndicatorCatalogPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-slate-400">
+        <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-[var(--text-secondary)]">
           <span aria-live="polite">
             {visibleIndicators.length + visibleScripts.length + unavailableFavorites.length} {visibleIndicators.length + visibleScripts.length + unavailableFavorites.length === 1 ? "indicator" : "indicators"}
           </span>
@@ -364,7 +364,7 @@ export function IndicatorCatalogPanel({
                   : `Add ${indicator.label} indicator`;
               return (
                 <article
-                  className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-2.5 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.045]"
+                  className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] p-2.5 transition hover:border-[var(--ui-border-strong)] hover:bg-[var(--ui-hover)]"
                   key={indicator.kind}
                   role="listitem"
                 >
@@ -372,10 +372,10 @@ export function IndicatorCatalogPanel({
                   <div className="flex min-w-0 flex-col">
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-white">
+                        <h3 className="truncate text-sm font-semibold text-[var(--text-primary)]">
                           {indicator.label}
                         </h3>
-                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200/70">
+                        <span className="text-[10px] font-medium text-[var(--text-secondary)]">
                           {indicator.category}
                         </span>
                       </div>
@@ -387,12 +387,12 @@ export function IndicatorCatalogPanel({
                             : `${favorite ? "Remove" : "Add"} ${indicator.label} ${favorite ? "from" : "to"} favorite indicators`
                         }
                         aria-pressed={favorite}
-                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-md outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40 ${
+                        className={`grid h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 shrink-0 place-items-center rounded-md outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${
                           favoriteLimitReached ? "cursor-not-allowed opacity-35" : ""
                         } ${
                           favorite
-                            ? "bg-cyan-300/[0.12] text-cyan-100"
-                            : "text-slate-500 hover:bg-white/10 hover:text-cyan-100"
+                            ? "bg-[var(--ui-selection)] text-[var(--text-accent)]"
+                            : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-accent)]"
                         }`}
                         onClick={() => {
                           if (favoriteLimitReached) {
@@ -416,12 +416,12 @@ export function IndicatorCatalogPanel({
                         <Star fill={favorite ? "currentColor" : "none"} size={14} />
                       </button>
                     </div>
-                    <p className="mt-1 min-h-10 text-xs leading-5 text-slate-400">
+                    <p className="mt-1 min-h-10 text-xs leading-5 text-[var(--text-secondary)]">
                       {indicator.description}
                     </p>
                     <button
                       aria-label={addLabel}
-                      className="mt-2 inline-flex h-8 items-center justify-center gap-1.5 self-start rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2.5 text-xs font-semibold text-cyan-100 outline-none transition hover:border-cyan-300/35 hover:bg-cyan-300/15 focus-visible:ring-2 focus-visible:ring-cyan-300/40 disabled:cursor-not-allowed disabled:border-white/5 disabled:bg-white/[0.03] disabled:text-white/[0.35]"
+                      className="mt-2 inline-flex min-h-9 [@media(pointer:coarse)]:min-h-11 items-center justify-center gap-1.5 self-start rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-selection)] px-2.5 text-xs font-semibold text-[var(--text-accent)] outline-none transition hover:border-[var(--ui-focus)] hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:border-[var(--ui-border-subtle)] disabled:bg-[var(--ui-inset)] disabled:text-[var(--text-muted)] disabled:opacity-50"
                       data-indicator-catalog-add
                       disabled={disabled}
                       onClick={() => addIndicator(indicator)}
@@ -441,20 +441,20 @@ export function IndicatorCatalogPanel({
               const favorite = favoriteSet.has(favoriteId);
               const favoriteLimitReached = !favorite && favorites.length >= MAX_INDICATOR_FAVORITES;
               return (
-                <article className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-2.5 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.045]" key={script.id} role="listitem">
+                <article className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] p-2.5 transition hover:border-[var(--ui-border-strong)] hover:bg-[var(--ui-hover)]" key={script.id} role="listitem">
                   <IndicatorPreview indicator={script} />
                   <div className="flex min-w-0 flex-col">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-white">{script.name}</h3>
-                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200/70">{script.origin === "first-party" ? "EdgeLab first-party" : `My script · v${script.revision}`}</span>
+                        <h3 className="truncate text-sm font-semibold text-[var(--text-primary)]">{script.name}</h3>
+                        <span className="text-[10px] font-medium text-[var(--text-secondary)]">{script.origin === "first-party" ? "EdgeLab script" : `My script · v${script.revision}`}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           aria-disabled={favoriteLimitReached}
                           aria-label={favoriteLimitReached ? `Cannot add ${script.name} to favorites; limit of ${MAX_INDICATOR_FAVORITES} reached` : `${favorite ? "Remove" : "Add"} ${script.name} ${favorite ? "from" : "to"} favorite indicators`}
                           aria-pressed={favorite}
-                          className={`grid h-8 w-8 place-items-center rounded-md outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40 ${favoriteLimitReached ? "cursor-not-allowed opacity-35" : ""} ${favorite ? "bg-cyan-300/[0.12] text-cyan-100" : "text-slate-500 hover:bg-white/10 hover:text-cyan-100"}`}
+                          className={`grid h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 place-items-center rounded-md outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${favoriteLimitReached ? "cursor-not-allowed opacity-35" : ""} ${favorite ? "bg-[var(--ui-selection)] text-[var(--text-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-accent)]"}`}
                           onClick={() => {
                             if (favoriteLimitReached) {
                               setAnnouncement(`Favorite limit reached. Remove one of your ${MAX_INDICATOR_FAVORITES} favorites first.`);
@@ -466,40 +466,40 @@ export function IndicatorCatalogPanel({
                           title={favoriteLimitReached ? `Keep up to ${MAX_INDICATOR_FAVORITES} favorite indicators` : favorite ? "Remove favorite" : "Add favorite"}
                           type="button"
                         ><Star fill={favorite ? "currentColor" : "none"} size={14} /></button>
-                        {onEditCustomIndicator ? <button aria-label={`Open ${script.name} in the indicator editor`} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 outline-none transition hover:bg-white/10 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => onEditCustomIndicator(script)} type="button"><Code2 size={14} /></button> : null}
+                        {onEditCustomIndicator ? <button aria-label={`Open ${script.name} in the indicator editor`} className="grid h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 shrink-0 place-items-center rounded-md text-[var(--text-secondary)] outline-none transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-accent)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]" onClick={() => onEditCustomIndicator(script)} type="button"><Code2 size={14} /></button> : null}
                       </div>
                     </div>
-                    <p className="mt-1 min-h-10 text-xs leading-5 text-slate-400">{script.description}</p>
-                    <button aria-label={`Add ${script.name} EdgeLab script${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex h-8 items-center justify-center gap-1.5 self-start rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2.5 text-xs font-semibold text-cyan-100 outline-none transition hover:border-cyan-300/35 hover:bg-cyan-300/15 focus-visible:ring-2 focus-visible:ring-cyan-300/40 disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{count ? `Add ${count + 1}` : "Add"}</button>
+                    <p className="mt-1 min-h-10 text-xs leading-5 text-[var(--text-secondary)]">{script.description}</p>
+                    <button aria-label={`Add ${script.name} EdgeLab script${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex min-h-9 [@media(pointer:coarse)]:min-h-11 items-center justify-center gap-1.5 self-start rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-selection)] px-2.5 text-xs font-semibold text-[var(--text-accent)] outline-none transition hover:border-[var(--ui-focus)] hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{count ? `Add ${count + 1}` : "Add"}</button>
                   </div>
                 </article>
               );
             })}
             {unavailableFavorites.map((favorite) => (
-              <article className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3" key={favorite} role="listitem">
+              <article className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] p-3" key={favorite} role="listitem">
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-white">Unavailable script</h3>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">This script may still be loading or has been deleted. You can remove its favorite to free a slot.</p>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">Unavailable script</h3>
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">This script may still be loading or has been deleted. You can remove its favorite to free a slot.</p>
                 </div>
-                <button aria-label="Remove unavailable script from favorite indicators" className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-cyan-300/[0.12] text-cyan-100 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => { onToggleFavorite(favorite); setAnnouncement("Unavailable script removed from favorites."); }} type="button"><Star fill="currentColor" size={14} /></button>
+                <button aria-label="Remove unavailable script from favorite indicators" className="grid h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 shrink-0 place-items-center rounded-md bg-[var(--ui-selection)] text-[var(--text-accent)] outline-none transition hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]" onClick={() => { onToggleFavorite(favorite); setAnnouncement("Unavailable script removed from favorites."); }} type="button"><Star fill="currentColor" size={14} /></button>
               </article>
             ))}
           </div>
         ) : (
           <div
-            className="grid min-h-52 place-items-center rounded-xl border border-dashed border-white/10 bg-black/15 px-6 text-center"
+            className="grid min-h-52 place-items-center rounded-xl border border-dashed border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-6 text-center"
             id={resultsId}
           >
             <div className="max-w-sm">
-              <Search className="mx-auto text-slate-600" size={22} />
-              <h3 className="mt-3 text-sm font-semibold text-slate-200">
+              <Search className="mx-auto text-[var(--text-secondary)]" size={22} />
+              <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">
                 {emptyState.title}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
+              <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
                 {emptyState.description}
               </p>
               <button
-                className="mt-3 h-8 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-300 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/40"
+                className="mt-3 min-h-9 [@media(pointer:coarse)]:min-h-11 rounded-md border border-[var(--ui-border-subtle)] px-3 text-xs font-semibold text-[var(--text-secondary)] outline-none transition hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
                 onClick={() => {
                   setQuery("");
                   setActiveCategory("all");
@@ -515,12 +515,11 @@ export function IndicatorCatalogPanel({
       </div>
 
       <p
-        className="border-t border-white/10 px-4 py-2.5 text-[11px] leading-4 text-slate-500"
+        className="border-t border-[var(--ui-border-subtle)] px-4 py-2.5 text-[11px] leading-4 text-[var(--text-secondary)]"
         id={helpId}
       >
         Star up to {MAX_INDICATOR_FAVORITES} studies for quick add. Use arrows to move,
-        Enter to add, and Escape to return to the Indicators button. EdgeLab DSL scripts
-        run in a deterministic, resource-limited worker.
+        Enter to add, and Escape to return to the Indicators button.
       </p>
       <span aria-live="polite" className="sr-only">
         {announcement}
@@ -545,10 +544,10 @@ function CategoryButton({
   return (
     <button
       aria-pressed={active}
-      className={`h-8 shrink-0 rounded-md px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40 ${
+      className={`min-h-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 rounded-md px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${
         active
-          ? "bg-white text-ink-950 shadow-sm"
-          : "text-slate-400 hover:bg-white/10 hover:text-white"
+          ? "bg-[var(--ui-selection)] text-[var(--text-primary)]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)]"
       }`}
       data-indicator-catalog-category={category}
       onClick={() => onClick(category)}
@@ -618,7 +617,7 @@ function IndicatorPreview({ indicator }: { indicator: Pick<IndicatorCatalogItem,
         <rect fill="currentColor" height="13" opacity="0.18" rx="2" width="40" x="8" y="13" />
         <rect fill="#fb7185" height="12" opacity="0.17" rx="2" width="39" x="49" y="37" />
         <path d="M8 27H48M49 36H88" stroke="currentColor" strokeDasharray="3 2" />
-        <path d="M12 45 L28 36 L42 39 L57 25 L72 29 L86 17" fill="none" stroke="#e2e8f0" opacity="0.65" strokeWidth="1.5" />
+        <path d="M12 45 L28 36 L42 39 L57 25 L72 29 L86 17" fill="none" stroke="var(--text-secondary)" opacity="0.65" strokeWidth="1.5" />
       </>
     );
   } else if (indicator.preview === "histogram") {
@@ -639,7 +638,7 @@ function IndicatorPreview({ indicator }: { indicator: Pick<IndicatorCatalogItem,
           );
         })}
         <path d="M7 37 C22 41 30 18 44 23 S62 42 89 20" fill="none" stroke="currentColor" strokeWidth="2" />
-        <path d="M7 40 C24 34 32 27 46 29 S67 35 89 24" fill="none" stroke="#e2e8f0" opacity="0.55" strokeWidth="1.4" />
+        <path d="M7 40 C24 34 32 27 46 29 S67 35 89 24" fill="none" stroke="var(--text-secondary)" opacity="0.55" strokeWidth="1.4" />
       </>
     );
   } else if (indicator.preview === "oscillator") {
@@ -686,7 +685,7 @@ function IndicatorPreview({ indicator }: { indicator: Pick<IndicatorCatalogItem,
   return (
     <div
       aria-hidden="true"
-      className="grid h-16 w-24 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/[0.08] bg-black/25"
+      className="grid h-16 w-24 shrink-0 place-items-center overflow-hidden rounded-lg border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)]"
       style={{ color: indicator.color }}
     >
       <svg fill="none" height="64" viewBox="0 0 96 64" width="96">
