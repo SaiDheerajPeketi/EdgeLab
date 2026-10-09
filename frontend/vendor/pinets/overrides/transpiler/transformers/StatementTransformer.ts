@@ -342,8 +342,8 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
         // Note: Arrow function parameters are already registered in AnalysisPass
         // No need to register them again here
 
-        // Transform non-context variables to use the context object
-        const newName = scopeManager.addVariable(decl.id.name, varNode.kind);
+        // Lower the initializer in the enclosing environment. A shadowing
+        // declaration starts binding its name only after its initializer.
         const kind = varNode.kind; // 'const', 'let', or 'var'
 
         // Only treat as an array pattern variable when it actually has the destructured
@@ -595,6 +595,7 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
             }
         }
 
+        scopeManager.addVariable(decl.id.name, kind);
         // Create the target variable reference using ASTFactory
         const targetVarRef = createScopedVariableReference(decl.id.name, scopeManager);
 
