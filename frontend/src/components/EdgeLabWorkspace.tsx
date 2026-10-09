@@ -289,6 +289,8 @@ import { useBacktestStore } from "../store/backtestStore";
 import { ChartObjectsPanel } from "./ChartObjectsPanel";
 import { ChartWorkspaceFrame } from "./chart/ChartWorkspaceFrame";
 import { usePaneMarketData } from "./chart/usePaneMarketData";
+import { useBinanceChartFeeds } from "./chart/useBinanceChartFeeds";
+import { binanceChartInterval } from "../lib/binanceChartFeed";
 import { ChartToolbar } from "./ChartToolbar";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedDatePicker } from "./ThemedDatePicker";
@@ -2445,6 +2447,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
               bars={liveBars}
               runtimeContextKey={JSON.stringify(["live", authSession?.user.id ?? null, selectedFeed, sourceKey])}
               pineLiveFeed={pineLiveFeed}
+              feedProvider={selectedLiveSymbol?.feed}
               connectionStatus={connectionStatus}
               feedIssue={feedIssue}
               journalChartFocus={activeJournalFocus}
@@ -4124,6 +4127,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   bars,
   runtimeContextKey,
   pineLiveFeed,
+  feedProvider,
   connectionStatus,
   feedIssue,
   journalChartFocus,
@@ -4135,6 +4139,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   bars: Candle[];
   runtimeContextKey: string;
   pineLiveFeed?: PineLiveFeed;
+  feedProvider?: LiveFeedProvider;
   connectionStatus: LiveConnectionStatus;
   feedIssue: LiveFeedIssue;
   journalChartFocus: JournalChartFocusRequest | null;
@@ -4204,16 +4209,24 @@ const LiveChartStudio = memo(function LiveChartStudio({
     };
   }));
   const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
+  const nativeChartFeeds = useBinanceChartFeeds(symbolCode || symbol, visibleChartPanes
+    .filter(pane => (!journalChartFocus || !journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol))
+      && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol))
+    .map(pane => pane.timeframe), runtimeContextKey, feedProvider === "binance");
   const [customIndicatorScripts, setCustomIndicatorScripts] = useState(loadCachedCustomIndicators);
   const [indicatorEditorRequest, setIndicatorEditorRequest] = useState<{ nonce: number; scriptId?: string; source?: string } | null>(null);
   const allCustomIndicatorScripts = useMemo(() => [...FIRST_PARTY_EDGE_INDICATORS, ...customIndicatorScripts], [customIndicatorScripts]);
   const editorSymbol = activeChartPane.symbol || symbolCode || symbol;
+  const editorUsesNativeFeed = (!journalChartFocus || !journalFocusMatchesSymbol(editorSymbol, journalChartFocus.symbol))
+    && feedProvider === "binance" && activeChartPane.timeframe !== "1m"
+    && binanceChartInterval(activeChartPane.timeframe) !== null && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol);
   const editorSourceBars = useMemo(() => (
-    !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol)
+    editorUsesNativeFeed ? nativeChartFeeds[activeChartPane.timeframe]?.bars ?? EMPTY_LIVE_BARS
+    : !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol)
       ? bars : paneMarketData[activeChartPane.id]?.bars ?? []
-  ), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id]);
+  ), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id, editorUsesNativeFeed, nativeChartFeeds[activeChartPane.timeframe]?.bars]);
   const editorBars = useMemo(() => aggregateBars(editorSourceBars, activeChartPane.timeframe).slice(-20_000), [editorSourceBars, activeChartPane.timeframe]);
-  const editorSourceTimeframe = !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? LIVE_SOURCE_TIMEFRAME : activeChartPane.timeframe;
+  const editorSourceTimeframe = editorUsesNativeFeed ? activeChartPane.timeframe : !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? LIVE_SOURCE_TIMEFRAME : activeChartPane.timeframe;
   const editorSourceSnapshot = useMemo(() => pineSourceSnapshotForChart(editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe), [editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe]);
 
   useEffect(() => {
@@ -4883,7 +4896,9 @@ const LiveChartStudio = memo(function LiveChartStudio({
               const paneHasHistoricalFocus = Boolean(journalChartFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol));
               const paneUsesPrimaryFeed = !paneHasHistoricalFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol);
               const normalizedPane = paneMarketData[pane.id];
-              const paneBars = paneUsesPrimaryFeed ? bars : normalizedPane?.bars ?? [];
+              const usesNativeFeed = paneUsesPrimaryFeed && feedProvider === "binance" && pane.timeframe !== "1m" && binanceChartInterval(pane.timeframe) !== null;
+              const nativePane = usesNativeFeed ? nativeChartFeeds[pane.timeframe] : undefined;
+              const paneBars = usesNativeFeed ? nativePane?.bars ?? EMPTY_LIVE_BARS : paneUsesPrimaryFeed ? bars : normalizedPane?.bars ?? [];
               return (
                 <div
                   className={`chart-pane-shell ${paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""} ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
@@ -4908,7 +4923,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                   )}
                   {mountedPaneIds.has(pane.id) ? <TradingChart
                     bars={paneBars}
-                    runtimeContextKey={paneUsesPrimaryFeed ? runtimeContextKey
+                    runtimeContextKey={paneUsesPrimaryFeed ? usesNativeFeed ? JSON.stringify([runtimeContextKey, "native", pane.timeframe]) : runtimeContextKey
                       : JSON.stringify(["live-normalized", getStoredAuthSession()?.user.id ?? null, pane.symbol || symbolCode || symbol,
                         pane.timeframe, paneHasHistoricalFocus ? journalChartFocus?.startAt : null,
                         paneHasHistoricalFocus ? journalChartFocus?.endAt : null])}
@@ -4922,7 +4937,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     executions={[]}
                     indicatorInstances={pane.indicatorInstances}
                     indicatorRuntimeMode="live"
-                    pineLiveFeed={paneUsesPrimaryFeed ? pineLiveFeed : undefined}
+                    pineLiveFeed={usesNativeFeed ? nativePane?.feed : paneUsesPrimaryFeed ? pineLiveFeed : undefined}
                     onIndicatorRuntimeState={(id, error) => updateChartPane(pane.id, current => ({ ...current,
                       indicatorInstances: current.indicatorInstances.map(indicator => indicator.id === id ? { ...indicator, runtimeError: error } : indicator),
                     }))}
@@ -4952,14 +4967,14 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     position={null}
                     pnlMultiplier={1}
                     replayFocusTrade={null}
-                    dataState={paneUsesPrimaryFeed ? connectionStatus === "connecting" && !paneBars.length ? undefined : { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "No candles were returned for this symbol and timeframe." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
+                    dataState={usesNativeFeed ? nativePane?.status === "loading" || !nativePane ? undefined : { status: nativePane.status === "error" ? "unavailable" : "available", detail: nativePane.detail } : paneUsesPrimaryFeed ? connectionStatus === "connecting" && !paneBars.length ? undefined : { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "No candles were returned for this symbol and timeframe." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
                     symbol={pane.symbol || symbolCode || symbol}
                     syncedVisibleRange={journalFocusRange}
                     currency="USD"
-                    datasetTimeframe={paneUsesPrimaryFeed ? LIVE_SOURCE_TIMEFRAME : pane.timeframe}
+                    datasetTimeframe={usesNativeFeed ? pane.timeframe : paneUsesPrimaryFeed ? LIVE_SOURCE_TIMEFRAME : pane.timeframe}
                     timeframe={pane.timeframe}
                     undoShortcutLabel="⌘Z"
                   /> : <div aria-label={`Pane ${index + 1} chart engine loading`} className="chart-engine-placeholder grid h-full min-h-0 place-items-center bg-black/20 text-xs text-slate-500" role="status">Loading chart engine…</div>}

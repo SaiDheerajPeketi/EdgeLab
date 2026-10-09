@@ -101,6 +101,13 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     if (url.pathname.endsWith("/klines")) {
       if (url.searchParams.has("endTime")) return route.fulfill({ json: [] });
       await historyGate;
+      const interval = url.searchParams.get("interval");
+      if (interval === "5m") {
+        const groups = new Map<number, typeof history>();
+        for (const bar of history) { const time = Math.floor(bar.time / 300) * 300; groups.set(time, [...(groups.get(time) ?? []), bar]); }
+        return route.fulfill({ json: [...groups].map(([time, bars]) => [time * 1000, String(bars[0].open), String(Math.max(...bars.map(bar => bar.high))),
+          String(Math.min(...bars.map(bar => bar.low))), String(bars.at(-1)!.close), String(bars.reduce((sum, bar) => sum + bar.volume, 0)), time * 1000 + 299999]) });
+      }
       return route.fulfill({ json: history.map(bar => [bar.time * 1000, String(bar.open), String(bar.high), String(bar.low), String(bar.close), String(bar.volume), bar.time * 1000 + 59999]) });
     }
     if (url.pathname.endsWith("/ticker/24hr")) return route.fulfill({ json: ["BTCUSDT", "ETHUSDT"].map(symbol => ({ symbol, lastPrice: "67512", priceChange: "1", priceChangePercent: ".1", highPrice: "67600", lowPrice: "67400", volume: "1000", quoteVolume: "67500000", openPrice: "67500", closeTime: now })) });
@@ -118,5 +125,12 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
       i: "1m", s: "BTCUSDT", o: String(bar.open), h: String(bar.high), l: String(bar.low), c: String(close), v: String(volume), x: confirmed } } };
     events.push(event); for (const socket of sockets) if (socket.url().includes("btcusdt@kline_1m")) socket.send(JSON.stringify(event)); return bar;
   };
-  return { history, events, requests, storage, emit, releaseHistory: release, releaseNormalized };
+  const emitNative = (time: number, close: number, volume: number) => {
+    const event = { e: "kline", E: ++eventTime, s: "BTCUSDT", k: { t: time * 1000, T: time * 1000 + 299999,
+      i: "5m", s: "BTCUSDT", o: "67520", h: "67540", l: "67500", c: String(close), v: String(volume), x: false } };
+    events.push({ native: true, data: event });
+    for (const socket of sockets) if (socket.url().endsWith("btcusdt@kline_5m")) socket.send(JSON.stringify(event));
+  };
+  const nativeReady = () => sockets.some(socket => socket.url().endsWith("btcusdt@kline_5m"));
+  return { history, events, requests, storage, emit, emitNative, nativeReady, releaseHistory: release, releaseNormalized };
 }

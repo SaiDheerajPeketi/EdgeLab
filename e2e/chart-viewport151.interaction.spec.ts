@@ -51,6 +51,7 @@ async function readChart(page: Page, pane = 0, range?: { from: number; to: numbe
         baseLogical: navigation.baseLogical, adoptingLinked: navigation.adoptingLinked } : null,
       initializerPending: initializer?.pending ?? null,
       plot: { x: rect.x, y: rect.y, width: plot.width, height: plot.height },
+      coreOwnersUnchanged: !owner || owner.api === api && owner.candles === candles,
       ownersUnchanged: !owner || owner.api === api && owner.candles === candles && owner.volume === volume };
   }, { pane, range, remember });
 }
@@ -169,12 +170,18 @@ test("live edge follows append without zoom jump and immediate timeframe ticks c
   expect(append.spacing).toBeCloseTo(open.spacing, 6); usefulLatest(append);
   await page.getByRole("button", { name: "5m", exact: true }).first().click();
   state.emit(601, 67526, false, 25); state.emit(601, 67528, false, 28);
+  await expect.poll(state.nativeReady).toBe(true);
+  const nativeTime = Math.floor((state.history[0].time + 601 * 60) / 300) * 300;
+  state.emitNative(nativeTime, 67528, 28);
   const chartBars = new Set([...state.history.map(bar => Math.floor(bar.time / 300)), ...state.events.map(event => Math.floor(event.data.k.t / 300_000))]).size;
   const changed = await updated(page, chartBars, 67528); usefulLatest(changed);
   expect(changed.rows.length).toBeGreaterThanOrEqual(120); expect(changed.rows.length).toBeLessThanOrEqual(122);
-  expect(changed.ownersUnchanged).toBe(true);
+  // Native interval loading clears the old volume series while its history is
+  // empty. The actual chart and price series must survive the source change.
+  expect(changed.coreOwnersUnchanged).toBe(true);
+  await readChart(page, 0, undefined, true);
   const fiveMinuteManual = await readChart(page, 0, { from: 30, to: 75 });
-  state.emit(601, 67529, false, 30); const fiveMinuteTick = await updated(page, chartBars, 67529); sameRange(fiveMinuteTick, fiveMinuteManual);
+  state.emitNative(nativeTime, 67529, 30); const fiveMinuteTick = await updated(page, chartBars, 67529); sameRange(fiveMinuteTick, fiveMinuteManual);
   await save(page, info, "live-edge-and-timeframe", { initial, open, closed, append, changed, chartBars, fiveMinuteManual, fiveMinuteTick }, state);
 });
 

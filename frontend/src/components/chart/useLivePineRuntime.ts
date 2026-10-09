@@ -163,7 +163,7 @@ export function useLivePineRuntime(options: {
             if (!chart.history.length) throw new Error("There are no earlier closed candles for this timeframe. Choose a shorter timeframe or load more history.");
             entry.bars = recovering && chart.confirmed ? [...chart.history, chart.bar] : chart.history;
             const sourceBars = snapshot.bars.filter(bar => recovering && chart.confirmed ? bar.time <= snapshot.event!.bar.time : bar.time < snapshot.event!.bar.time);
-            const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, "1", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
+            const sourceSnapshot = pineSourceSnapshotForChart(sourceBars, snapshot.sourceTimeframe ?? "1m", recovering && chart.confirmed ? entry.bars : [...entry.bars, chart.bar], options.timeframe);
             entry.sourceOwned = sourceSnapshot !== undefined;
             entry.session = createPineLiveRuntimeSession({ source: indicator.customScriptSource!, inputs: indicator.settings.customInputs,
               strategySettings: indicator.settings.pineStrategySettings,
