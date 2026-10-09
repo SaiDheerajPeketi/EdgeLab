@@ -137,7 +137,7 @@ test("hero contains clean product scenarios and a continuous market without repl
   await capture(page, info, "readable-narrow-candles152", { narrow }, hero);
   await page.setViewportSize(originalViewport); await hero.scrollIntoViewIfNeeded();
   continuous(await settledChart(hero));
-  const reduce = page.getByRole("checkbox", { name: "Reduce motion", exact: true });
+  const reduce = page.getByRole("checkbox", { name: "Pause animations", exact: true });
   await reduce.check(); await hero.scrollIntoViewIfNeeded(); await page.waitForTimeout(350);
   const paused = await chart(hero); await page.waitForTimeout(850); expect((await chart(hero)).cursor).toBe(paused.cursor);
   await reduce.uncheck(); await hero.scrollIntoViewIfNeeded();
@@ -233,7 +233,7 @@ test("launch is default and beta marketing CTA changes without mutating auth", a
 test("footer motion preference preserves the session choice while the header stays clean", async ({ page }, info) => {
   await openLanding(page, "/", "reduce");
   const shell = page.locator("[data-marketing-motion]");
-  const reduce = page.getByRole("checkbox", { name: "Reduce motion", exact: true }), heading = page.locator("#how-it-works h2");
+  const reduce = page.getByRole("checkbox", { name: "Pause animations", exact: true }), heading = page.locator("#how-it-works h2");
   const header = page.locator(".marketing-shell header");
   await expect(header.getByRole("button", { name: "Page animations", exact: true })).toHaveCount(0);
   await expect(header).not.toContainText("Animations");

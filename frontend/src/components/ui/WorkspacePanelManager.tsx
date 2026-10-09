@@ -1,18 +1,42 @@
 import { ChevronLeft, ChevronRight, Columns3, PanelLeftClose, PanelRightClose, PanelsTopLeft, type LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { IconButton, Tooltip } from "./Primitives";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { IconButton } from "./Primitives";
 
 export type WorkspacePanelPreferences<PanelId extends string> = { activePanel: PanelId; collapsed: boolean; dock: "left" | "right"; mode: "compact" | "expanded"; width: number };
 export type WorkspacePanelDefinition<PanelId extends string> = { id: PanelId; icon: LucideIcon; label: string; content: ReactNode };
 
 export function WorkspacePanelManager<PanelId extends string>({ children, definitions, label = "Workspace tools", load, onChange, value }: { children: ReactNode; definitions: readonly WorkspacePanelDefinition<PanelId>[]; label?: string; load?: () => Promise<WorkspacePanelPreferences<PanelId>>; onChange: (value: WorkspacePanelPreferences<PanelId>) => Promise<unknown> | unknown; value: WorkspacePanelPreferences<PanelId> }) {
   const [preferences, setPreferences] = useState(value);
+  const [hoverPreview, setHoverPreview] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState(0);
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pointerInsideRef = useRef(false);
   const interactedRef = useRef(false);
   const dragStartRef = useRef<{ clientX: number; width: number } | null>(null);
   const liveRef = useRef(preferences); liveRef.current = preferences;
   const panels = useMemo(() => definitions.filter((item) => item.content != null), [definitions]);
   const active = panels.find((item) => item.id === preferences.activePanel) ?? panels[0];
   useEffect(() => setPreferences(value), [value]);
+  useLayoutEffect(() => {
+    if (!hoverPreview || !preferences.collapsed) return;
+    const measure = () => {
+      const bottom = toolsRef.current?.getBoundingClientRect().bottom ?? window.innerHeight;
+      setPreviewHeight(Math.max(0, window.innerHeight - bottom - 8));
+      if (bottom <= 0 || bottom >= window.innerHeight) setHoverPreview(false);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => { window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
+  }, [hoverPreview, preferences.collapsed, preferences.dock]);
+  useEffect(() => {
+    const desktopHover = window.matchMedia("(min-width: 1280px) and (hover: hover)");
+    const clearPreview = () => { if (!desktopHover.matches) setHoverPreview(false); };
+    desktopHover.addEventListener("change", clearPreview);
+    return () => desktopHover.removeEventListener("change", clearPreview);
+  }, []);
   useEffect(() => { let cancelled = false; void load?.().then((next) => { if (!cancelled && !interactedRef.current) setPreferences(next); }).catch(() => undefined); return () => { cancelled = true; }; }, [load]);
   useEffect(() => {
     const move = (event: PointerEvent) => { const start = dragStartRef.current; if (!start) return; const direction = liveRef.current.dock === "right" ? start.clientX - event.clientX : event.clientX - start.clientX; update({ width: clampWidth(start.width + direction) }, false); };
@@ -20,13 +44,27 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
   }, [onChange]);
-  function update(patch: Partial<WorkspacePanelPreferences<PanelId>>, persist = true) { interactedRef.current = true; setPreferences((current) => { const next = { ...current, ...patch }; liveRef.current = next; if (persist) void onChange(next); return next; }); }
-  const panel = preferences.collapsed || !active ? null : <aside aria-label={label} data-workspace-panel-manager="true" data-motion="workspace-panel" data-dock={preferences.dock} data-mode={preferences.mode} className={`ui-workspace-panel relative flex min-h-[28rem] shrink-0 flex-col overflow-hidden bg-[var(--ui-surface)] max-xl:w-full max-xl:border-t max-xl:border-[var(--ui-border-subtle)] xl:w-[var(--workspace-panel-width)] ${preferences.dock === "left" ? "xl:order-first xl:border-r xl:border-[var(--ui-border-subtle)]" : "xl:border-l xl:border-[var(--ui-border-subtle)]"}`} style={{ "--workspace-panel-width": `${preferences.mode === "expanded" ? Math.max(520, preferences.width) : preferences.width}px` } as React.CSSProperties}>
+  function update(patch: Partial<WorkspacePanelPreferences<PanelId>>, persist = true) {
+    interactedRef.current = true;
+    const restoreFocus = patch.collapsed !== undefined && toolsRef.current?.contains(document.activeElement);
+    if (patch.collapsed !== undefined) setHoverPreview(false);
+    setPreferences((current) => { const next = { ...current, ...patch }; liveRef.current = next; if (persist) void onChange(next); return next; });
+    if (restoreFocus) window.requestAnimationFrame(() => {
+      if (liveRef.current.collapsed !== patch.collapsed) return;
+      if (patch.collapsed) triggerRef.current?.focus();
+      else panelRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    });
+  }
+  const preview = preferences.collapsed && hoverPreview;
+  const panel = (preferences.collapsed && !preview) || !active ? null : <aside ref={panelRef} aria-label={label} data-workspace-panel-manager="true" data-hover-preview={preview || undefined} data-motion="workspace-panel" data-dock={preferences.dock} data-mode={preferences.mode} className={`ui-workspace-panel flex shrink-0 flex-col overflow-hidden bg-[var(--ui-surface)] max-xl:w-full max-xl:border-t max-xl:border-[var(--ui-border-subtle)] xl:w-[var(--workspace-panel-width)] ${preview ? `absolute top-full z-[var(--layer-popover)] min-h-0 shadow-[var(--elevation-floating)] ${preferences.dock === "left" ? "left-0" : "right-0"}` : "relative min-h-[28rem]"} ${preferences.dock === "left" ? "xl:border-r xl:border-[var(--ui-border-subtle)]" : "xl:border-l xl:border-[var(--ui-border-subtle)]"}`} style={{ "--workspace-panel-width": `${preferences.mode === "expanded" ? Math.max(520, preferences.width) : preferences.width}px`, maxHeight: preview ? previewHeight : undefined } as React.CSSProperties}>
     <div role="separator" aria-label={`Resize ${label}`} aria-orientation="vertical" aria-valuemin={280} aria-valuemax={720} aria-valuenow={preferences.width} tabIndex={0} onPointerDown={(event) => { dragStartRef.current = { clientX: event.clientX, width: preferences.width }; event.currentTarget.setPointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); const physical = event.key === "ArrowRight" ? 24 : -24; update({ width: clampWidth(preferences.width + (preferences.dock === "right" ? -physical : physical)) }); }} className={`absolute inset-y-0 z-10 hidden w-2 cursor-col-resize outline-none hover:bg-[var(--ui-selection)] focus-visible:bg-[var(--ui-selection)] xl:block ${preferences.dock === "right" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2"}`} />
-    <header className="flex min-h-12 items-center gap-1 border-b border-[var(--ui-border-subtle)] px-2"><div className="flex min-w-0 flex-1 overflow-x-auto" role="tablist" aria-label={label}>{panels.map((item) => <button key={item.id} type="button" role="tab" aria-selected={active.id === item.id} onClick={() => update({ activePanel: item.id })} className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${active.id === item.id ? "bg-[var(--ui-selection)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)]"}`}><item.icon aria-hidden="true" className="h-4 w-4" />{item.label}</button>)}</div><IconButton icon={Columns3} label={preferences.mode === "compact" ? "Expand workspace panel" : "Use compact workspace panel"} onClick={() => update({ mode: preferences.mode === "compact" ? "expanded" : "compact" })} /><IconButton icon={preferences.dock === "right" ? ChevronLeft : ChevronRight} label={`Dock workspace panel to ${preferences.dock === "right" ? "left" : "right"}`} onClick={() => update({ dock: preferences.dock === "right" ? "left" : "right" })} /><IconButton icon={preferences.dock === "right" ? PanelRightClose : PanelLeftClose} label="Collapse workspace panel" onClick={() => update({ collapsed: true })} /></header>
+    <header className="flex min-h-12 items-center gap-1 border-b border-[var(--ui-border-subtle)] px-2"><div className="flex min-w-0 flex-1 overflow-x-auto" role="tablist" aria-label={label}>{panels.map((item) => <button key={item.id} type="button" role="tab" aria-selected={active.id === item.id} onClick={() => update({ activePanel: item.id })} className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${active.id === item.id ? "bg-[var(--ui-selection)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--ui-hover)] hover:text-[var(--text-primary)]"}`}><item.icon aria-hidden="true" className="h-4 w-4" />{item.label}</button>)}</div>{preview ? <IconButton icon={PanelsTopLeft} label="Keep workspace panel open" onClick={() => update({ collapsed: false })} /> : null}<IconButton icon={Columns3} label={preferences.mode === "compact" ? "Expand workspace panel" : "Use compact workspace panel"} onClick={() => update({ mode: preferences.mode === "compact" ? "expanded" : "compact" })} /><IconButton icon={preferences.dock === "right" ? ChevronLeft : ChevronRight} label={`Dock workspace panel to ${preferences.dock === "right" ? "left" : "right"}`} onClick={() => update({ dock: preferences.dock === "right" ? "left" : "right" })} /><IconButton icon={preferences.dock === "right" ? PanelRightClose : PanelLeftClose} label="Collapse workspace panel" onClick={() => update({ collapsed: true })} /></header>
     <div className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-label={active.label}>{active.content}</div>
   </aside>;
-  return <div className="flex min-w-0 flex-col xl:flex-row"><div className="min-w-0 flex-1">{children}</div>{panel}{preferences.collapsed && active ? <Tooltip content={`Open ${active.label}`}><button type="button" data-motion="workspace-panel-trigger" onClick={() => update({ collapsed: false })} className={`ui-workspace-panel-trigger sticky top-3 z-10 m-2 inline-flex min-h-[var(--control-height)] items-center gap-2 self-start rounded-[var(--radius-sm)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--elevation-raised)] ring-1 ring-[var(--ui-border-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${preferences.dock === "left" ? "xl:order-first" : ""}`}><PanelsTopLeft aria-hidden="true" className="h-4 w-4 text-[var(--interaction)]" />Tools</button></Tooltip> : null}</div>;
+  return <div className="flex min-w-0 flex-col xl:flex-row"><div className="min-w-0 flex-1">{children}</div>{active ? <div ref={toolsRef} className={`relative shrink-0 ${preferences.collapsed ? "sticky top-3 self-start" : ""} ${preferences.dock === "left" ? "xl:order-first" : ""}`} onPointerEnter={() => { pointerInsideRef.current = true; }} onPointerLeave={() => { pointerInsideRef.current = false; if (!panelRef.current?.contains(document.activeElement)) setHoverPreview(false); }} onBlurCapture={(event) => { if (!pointerInsideRef.current && !event.currentTarget.contains(event.relatedTarget)) setHoverPreview(false); }} onKeyDown={(event) => { if (event.key === "Escape" && preview) { event.preventDefault(); setHoverPreview(false); triggerRef.current?.focus(); } }}>
+    {preferences.collapsed ? <button ref={triggerRef} type="button" title={`Open ${active.label}`} data-motion="workspace-panel-trigger" aria-expanded={preview} onPointerEnter={(event) => { if (event.pointerType === "mouse" && window.matchMedia("(min-width: 1280px) and (hover: hover)").matches) setHoverPreview(true); }} onClick={() => update({ collapsed: false })} className="ui-workspace-panel-trigger relative z-10 m-2 inline-flex min-h-[var(--control-height)] items-center gap-2 self-start rounded-[var(--radius-sm)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--elevation-raised)] ring-1 ring-[var(--ui-border-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><PanelsTopLeft aria-hidden="true" className="h-4 w-4 text-[var(--interaction)]" />Tools</button> : null}
+    {panel}
+  </div> : null}</div>;
 }
 
 function clampWidth(width: number) { return Math.min(720, Math.max(280, width)); }

@@ -772,7 +772,7 @@ export function MarketingShell({
               </div>
               <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 sm:justify-end">
                 <input className="h-4 w-4 accent-cyan-200" type="checkbox" checked={reducedMotion} onChange={(event) => setMarketingMotionChoice(event.target.checked ? "reduced" : "full")} />
-                Reduce motion
+                Pause animations
               </label>
             </nav>
           </div>

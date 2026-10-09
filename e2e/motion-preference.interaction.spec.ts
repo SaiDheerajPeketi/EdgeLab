@@ -169,7 +169,7 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await journalStep.click();
   await expect(journalStep).toHaveAttribute("aria-current", "step");
 
-  const motionPreference = page.getByRole("checkbox", { name: "Reduce motion", exact: true });
+  const motionPreference = page.getByRole("checkbox", { name: "Pause animations", exact: true });
   await motionPreference.scrollIntoViewIfNeeded();
   await expect(motionPreference).toBeChecked();
   await motionPreference.uncheck();
