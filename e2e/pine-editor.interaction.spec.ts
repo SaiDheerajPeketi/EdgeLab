@@ -210,7 +210,7 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
   const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
   expect(saved.source).toBe(source);
-  expect(Object.keys(saved.pinePrepared as object).sort()).toEqual(["declaration", "diagnostics", "inputDefinitions", "kind", "language", "name", "overlay", "pineVersion", "source"].sort());
+  expect(Object.keys(saved.pinePrepared as object).sort()).toEqual(["behindChart", "declaration", "diagnostics", "inputDefinitions", "kind", "language", "name", "overlay", "pineVersion", "source"].sort());
   await page.reload(); await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
   const reopened = await openEditor(page);
   await reopened.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
@@ -367,11 +367,11 @@ test("native horizontal level inputs survive save reload and paint the actual pa
   await pane.screenshot({ path: path.join(captures, `levels-pane-${info.project.name}.png`) });
 });
 
-test("plot names matching assumption codes keep unsupported-output notices separate from calculation details", async ({ page }) => {
+test("plot names matching assumption codes keep calibration notices separate from calculation details", async ({ page }) => {
   await fixture(page);
   const editor = await openEditor(page);
   const codes = ["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"];
-  const source = `//@version=6\nindicator("Warning names",overlay=true)\nplot(close,"Price")\n` + codes.map((code) => `plot(close,"${code}",offset=1)`).join("\n");
+  const source = `//@version=6\nindicator("Warning names",overlay=true)\nplot(close,"Price")\n` + codes.map((code) => `plot(close,"${code}",style=plot.style_stepline_diamond)`).join("\n");
   await fillSource(editor, source); await check(editor);
   await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
   await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
@@ -380,10 +380,13 @@ test("plot names matching assumption codes keep unsupported-output notices separ
   await expect(body).toBeHidden();
   await notices.locator("summary").focus(); await page.keyboard.press("Enter");
   await expect(body).toBeVisible(); await expect(body).toContainText("Warning names");
-  for (const code of codes) await expect(body).toContainText(`${code}: Plot offsets are not rendered`);
+  for (const code of codes) await expect(body).toContainText(`${code}: Step-line diamond sizes and gap transitions use local canvas metrics; exact TradingView pixels have not been verified.`);
   const assumptions = page.getByLabel("Pine execution assumptions", { exact: true });
+  await assumptions.locator("summary").focus(); await page.keyboard.press("Enter");
   await expect(assumptions.getByRole("region", { name: "Assumption details and affected scripts", exact: true }))
-    .not.toContainText("Plot offsets are not rendered");
+    .toContainText("CLOSED_BAR_SNAPSHOT");
+  await expect(assumptions.getByRole("region", { name: "Assumption details and affected scripts", exact: true }))
+    .not.toContainText("Step-line diamond sizes");
 });
 
 test("native overlay and oscillator reach real chart canvases", async ({ page }, info) => {
