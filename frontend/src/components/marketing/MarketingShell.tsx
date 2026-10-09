@@ -350,7 +350,7 @@ export function MarketingShell({
           }, shell);
 
           const registerFlow = (node: HTMLElement) => {
-            const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 32 : 22;
+            const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 56 : 40;
             const authoredDelay = Number(node.dataset.revealDelay ?? 0);
             const delay = Number.isFinite(authoredDelay) ? Math.min(0.4, Math.max(0, authoredDelay)) : 0;
             let animation: { kill(): void } | null = null;
@@ -363,9 +363,13 @@ export function MarketingShell({
               const transform = getComputedStyle(node).transform;
               const translation = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
               const rect = node.getBoundingClientRect();
+              const headerBottom = Math.max(0, headerRef.current?.getBoundingClientRect().bottom ?? 0);
               return {
-                start: rect.top + window.scrollY - translation - window.innerHeight - 48,
-                end: rect.bottom + window.scrollY - translation + 48,
+                // Start after the content enters view, so the reveal is visible.
+                start: rect.top + window.scrollY - translation - window.innerHeight * 0.92,
+                // Keep the reading area intact; leave only as the final strip
+                // approaches the fixed header, rather than after disappearing.
+                end: rect.bottom + window.scrollY - translation - headerBottom - Math.min(72, Math.max(32, rect.height * 0.18)),
               };
             };
             const showFocus = () => {
@@ -385,7 +389,7 @@ export function MarketingShell({
               animation?.kill();
               if (pointerId !== null) return;
               if (node.contains(document.activeElement)) { showFocus(); return; }
-              animation = gsap.to(node, { opacity: 0, y: -direction * 20, duration: 0.72, ease: "power2.inOut", overwrite: "auto" });
+              animation = gsap.to(node, { opacity: 0, y: -direction * 40, duration: 0.9, ease: "power2.inOut", overwrite: "auto" });
             };
             const synchronize = () => {
               const range = bounds();

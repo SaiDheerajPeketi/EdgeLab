@@ -36,14 +36,16 @@ async function pose(target: Locator) {
       if (current.style.opacity !== "" && current.style.transform !== "") owners++;
     }
     const style = getComputedStyle(node), matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform), rect = node.getBoundingClientRect();
-    return { opacity, y: matrix.m42, owners, top: rect.top, bottom: rect.bottom, height: rect.height, scrollY, viewport: innerHeight };
+    const headerBottom = document.querySelector(".marketing-shell header")!.getBoundingClientRect().bottom;
+    return { opacity, y: matrix.m42, owners, top: rect.top, bottom: rect.bottom, height: rect.height, headerBottom, scrollY, viewport: innerHeight };
   });
 }
 async function position(target: Locator, location: "below" | "entry" | "tail" | "gone" | "center") {
   await target.evaluate((node, where) => {
     const rect = node.getBoundingClientRect(), style = getComputedStyle(node), matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform);
+    const headerBottom = document.querySelector(".marketing-shell header")!.getBoundingClientRect().bottom;
     const desiredTop = where === "below" ? innerHeight * 1.08 : where === "entry" ? innerHeight * .84 :
-      where === "tail" ? 24 - rect.height : where === "gone" ? -96 - rect.height : innerHeight / 2 - rect.height / 2;
+      where === "tail" ? headerBottom + Math.min(72, Math.max(32, rect.height * .18)) + 24 - rect.height : where === "gone" ? -96 - rect.height : innerHeight / 2 - rect.height / 2;
     scrollTo({ top: scrollY + rect.top - matrix.m42 - desiredTop, behavior: "instant" });
   }, location);
   await target.page().waitForTimeout(1500);
@@ -93,6 +95,16 @@ function continuous(state: Awaited<ReturnType<typeof chart>>) {
     if (i) { expect(bar.time - state.bars[i - 1].time).toBe(300); expect(bar.open).toBe(state.bars[i - 1].close); }
   }
 }
+async function settledChart(target: Locator) {
+  // setData and autoSize finish their time-scale layout on the next paint.
+  // Observe that real paint without changing market scheduling or edge bounds.
+  let state: Awaited<ReturnType<typeof chart>>;
+  await expect.poll(async () => {
+    state = await chart(target);
+    return state.firstX <= Math.max(6, state.spacing) && state.width - state.lastX <= Math.max(6, state.spacing);
+  }).toBe(true);
+  return state!;
+}
 const forbidden = /\b96 candles\b|\bone example session\b|\bbars shown\b|\bcandles shown\b|\bfirst candle\b|\blast candle\b|\bgenerated\b|qualified data required|coming soon|implementation timeline|feature roadmap/i;
 
 test("hero contains clean product scenarios and a continuous market without replay or tape transport", async ({ page }, info) => {
@@ -108,7 +120,7 @@ test("hero contains clean product scenarios and a continuous market without repl
   }
   await hero.getByRole("button", { name: "Replay", exact: true }).click(); await hero.scrollIntoViewIfNeeded();
   await expect(hero.locator("canvas").first()).toBeVisible();
-  const before = await chart(hero); continuous(before);
+  const before = await settledChart(hero); continuous(before);
   await expect.poll(async () => (await chart(hero)).cursor).toBeGreaterThan(before.lastIndex + 4);
   const after = await chart(hero); continuous(after); expect(after.bars.at(-1)!.time).toBeGreaterThan(before.bars.at(-1)!.time);
   const overlap = before.bars.filter(bar => after.bars.some(next => next.time === bar.time)); expect(overlap.length).toBeGreaterThan(30);
@@ -127,7 +139,7 @@ test("hero contains clean product scenarios and a continuous market without repl
   await capture(page, info, "motion-preference-and-return", { paused: paused.cursor, resumed: resumed.cursor, offscreen, returned: (await chart(hero)).cursor }, hero);
 });
 
-test("stopped entry finishes, visible section tails stay readable and only offscreen sections leave", async ({ page }, info) => {
+test("stopped entry finishes and exits wait until only the final reading strip remains", async ({ page }, info) => {
   await openLanding(page); const evidence = [];
   await expect(page.locator(".chart-ohlcv-row strong").first()).toBeVisible();
   const typography = await page.locator(".marketing-shell").evaluate(shell => {
@@ -150,6 +162,39 @@ test("stopped entry finishes, visible section tails stay readable and only offsc
   }
   await position(page.locator("[data-flow-row]").first(), "center"); await finished(page.locator("[data-flow-row]").first(), true);
   await capture(page, info, "finished-scroll-motion", { evidence, typography });
+});
+
+test("text and components visibly travel inside the viewport before finishing without more scroll", async ({ page }, info) => {
+  await openLanding(page);
+  const evidence = [];
+  for (const target of [page.locator("#how-it-works h2"), page.locator('#how-it-works [data-marketing-reveal$="-body"]'), page.locator("[data-flow-row]").first()]) {
+    await position(target, "below"); await finished(target, false);
+    await target.evaluate(node => {
+      const rect = node.getBoundingClientRect(), matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+      scrollTo({ top: scrollY + rect.top - matrix.m42 - innerHeight * .90, behavior: "instant" });
+    });
+    await page.waitForTimeout(140);
+    const entering = await pose(target);
+    expect(entering.top).toBeLessThan(entering.viewport); expect(entering.bottom).toBeGreaterThan(0);
+    expect(entering.opacity).toBeGreaterThan(0); expect(entering.opacity).toBeLessThan(.98); expect(entering.y).toBeGreaterThan(1);
+    const entered = await finished(target, true); expect(entered.scrollY).toBe(entering.scrollY);
+    await position(target, "tail"); await finished(target, true);
+    await target.evaluate(node => {
+      const rect = node.getBoundingClientRect(), matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+      const headerBottom = document.querySelector(".marketing-shell header")!.getBoundingClientRect().bottom;
+      const remaining = headerBottom + Math.min(72, Math.max(32, rect.height * .18)) - 8;
+      scrollTo({ top: scrollY + rect.bottom - matrix.m42 - remaining, behavior: "instant" });
+    });
+    await page.waitForTimeout(180);
+    const leaving = await pose(target);
+    expect(leaving.bottom).toBeGreaterThan(leaving.headerBottom); expect(leaving.opacity).toBeGreaterThan(0); expect(leaving.opacity).toBeLessThan(.99);
+    expect(Math.min(leaving.bottom, leaving.viewport) - Math.max(leaving.top, leaving.headerBottom)).toBeGreaterThan(0);
+    expect(leaving.y).toBeLessThan(-1);
+    const left = await finished(target, false); expect(left.scrollY).toBe(leaving.scrollY);
+    await position(target, "center"); await finished(target, true);
+    evidence.push({ tag: await target.evaluate(node => node.tagName), entering, entered, leaving, left });
+  }
+  await capture(page, info, "visible-scroll-motion", { evidence });
 });
 
 test("launch is default and beta presentation cannot mutate auth or operational CTA", async ({ page }, info) => {
