@@ -290,7 +290,8 @@ import { ChartObjectsPanel } from "./ChartObjectsPanel";
 import { ChartWorkspaceFrame } from "./chart/ChartWorkspaceFrame";
 import { usePaneMarketData } from "./chart/usePaneMarketData";
 import { useBinanceChartFeeds } from "./chart/useBinanceChartFeeds";
-import { binanceChartPlan } from "../lib/binanceChartFeed";
+import { binanceChartSymbolOptions, planBinancePaneRoutes } from "../lib/binancePaneRoutes";
+import { ownPaneDrawings } from "../lib/paneDrawingOwnership";
 import { ChartToolbar } from "./ChartToolbar";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedDatePicker } from "./ThemedDatePicker";
@@ -1116,6 +1117,8 @@ type LiveChartPaneState = {
   chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
+  drawingMarket?: string;
+  drawingsByMarket: Record<string, ChartDrawing[]>;
   id: string;
   indicatorInstances: ChartIndicatorInstance[];
   magnetMode: MagnetMode;
@@ -2448,6 +2451,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
               runtimeContextKey={JSON.stringify(["live", authSession?.user.id ?? null, selectedFeed, sourceKey])}
               pineLiveFeed={pineLiveFeed}
               feedProvider={selectedLiveSymbol?.feed}
+              binanceInstruments={catalog.binance}
               connectionStatus={connectionStatus}
               feedIssue={feedIssue}
               journalChartFocus={activeJournalFocus}
@@ -4128,6 +4132,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   runtimeContextKey,
   pineLiveFeed,
   feedProvider,
+  binanceInstruments,
   connectionStatus,
   feedIssue,
   journalChartFocus,
@@ -4140,6 +4145,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   runtimeContextKey: string;
   pineLiveFeed?: PineLiveFeed;
   feedProvider?: LiveFeedProvider;
+  binanceInstruments: BinanceInstrument[];
   connectionStatus: LiveConnectionStatus;
   feedIssue: LiveFeedIssue;
   journalChartFocus: JournalChartFocusRequest | null;
@@ -4197,38 +4203,56 @@ const LiveChartStudio = memo(function LiveChartStudio({
     : tickerChangeLabel.startsWith("-")
       ? toneForNumber(-1)
       : toneForNumber(0);
-  const paneMarketData = usePaneMarketData(visibleChartPanes.map((pane) => {
-    const paneSymbol = pane.symbol || symbolCode || symbol;
-    const focused = journalChartFocus && journalFocusMatchesSymbol(paneSymbol, journalChartFocus.symbol);
+  const paneRoutes = planBinancePaneRoutes(visibleChartPanes, binanceInstruments,
+    { symbol: symbolCode || symbol, provider: feedProvider }, journalChartFocus?.symbol);
+  const routesById = Object.fromEntries(paneRoutes.map(route => [route.id, route]));
+  const chartSymbolOptions = useMemo(() => binanceChartSymbolOptions(binanceInstruments), [binanceInstruments]);
+  const paneMarketData = usePaneMarketData(paneRoutes.filter(route => !route.plan && !route.primary).map(route => {
     return {
-      id: pane.id,
-      symbol: paneSymbol,
-      timeframe: pane.timeframe,
-      fromAt: focused ? journalChartFocus.startAt : undefined,
-      toAt: focused ? journalChartFocus.endAt : undefined,
+      id: route.id,
+      symbol: route.symbol,
+      timeframe: route.timeframe,
+      fromAt: route.focused ? journalChartFocus?.startAt : undefined,
+      toAt: route.focused ? journalChartFocus?.endAt : undefined,
     };
   }));
   const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
-  const nativeChartFeeds = useBinanceChartFeeds(symbolCode || symbol, visibleChartPanes
-    .filter(pane => (!journalChartFocus || !journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol))
-      && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol))
-    .map(pane => pane.timeframe), runtimeContextKey, feedProvider === "binance");
+  const nativeChartFeeds = useBinanceChartFeeds(paneRoutes.filter(route => route.plan)
+    .map(route => ({ id: route.id, symbol: route.symbol, timeframe: route.timeframe })), "live-chart-panes");
   const [customIndicatorScripts, setCustomIndicatorScripts] = useState(loadCachedCustomIndicators);
   const [indicatorEditorRequest, setIndicatorEditorRequest] = useState<{ nonce: number; scriptId?: string; source?: string } | null>(null);
   const allCustomIndicatorScripts = useMemo(() => [...FIRST_PARTY_EDGE_INDICATORS, ...customIndicatorScripts], [customIndicatorScripts]);
-  const editorSymbol = activeChartPane.symbol || symbolCode || symbol;
-  const editorNativePlan = binanceChartPlan(activeChartPane.timeframe);
-  const editorUsesNativeFeed = (!journalChartFocus || !journalFocusMatchesSymbol(editorSymbol, journalChartFocus.symbol))
-    && feedProvider === "binance" && activeChartPane.timeframe !== "1m"
-    && editorNativePlan !== null && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol);
+  const editorRoute = routesById[activeChartPane.id] ?? planBinancePaneRoutes([activeChartPane], binanceInstruments,
+    { symbol: symbolCode || symbol, provider: feedProvider }, journalChartFocus?.symbol)[0];
+  const editorSymbol = editorRoute.symbol;
+  const editorNativePlan = editorRoute.plan;
+  const editorUsesNativeFeed = editorNativePlan !== null;
+  const editorNativeFeed = nativeChartFeeds[activeChartPane.id];
   const editorSourceBars = useMemo(() => (
-    editorUsesNativeFeed ? nativeChartFeeds[activeChartPane.timeframe]?.bars ?? EMPTY_LIVE_BARS
-    : !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol)
-      ? bars : paneMarketData[activeChartPane.id]?.bars ?? []
-  ), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id, editorUsesNativeFeed, nativeChartFeeds[activeChartPane.timeframe]?.bars]);
+    editorUsesNativeFeed ? editorNativeFeed?.bars ?? EMPTY_LIVE_BARS
+    : editorRoute.primary ? bars : paneMarketData[activeChartPane.id]?.bars ?? EMPTY_LIVE_BARS
+  ), [bars, paneMarketData, activeChartPane.id, editorRoute.primary, editorUsesNativeFeed, editorNativeFeed?.bars]);
   const editorBars = useMemo(() => aggregateBars(editorSourceBars, activeChartPane.timeframe).slice(-20_000), [editorSourceBars, activeChartPane.timeframe]);
-  const editorSourceTimeframe = editorUsesNativeFeed ? editorNativePlan!.sourceTimeframe : !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? LIVE_SOURCE_TIMEFRAME : activeChartPane.timeframe;
+  const editorSourceTimeframe = editorNativePlan?.sourceTimeframe ?? (editorRoute.primary ? LIVE_SOURCE_TIMEFRAME : activeChartPane.timeframe);
   const editorSourceSnapshot = useMemo(() => pineSourceSnapshotForChart(editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe), [editorSourceBars, editorSourceTimeframe, editorBars, activeChartPane.timeframe]);
+  const activeDrawings = ownPaneDrawings(activeChartPane, editorRoute.marketKey).drawings;
+  const drawingMarkets = JSON.stringify(paneRoutes.map(route => [route.id, route.marketKey,
+    visibleChartPanes.find(pane => pane.id === route.id)?.drawingMarket ?? null]));
+
+  useEffect(() => {
+    setChartPanes(current => {
+      const next = current.map(pane => routesById[pane.id] ? ownPaneDrawings(pane, routesById[pane.id].marketKey) : pane);
+      return next.every((pane, index) => pane === current[index]) ? current : next;
+    });
+  // Reconcile market changes and saved layouts with a different stored drawing owner.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawingMarkets]);
+
+  useEffect(() => {
+    closeDrawingUndoBatch();
+    setSelectedDrawingId(null);
+    setDrawingUndoStack([]);
+  }, [editorRoute.marketKey, activeChartPane.id]);
 
   useEffect(() => {
     let active = true;
@@ -4275,12 +4299,16 @@ const LiveChartStudio = memo(function LiveChartStudio({
   useEffect(() => {
     const nextSymbol = symbolCode || symbol;
     if (!nextSymbol) return;
-    setChartPanes((current) => current.map((pane) => pane.id === activeChartPane.id ? { ...pane, symbol: nextSymbol } : pane));
+    setChartPanes((current) => current.map((pane) => chartSyncSettings.symbol || pane.id === activeChartPane.id ? replacePaneSymbol(pane, nextSymbol) : pane));
   }, [symbol, symbolCode]);
 
   useEffect(() => {
     if (!journalChartFocus) return;
-    setChartPanes((current) => current.map((pane) => pane.id === activeChartPane.id ? { ...pane, symbol: journalChartFocus.symbol, drawings: applyJournalFocusDrawings(pane.drawings, journalChartFocus) } : pane));
+    setChartPanes((current) => current.map((pane) => {
+      if (pane.id !== activeChartPane.id) return pane;
+      const focusedPane = replacePaneSymbol(pane, journalChartFocus.symbol);
+      return { ...focusedPane, drawings: applyJournalFocusDrawings(focusedPane.drawings, journalChartFocus) };
+    }));
   }, [journalChartFocus]);
 
   useEffect(() => {
@@ -4474,7 +4502,9 @@ const LiveChartStudio = memo(function LiveChartStudio({
 
   function updateChartPane(paneId: string, updater: (pane: LiveChartPaneState) => LiveChartPaneState) {
     setChartPanes((current) =>
-      current.map((pane) => pane.id === paneId ? sanitizeLiveChartPaneState(updater(pane)) : pane),
+      current.map((pane) => pane.id === paneId ? sanitizeLiveChartPaneState(updater(
+        routesById[pane.id] ? ownPaneDrawings(pane, routesById[pane.id].marketKey) : pane,
+      )) : pane),
     );
   }
 
@@ -4500,7 +4530,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
   }
 
   function chartPaneById(paneId: string) {
-    return chartPanes.find((pane) => pane.id === paneId) ?? activeChartPane;
+    const pane = chartPanes.find((pane) => pane.id === paneId) ?? activeChartPane;
+    return routesById[pane.id] ? ownPaneDrawings(pane, routesById[pane.id].marketKey) : pane;
   }
 
   function changeTimeframe(nextTimeframe: ChartTimeframe) {
@@ -4509,6 +4540,20 @@ const LiveChartStudio = memo(function LiveChartStudio({
       return;
     }
     updateActiveChartPane((pane) => ({ ...pane, timeframe: normalized }));
+  }
+
+  function changeChartSymbol(nextSymbol: string) {
+    if (!chartSymbolOptions.some(option => option.symbol === nextSymbol)) return;
+    setChartPanes(current => current.map(pane => chartSyncSettings.symbol || pane.id === activeChartPane.id
+      ? replacePaneSymbol(pane, nextSymbol) : pane));
+  }
+
+  function replacePaneSymbol(pane: LiveChartPaneState, nextSymbol: string) {
+    const primary = { symbol: symbolCode || symbol, provider: feedProvider };
+    const oldRoute = routesById[pane.id] ?? planBinancePaneRoutes([pane], binanceInstruments, primary, journalChartFocus?.symbol)[0];
+    const next = { ...ownPaneDrawings(pane, oldRoute.marketKey), symbol: nextSymbol };
+    const nextRoute = planBinancePaneRoutes([next], binanceInstruments, primary, journalChartFocus?.symbol)[0];
+    return ownPaneDrawings(next, nextRoute.marketKey);
   }
 
   function changeReplayTimeframe(nextTimeframe: ChartTimeframe) {
@@ -4690,7 +4735,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   }
 
   function removeLastUnlockedDrawing() {
-    const drawing = [...activeChartPane.drawings].reverse().find((item) => !item.locked);
+    const drawing = [...activeDrawings].reverse().find((item) => !item.locked);
     if (drawing) {
       deleteDrawing(drawing.id);
     }
@@ -4793,16 +4838,17 @@ const LiveChartStudio = memo(function LiveChartStudio({
     >
       {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <div className="flex flex-wrap gap-2">
-          <span className={`status-pill h-8 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
-            {feedIssue === "stale" ? "Stale · review only" : feedIssue === "delayed" ? "Delayed" : feedIssue === "unsupported" ? "Unsupported" : connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
+        <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
+          <strong className="truncate text-[var(--text-primary)]">{editorSymbol}</strong>
+          <span className="text-[var(--text-secondary)]">{editorRoute.focused ? "Trade review" : editorUsesNativeFeed ? "Binance" : editorRoute.primary ? selectedSourceLabel : "Market data"}</span>
+          <span className="text-[var(--text-secondary)]" role="status">
+            {editorRoute.focused ? paneMarketData[activeChartPane.id]?.status === "loading" ? "Loading history…" : paneMarketData[activeChartPane.id]?.status === "available" ? "Historical chart" : "History unavailable"
+              : editorUsesNativeFeed ? !editorNativeFeed || editorNativeFeed.status === "loading" ? "Loading chart…" : editorNativeFeed.status === "error" ? "Offline" : "Live chart"
+              : editorRoute.primary ? feedIssue === "stale" ? "Stale · review only" : feedIssue === "delayed" ? "Delayed" : feedIssue === "unsupported" ? "Unsupported" : connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"
+              : paneMarketData[activeChartPane.id]?.status === "loading" ? "Loading chart…" : paneMarketData[activeChartPane.id]?.status === "available" ? "Chart ready" : "Unavailable"}
           </span>
-          <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
-            {tickerChangeLabel}
-          </span>
-          <span className="status-pill h-8 px-2 text-[11px]">
-            {formatChartTimeframeLabel(activeChartPane.timeframe)}
-          </span>
+          {editorRoute.primary && <span className={`text-xs ${changeTone}`}>{tickerChangeLabel}</span>}
+          <span className="text-xs text-[var(--text-secondary)]">{formatChartTimeframeLabel(activeChartPane.timeframe)}</span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!chartToolsOpen && !chartSettingsPanelOpen && <button className="control-button h-9 px-3 text-xs" onClick={() => openIndicatorEditor()} type="button">
@@ -4839,9 +4885,9 @@ const LiveChartStudio = memo(function LiveChartStudio({
           activePaneLabel={activePaneLabel}
           chartSettings={activeChartPane.chartSettings}
           chartStyle={activeChartPane.chartStyle}
-          clearableDrawingsCount={activeChartPane.drawings.filter((drawing) => !drawing.locked).length}
+          clearableDrawingsCount={activeDrawings.filter((drawing) => !drawing.locked).length}
           drawingTool={activeChartPane.drawingTool}
-          drawingsCount={activeChartPane.drawings.length}
+          drawingsCount={activeDrawings.length}
           indicatorInstances={activeChartPane.indicatorInstances}
           layoutName={layoutName}
           layoutNames={availableLayouts}
@@ -4864,6 +4910,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
           onReplayTimeframeChange={changeReplayTimeframe}
           onSaveLayout={saveChartLayout}
           onSyncSettingsChange={setChartSyncSettings}
+          onSymbolChange={changeChartSymbol}
           onTimeframeChange={changeTimeframe}
           onRemoveIndicator={removeIndicator}
           onSettingsClose={() => setChartSettingsPanelOpen(false)}
@@ -4878,6 +4925,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
           settingsOpenSignal={chartSettingsOpenSignal}
           smoothCandles={activeChartPane.smoothCandles}
           sourceTimeframe={LIVE_SOURCE_TIMEFRAME}
+          symbol={editorSymbol}
+          symbolOptions={chartSymbolOptions}
           syncSettingKeys={LIVE_CHART_SYNC_SETTING_KEYS}
           syncSettings={chartSyncSettings}
           timeframe={activeChartPane.timeframe}
@@ -4894,13 +4943,15 @@ const LiveChartStudio = memo(function LiveChartStudio({
                 chartPaneLayoutDefinition.panes,
                 paneActive,
               );
-              const paneHasHistoricalFocus = Boolean(journalChartFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol));
-              const paneUsesPrimaryFeed = !paneHasHistoricalFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol);
+              const route = routesById[pane.id];
+              const paneHasHistoricalFocus = route.focused;
+              const paneUsesPrimaryFeed = route.primary;
               const normalizedPane = paneMarketData[pane.id];
-              const nativePlan = binanceChartPlan(pane.timeframe);
-              const usesNativeFeed = paneUsesPrimaryFeed && feedProvider === "binance" && pane.timeframe !== "1m" && nativePlan !== null;
-              const nativePane = usesNativeFeed ? nativeChartFeeds[pane.timeframe] : undefined;
+              const nativePlan = route.plan;
+              const usesNativeFeed = nativePlan !== null;
+              const nativePane = usesNativeFeed ? nativeChartFeeds[pane.id] : undefined;
               const paneBars = usesNativeFeed ? nativePane?.bars ?? EMPTY_LIVE_BARS : paneUsesPrimaryFeed ? bars : normalizedPane?.bars ?? [];
+              const scopedDrawings = ownPaneDrawings(pane, route.marketKey).drawings;
               return (
                 <div
                   className={`chart-pane-shell ${paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""} ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
@@ -4920,13 +4971,13 @@ const LiveChartStudio = memo(function LiveChartStudio({
                       >
                         Pane {index + 1}
                       </button>
-                      <span>{pane.symbol || symbolCode || symbol} · {formatChartTimeframeLabel(pane.timeframe)}</span>
+                      <span>{route.symbol} · {formatChartTimeframeLabel(pane.timeframe)}</span>
                     </div>
                   )}
                   {mountedPaneIds.has(pane.id) ? <TradingChart
                     bars={paneBars}
-                    runtimeContextKey={paneUsesPrimaryFeed ? usesNativeFeed ? JSON.stringify([runtimeContextKey, "native", pane.timeframe]) : runtimeContextKey
-                      : JSON.stringify(["live-normalized", getStoredAuthSession()?.user.id ?? null, pane.symbol || symbolCode || symbol,
+                    runtimeContextKey={usesNativeFeed ? JSON.stringify(["live-native", getStoredAuthSession()?.user.id ?? null, route.symbol, pane.timeframe]) : paneUsesPrimaryFeed ? runtimeContextKey
+                      : JSON.stringify(["live-normalized", getStoredAuthSession()?.user.id ?? null, route.symbol,
                         pane.timeframe, paneHasHistoricalFocus ? journalChartFocus?.startAt : null,
                         paneHasHistoricalFocus ? journalChartFocus?.endAt : null])}
                     canUndoDrawingChange={paneActive && drawingUndoStack.length > 0}
@@ -4935,7 +4986,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     confirmOrderLineModifications={false}
                     crosshairSyncBus={crosshairSyncBus}
                     drawingTool={pane.drawingTool}
-                    drawings={pane.drawings}
+                    drawings={scopedDrawings}
                     executions={[]}
                     indicatorInstances={pane.indicatorInstances}
                     indicatorRuntimeMode="live"
@@ -4973,8 +5024,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
-                    symbol={pane.symbol || symbolCode || symbol}
-                    syncedVisibleRange={journalFocusRange}
+                    symbol={route.symbol}
+                    syncedVisibleRange={paneHasHistoricalFocus ? journalFocusRange : null}
                     currency="USD"
                     datasetTimeframe={usesNativeFeed ? nativePlan!.sourceTimeframe : paneUsesPrimaryFeed ? LIVE_SOURCE_TIMEFRAME : pane.timeframe}
                     timeframe={pane.timeframe}
@@ -5000,7 +5051,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
         {layersPanelOpen && (
           <ChartObjectsPanel
             chartStyle={activeChartPane.chartStyle}
-            drawings={activeChartPane.drawings}
+            drawings={activeDrawings}
             indicatorInstances={activeChartPane.indicatorInstances}
             onClearDrawings={clearDrawings}
             onCollapse={() => setLayersPanelOpen(false)}
@@ -5019,7 +5070,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       </div>
       {indicatorEditorRequest && <Suspense fallback={<div role="status">Loading indicator editor…</div>}>
         <LiveIndicatorEditor bars={editorBars} sourceSnapshot={editorSourceSnapshot} symbol={editorSymbol} timeframe={activeChartPane.timeframe}
-          pineLiveFeed={editorUsesNativeFeed ? nativeChartFeeds[activeChartPane.timeframe]?.feed : !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol) ? pineLiveFeed : undefined}
+          pineLiveFeed={editorUsesNativeFeed ? editorNativeFeed?.feed : editorRoute.primary ? pineLiveFeed : undefined}
           onAddToChart={addCustomIndicator} onClose={() => setIndicatorEditorRequest(null)}
           onScriptsChange={changeCustomIndicatorScripts} request={indicatorEditorRequest} scripts={allCustomIndicatorScripts} />
       </Suspense>}
@@ -5154,6 +5205,12 @@ function sanitizeLiveChartPaneState(value: unknown, index = 0): LiveChartPaneSta
     chartStyle: sanitizeLiveChartStyle(candidate.chartStyle),
     drawingTool: sanitizeLiveDrawingTool(candidate.drawingTool),
     drawings: sanitizeLiveDrawings(candidate.drawings),
+    drawingMarket: typeof candidate.drawingMarket === "string" && candidate.drawingMarket.trim()
+      ? candidate.drawingMarket.trim().slice(0, 160) : undefined,
+    drawingsByMarket: isPlainRecord(candidate.drawingsByMarket) ? Object.fromEntries(
+      Object.entries(candidate.drawingsByMarket).filter(([market]) => market.trim() && market.length <= 160)
+        .map(([market, drawings]) => [market, sanitizeLiveDrawings(drawings)]),
+    ) : {},
     id,
     indicatorInstances: sanitizeLiveIndicatorInstances(candidate.indicatorInstances),
     magnetMode: sanitizeLiveMagnetMode(candidate.magnetMode),
@@ -5173,6 +5230,7 @@ function createDefaultLiveChartPane(
     chartStyle: sanitizeLiveChartStyle(template?.chartStyle),
     drawingTool: sanitizeLiveDrawingTool(template?.drawingTool),
     drawings: [],
+    drawingsByMarket: {},
     id: `live-chart-pane-${index + 1}`,
     indicatorInstances: sanitizeLiveIndicatorInstances(template?.indicatorInstances),
     magnetMode: sanitizeLiveMagnetMode(template?.magnetMode),

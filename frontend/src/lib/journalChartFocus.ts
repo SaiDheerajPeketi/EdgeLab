@@ -37,6 +37,6 @@ export function journalFocusMatchesSymbol(left: string, right: string) {
   return normalize(left) === normalize(right);
 }
 
-function normalize(value: string) { return value.toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+function normalize(value: string) { return value.trim().toUpperCase().replace(/^BINANCE:/, "").replace(/[^A-Z0-9]/g, ""); }
 function markerAbbreviation(kind: JournalChartFocusRequest["markers"][number]["kind"]) { return kind === "entry" ? "E" : kind === "exit" ? "X" : kind === "stop" ? "S" : kind === "target" ? "T" : "F"; }
 function markerColor(kind: JournalChartFocusRequest["markers"][number]["kind"]) { return kind === "entry" ? "#67e8f9" : kind === "exit" ? "#60a5fa" : kind === "stop" ? "#fb7185" : kind === "target" ? "#34d399" : "#fbbf24"; }

@@ -479,6 +479,10 @@ export function ChartToolbar({
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const suppressCommandFocusOpenRef = useRef(false);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
+  const symbolFocusFrameRef = useRef<number | null>(null);
+  const suppressSymbolFocusOpenRef = useRef(false);
+  const symbolFocusOwnerRef = useRef({ pane: activePaneLabel, symbol });
+  symbolFocusOwnerRef.current = { pane: activePaneLabel, symbol };
   const indicatorCatalogId = useId();
   const commandMenuId = useId();
   const settingsOverlayId = useId();
@@ -555,18 +559,38 @@ export function ChartToolbar({
     }
   }, []);
 
+  const cancelSymbolFocusRestore = useCallback(() => {
+    if (symbolFocusFrameRef.current != null) window.cancelAnimationFrame(symbolFocusFrameRef.current);
+    symbolFocusFrameRef.current = null;
+    suppressSymbolFocusOpenRef.current = false;
+  }, []);
+
+  useEffect(() => () => cancelSymbolFocusRestore(), [activePaneLabel, cancelSymbolFocusRestore]);
+
   const closeSymbolMenu = useCallback((restoreValue = true) => {
+    cancelSymbolFocusRestore();
     setSymbolMenuOpen(false);
     setSymbolActiveIndex(0);
     if (restoreValue) setSymbolQuery(symbol);
-  }, [symbol]);
+  }, [cancelSymbolFocusRestore, symbol]);
 
   function selectSymbol(option: ChartSymbolOption) {
+    cancelSymbolFocusRestore();
+    const input = symbolInputRef.current, pane = activePaneLabel;
     onSymbolChange?.(option.symbol);
     setSymbolQuery(option.symbol);
     setSymbolMenuOpen(false);
     setSymbolActiveIndex(0);
-    window.requestAnimationFrame(() => symbolInputRef.current?.focus());
+    symbolFocusFrameRef.current = window.requestAnimationFrame(() => {
+      symbolFocusFrameRef.current = null;
+      const owner = symbolFocusOwnerRef.current;
+      if (!input?.isConnected || input !== symbolInputRef.current || owner.pane !== pane
+        || ![symbol, option.symbol, option.canonical].includes(owner.symbol)
+        || document.activeElement !== input && document.activeElement !== document.body) return;
+      suppressSymbolFocusOpenRef.current = true;
+      input.focus();
+      suppressSymbolFocusOpenRef.current = false;
+    });
   }
 
   function handleSymbolKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
@@ -607,15 +631,21 @@ export function ChartToolbar({
   useEffect(() => {
     function handleOpenSymbolSearch(event: Event) {
       if (!onSymbolChange) return;
+      cancelSymbolFocusRestore();
+      const input = symbolInputRef.current, owner = { ...symbolFocusOwnerRef.current };
       const detail = (event as CustomEvent<{ query?: string }>).detail;
       setSymbolQuery(detail?.query ?? "");
       setSymbolActiveIndex(0);
       setSymbolMenuOpen(true);
-      window.requestAnimationFrame(() => symbolInputRef.current?.focus());
+      symbolFocusFrameRef.current = window.requestAnimationFrame(() => {
+        symbolFocusFrameRef.current = null;
+        const current = symbolFocusOwnerRef.current;
+        if (input?.isConnected && input === symbolInputRef.current && current.pane === owner.pane && current.symbol === owner.symbol) input.focus();
+      });
     }
     window.addEventListener("edgelab:open-symbol-search", handleOpenSymbolSearch);
     return () => window.removeEventListener("edgelab:open-symbol-search", handleOpenSymbolSearch);
-  }, [onSymbolChange]);
+  }, [cancelSymbolFocusRestore, onSymbolChange]);
 
   useEffect(() => {
     if (TIMEFRAMES.some((interval) => interval.id === timeframe)) {
@@ -1024,13 +1054,14 @@ export function ChartToolbar({
                 aria-expanded={symbolMenuOpen}
                 autoComplete="off"
                 id="chart-symbol-search"
-                onBlur={() => window.setTimeout(() => closeSymbolMenu(false), 120)}
                 onChange={(event) => {
+                  cancelSymbolFocusRestore();
                   setSymbolQuery(event.target.value);
                   setSymbolActiveIndex(0);
                   setSymbolMenuOpen(true);
                 }}
-                onFocus={() => setSymbolMenuOpen(true)}
+                onClick={() => { cancelSymbolFocusRestore(); setSymbolMenuOpen(true); }}
+                onFocus={() => { if (!suppressSymbolFocusOpenRef.current) setSymbolMenuOpen(true); }}
                 onKeyDown={handleSymbolKeyDown}
                 placeholder="Symbol or market"
                 ref={symbolInputRef}

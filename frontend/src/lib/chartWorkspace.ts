@@ -18,7 +18,7 @@ export type ChartSymbolOption = {
   id: string;
   label: string;
   name: string;
-  source: "dataset" | "session";
+  source: "dataset" | "session" | "live";
   sourceId: string | null;
   symbol: string;
   timeframes: ChartTimeframe[];

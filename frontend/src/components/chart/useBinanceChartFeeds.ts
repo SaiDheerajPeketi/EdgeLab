@@ -8,42 +8,47 @@ import { trimChartSourceWindow } from "../../lib/chartSourceWindow";
 import { createPineLiveFeed, type PineLiveFeed } from "../../lib/pineLiveFeed";
 
 export type BinanceChartData = { bars: Candle[]; sourceTimeframe: ChartTimeframe; requestedBars: number; feed: PineLiveFeed; status: "loading" | "available" | "error"; detail: string };
+export type BinanceChartDescriptor = { id: string; symbol: string; timeframe: ChartTimeframe };
 type Entry = { key: string; targetBars: number; data: BinanceChartData; dispose(): void };
 
-/** Distinct visible intervals own independent, shared-per-pane provider streams. */
-export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[], contextKey: string, enabled: boolean) {
+/** Visible panes share only the same canonical symbol and actual source interval. */
+export function useBinanceChartFeeds(panes: BinanceChartDescriptor[], contextKey: string, enabled = true) {
   useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, () => null);
-  const owner = JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken(), symbol, contextKey, enabled]);
+  const owner = JSON.stringify([getStoredAuthSession()?.user.id ?? null, getApiBearerToken(), contextKey, enabled]);
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
   const entries = useRef(new Map<string, Entry>());
   const [values, setValues] = useState<Record<string, { key: string; data: BinanceChartData }>>({});
-  const frames = [...new Set(timeframes.map(normalizeChartTimeframe).filter((frame): frame is string =>
-    Boolean(frame && frame !== "1m" && binanceChartPlan(frame))))].sort();
-  const signature = JSON.stringify(frames);
-  const plans = useMemo(() => frames.map(frame => binanceChartPlan(frame)!), [signature]);
+  const requests = panes.flatMap(pane => {
+    const frame = normalizeChartTimeframe(pane.timeframe);
+    return frame && binanceChartPlan(frame) && /^[A-Z0-9]{1,40}$/.test(pane.symbol)
+      ? [{ id: pane.id, symbol: pane.symbol, timeframe: frame }] : [];
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  const signature = JSON.stringify(requests);
+  const plans = useMemo(() => requests.map(pane => ({ ...binanceChartPlan(pane.timeframe)!, id: pane.id, symbol: pane.symbol })), [signature]);
   const sourcePlans = useMemo(() => {
-    const groups = new Map<string, BinanceChartPlan>();
+    const groups = new Map<string, BinanceChartPlan & { symbol: string }>();
     for (const plan of plans) {
-      const previous = groups.get(plan.sourceTimeframe);
-      if (!previous || previous.targetBars < plan.targetBars) groups.set(plan.sourceTimeframe, plan);
+      const source = JSON.stringify([plan.symbol, plan.sourceTimeframe]);
+      const previous = groups.get(source);
+      if (!previous || previous.targetBars < plan.targetBars) groups.set(source, plan);
     }
     return [...groups.values()];
   }, [plans]);
 
   useEffect(() => {
-    const wanted = enabled && /^[A-Z0-9]{1,40}$/.test(symbol) ? sourcePlans : [];
-    for (const [frame, entry] of entries.current) {
-      const plan = wanted.find(plan => plan.sourceTimeframe === frame);
-      if (entry.key !== JSON.stringify([owner, frame]) || !plan || plan.targetBars > entry.targetBars) {
+    const wanted = enabled ? sourcePlans : [];
+    for (const [source, entry] of entries.current) {
+      const plan = wanted.find(plan => JSON.stringify([plan.symbol, plan.sourceTimeframe]) === source);
+      if (entry.key !== JSON.stringify([owner, source]) || !plan || plan.targetBars > entry.targetBars) {
         entry.dispose();
-        entries.current.delete(frame);
+        entries.current.delete(source);
       }
     }
     for (const plan of wanted) {
-      const frame = plan.sourceTimeframe;
-      if (entries.current.has(frame)) continue;
-      const key = JSON.stringify([owner, frame]), interval = plan.interval;
+      const frame = plan.sourceTimeframe, symbol = plan.symbol, source = JSON.stringify([symbol, frame]);
+      if (entries.current.has(source)) continue;
+      const key = JSON.stringify([owner, source]), interval = plan.interval;
       const controller = new AbortController(), feed = createPineLiveFeed(symbol, frame);
       const socketUrl = `wss://data-stream.binance.vision/ws/${symbol.toLowerCase()}@kline_${interval}`;
       const socket = new WebSocket(socketUrl);
@@ -53,11 +58,11 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
         data: { feed, bars: [], sourceTimeframe: frame, requestedBars: plan.targetBars, status: "loading", detail: "Loading chart history…" },
         dispose: () => { active = false; controller.abort(); unsubscribe(); socket.close(); },
       };
-      entries.current.set(frame, entry);
-      const owns = () => active && currentOwner.current === owner && entries.current.get(frame) === entry;
+      entries.current.set(source, entry);
+      const owns = () => active && currentOwner.current === owner && entries.current.get(source) === entry;
       const publish = () => {
         if (!owns()) return;
-        setValues(current => owns() ? { ...current, [frame]: { key, data: entry.data } } : current);
+        setValues(current => owns() ? { ...current, [source]: { key, data: entry.data } } : current);
       };
       const unsubscribe = feed.subscribe(snapshot => {
         if (!owns()) return;
@@ -80,6 +85,11 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
           if (!controller.signal.aborted) fail(error instanceof Error ? error.message : "Chart history could not be loaded. Retry the feed.");
         });
     }
+    // Retired markets must not accumulate full candle windows in component state.
+    setValues(current => {
+      const retained = Object.entries(current).filter(([source, value]) => entries.current.get(source)?.key === value.key);
+      return retained.length === Object.keys(current).length ? current : Object.fromEntries(retained);
+    });
     // The signature represents frames without restarting feeds on incoming bars.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, signature]);
@@ -90,12 +100,12 @@ export function useBinanceChartFeeds(symbol: string, timeframes: ChartTimeframe[
   }, []);
 
   return useMemo(() => Object.fromEntries(plans.map(plan => {
-    const value = values[plan.sourceTimeframe];
-    const data = value?.key === JSON.stringify([owner, plan.sourceTimeframe]) && enabled
+    const source = JSON.stringify([plan.symbol, plan.sourceTimeframe]), value = values[source];
+    const data = value?.key === JSON.stringify([owner, source]) && enabled
       && value.data.requestedBars >= plan.targetBars ? value.data : undefined;
-    if (!data) return [plan.chartTimeframe, undefined];
+    if (!data) return [plan.id, undefined];
     const bars = trimChartSourceWindow(data.bars, plan.chartTimeframe) as Candle[];
-    return [plan.chartTimeframe, bars === data.bars ? data : { ...data, bars,
+    return [plan.id, bars === data.bars ? data : { ...data, bars,
       status: bars.length || data.status === "error" ? data.status : "loading",
       detail: bars.length || data.status === "error" ? data.detail : "Waiting for the candle's opening data…" }];
   })) as Record<string, BinanceChartData | undefined>, [plans, values, owner, enabled]);
