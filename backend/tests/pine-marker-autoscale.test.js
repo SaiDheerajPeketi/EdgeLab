@@ -3,12 +3,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
-const bundle = buildSync({ bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
+const bundle = (await build({ plugins: [createPineEnginePlugin()], bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
   contents: 'export * from "./frontend/src/lib/pineChartAdapter.ts"; export * from "./frontend/src/lib/pineVisualPrimitive.ts"; export * from "./frontend/src/lib/pinePacked.ts"; export * from "./frontend/src/workers/pineNative.worker.ts"; export { Indicator, PineTS } from "pinets";',
   loader: "ts", resolveDir: fileURLToPath(new URL("../..", import.meta.url)), sourcefile: "pine-marker-autoscale-oracles.ts",
-} }).outputFiles[0].text;
+} })).outputFiles[0].text;
 // An independent Canvas measurement fixture. Its middle-baseline glyph
 // bounds are deliberately asymmetric so centering guesses cannot pass.
 globalThis.OffscreenCanvas = class { getContext() { return { font: "9px sans-serif", textBaseline: "middle", measureText: (text) => ({ width: String(text).length * 7, actualBoundingBoxAscent: 9, actualBoundingBoxDescent: 3 }) }; } };

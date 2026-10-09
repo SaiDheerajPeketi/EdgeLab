@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
-const bundle = buildSync({ bundle: true, format: "esm", logLevel: "silent", platform: "browser", write: false,
+const bundle = (await build({ plugins: [createPineEnginePlugin()], bundle: true, format: "esm", logLevel: "silent", platform: "browser", write: false,
   stdin: { contents: 'export * from "./frontend/src/lib/pineChartAdapter.ts"; export * from "./frontend/src/workers/pineNative.worker.ts";', loader: "ts", resolveDir: fileURLToPath(new URL("../..", import.meta.url)), sourcefile: "pine-chart-fixture.ts" },
-}).outputFiles[0].text;
+})).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const bars = Array.from({ length: 8 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
 async function run(body, declaration = 'indicator("Adapter",overlay=false)') {

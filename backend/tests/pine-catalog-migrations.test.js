@@ -3,13 +3,14 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
-const bundle = buildSync({ bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
+const bundle = (await build({ plugins: [createPineEnginePlugin()], bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
   contents: 'export * from "./frontend/src/workers/pineNative.worker.ts"; export * from "./frontend/src/lib/pinePacked.ts"; export { PineTS, Indicator } from "pinets";',
   loader: "ts", resolveDir: root, sourcefile: "migration-oracles.ts",
-} }).outputFiles[0].text;
+} })).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const read = (path) => readFileSync(root + "/" + path, "utf8");
 const manifest = JSON.parse(read("frontend/src/lib/pineCatalogManifest.json"));

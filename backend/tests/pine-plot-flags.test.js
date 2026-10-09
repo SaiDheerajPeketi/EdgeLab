@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
-const bundle = buildSync({ bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
+const bundle = (await build({ plugins: [createPineEnginePlugin()], bundle: true, format: "esm", platform: "browser", write: false, logLevel: "silent", stdin: {
   contents: 'export * from "./frontend/src/workers/pineNative.worker.ts"; export * from "./frontend/src/lib/pinePacked.ts"; export { Indicator, PineTS } from "pinets";',
   loader: "ts", resolveDir: fileURLToPath(new URL("../..", import.meta.url)), sourcefile: "pine-plot-flags-oracle.ts",
-} }).outputFiles[0].text;
+} })).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const bars = Array.from({ length: 8 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: 100 + index, high: 102 + index, low: 98 + index, close: 101 + index, volume: 100 }));
 const context = { symbol: "TEST", timeframe: "1", mintick: .01, pointvalue: 1 };

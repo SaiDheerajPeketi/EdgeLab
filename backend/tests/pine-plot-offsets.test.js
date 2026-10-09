@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
-const bundle = buildSync({bundle:true,format:"esm",platform:"browser",write:false,logLevel:"silent",stdin:{
+const bundle = (await build({ plugins: [createPineEnginePlugin()],bundle:true,format:"esm",platform:"browser",write:false,logLevel:"silent",stdin:{
   contents:'export * from "./frontend/src/workers/pineNative.worker.ts"; export * from "./frontend/src/lib/pineChartAdapter.ts"; export * from "./frontend/src/lib/pinePacked.ts";',
   loader:"ts",resolveDir:fileURLToPath(new URL("../..",import.meta.url)),sourcefile:"offset-proof.ts",
-}}).outputFiles[0].text;
+}})).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const bars = Array.from({length:8},(_,i)=>({time:1700000040+i*60,open:i+1,high:i+2,low:i,close:i+1,volume:10}));
 const source = body => '//@version=6\nindicator("Offset proof",overlay=false)\n'+body;

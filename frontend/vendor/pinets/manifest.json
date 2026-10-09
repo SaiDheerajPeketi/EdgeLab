@@ -26,7 +26,7 @@
       "source": "src/transpiler/index.ts",
       "file": "overrides/transpiler/index.ts",
       "upstreamSha256": "f17badec7f474d68cbcedfc8fc2f769a5af47f04c8e4240872873d287cd4f9d0",
-      "sha256": "e6963ebaff7c59a1b59112f26354d3893f582dd2bc6449544a6dd18973bdd546"
+      "sha256": "606645dff42d33a6cf5261aa346ebd98781f458549d2d81dbe459f4488936346"
     },
     {
       "source": "src/transpiler/transformers/StatementTransformer.ts",

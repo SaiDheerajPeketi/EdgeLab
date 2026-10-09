@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 import { fileURLToPath } from "node:url";
 
-const bundle = buildSync({
+const bundle = (await build({ plugins: [createPineEnginePlugin()],
   bundle: true,
   format: "esm",
   platform: "browser",
@@ -16,7 +17,7 @@ const bundle = buildSync({
     resolveDir: fileURLToPath(new URL("../..", import.meta.url)),
     sourcefile: "pine-layering-oracle.ts",
   },
-}).outputFiles[0].text;
+})).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const bars = Array.from({ length: 32 }, (_, index) => ({
   time: 1_700_000_040 + index * 60,

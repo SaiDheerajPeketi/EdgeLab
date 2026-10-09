@@ -795,6 +795,31 @@ export function transpile(source: string | Function, options: { debug: boolean; 
 
     const _wraperFunction = new Function('', `var _r = ${transformedCode}\n; return _r;`);
     const mainFn = _wraperFunction(this);
+    // Inspect real member expressions, never titles, comments or string literals.
+    // Lowered Pine namespace receivers remain `chart` or the explicit `$.pine.chart` path.
+    let usesVisibleRange = false, visited = 0;
+    const pending: any[] = [ast], seen = new WeakSet<object>();
+    while (pending.length) {
+        const node = pending.pop();
+        if (seen.has(node)) continue;
+        seen.add(node);
+        if (++visited > 65_536) throw new Error('Viewport AST exceeds 65,536 nodes.');
+        const receiver = node.object, pine = receiver?.object;
+        if (node.type === 'MemberExpression' && !node.computed && node.property?.type === 'Identifier' &&
+            ['left_visible_bar_time', 'right_visible_bar_time'].includes(node.property.name) &&
+            (receiver?.type === 'Identifier' && receiver.name === 'chart' ||
+                receiver?.type === 'MemberExpression' && !receiver.computed && receiver.property?.name === 'chart' &&
+                pine?.type === 'MemberExpression' && !pine.computed && pine.property?.type === 'Identifier' &&
+                pine.property.name === 'pine' && pine.object?.type === 'Identifier' && pine.object.name === '$')) {
+            usesVisibleRange = true;
+        }
+        for (const [key, child] of Object.entries(node)) {
+            if (key === 'parent' || key.startsWith('_')) continue;
+            if (Array.isArray(child)) { for (const item of child) if (item?.type) pending.push(item); }
+            else if (child && typeof child === 'object' && (child as any).type) pending.push(child);
+        }
+    }
+    Object.defineProperty(mainFn, '_edgelabUsesVisibleRange', { value: usesVisibleRange });
     (mainFn as any)._pineVersion = pineVersion;
     if (slices && Object.keys(slices).length > 0) {
         for (const slice of Object.values(slices)) (slice as any)._pineVersion = pineVersion;

@@ -5,12 +5,13 @@ import { isPineScriptSource } from "./customIndicators";
 import { createPineRuntimeJob } from "./pineRuntime";
 import { migratePineEnumInputs } from "./pineInputMigration";
 import { PineProtocolError } from "./pineProtocol";
-import type { PineContext, PineExecutionResult, PineStrategySettings, PinePrepareResult, PineSourceSnapshot } from "./pineProtocol";
+import type { PineContext, PineExecutionResult, PineStrategySettings, PinePrepareResult, PineSourceSnapshot, PineViewport } from "./pineProtocol";
 
 export function createCustomScriptRuntimeJob(options: {
   source: string;
   bars: Candle[];
   sourceSnapshot?: PineSourceSnapshot;
+  viewport?: PineViewport | null;
   inputs?: Record<string, EdgeIndicatorInputValue>;
   mode: "historical" | "live";
   context?: PineContext;

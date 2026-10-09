@@ -24,15 +24,16 @@ export type PineStrategySettings = {
   calc_on_order_fills?: boolean; use_bar_magnifier?: boolean;
 };
 export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number; mincontract?: number; quantityStep?: number; currency?: string; basecurrency?: string };
+export type PineViewport = { from: number; to: number };
 export type PineSourceSnapshot = { timeframe: string; bars: readonly Candle[] };
 export type PineRequest = {
-  id: string; action: "prepare" | "run"; source: string; bars?: Candle[]; sourceSnapshot?: PineSourceSnapshot;
+  id: string; action: "prepare" | "run"; source: string; bars?: Candle[]; sourceSnapshot?: PineSourceSnapshot; viewport?: PineViewport | null;
   strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext;
 };
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
   declaration: "indicator" | "strategy"; name: string; overlay: boolean; behindChart?: boolean;
-  inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[];
+  inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[]; usesVisibleRange?: boolean;
 };
 export type PinePlot = {
   id: string; name: string; style: string; overlay: boolean; options: Record<string, PineScalar>;
@@ -234,6 +235,18 @@ export function validatePineBar(value: unknown): Candle {
   if (!Number.isSafeInteger(time) || time < 0 || time > 253_402_300_799 || low > Math.min(open, close) || high < Math.max(open, close) || low > high || volume < 0) fail("Bars need valid second timestamps and OHLCV values.", "INVALID_BARS");
   return { time, open, high, low, close, volume, timestamp: new Date(time * 1000).toISOString(), ema_20: null, ema_50: null, rsi_14: null };
 }
+/** Chart candle opening times in seconds; null explicitly means no visible owned candles. */
+export function validatePineViewport(value: unknown): PineViewport | null {
+  if (value === null) return null;
+  const raw = record(value);
+  for (const key of Reflect.ownKeys(raw)) {
+    const descriptor = Object.getOwnPropertyDescriptor(raw, key)!;
+    if ((key !== "from" && key !== "to") || !("value" in descriptor) || !descriptor.enumerable) fail("Viewport requires from/to data fields.", "INVALID_VIEWPORT");
+  }
+  const from = finite(raw.from), to = finite(raw.to);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to > 253_402_300_799 || from > to) fail("Invalid ordered viewport seconds.", "INVALID_VIEWPORT");
+  return { from, to };
+}
 export function validatePineRequest(value: unknown): PineRequest {
   const raw = record(value);
   const id = string(raw.id, 128);
@@ -277,6 +290,12 @@ export function validatePineRequest(value: unknown): PineRequest {
     });
   }
   if (raw.action === "run" && (!context || !bars?.length)) fail("Pine execution needs chart bars, symbol and timeframe.", "INVALID_CONTEXT");
+  let viewport: PineViewport | null | undefined;
+  const viewportDescriptor = Object.getOwnPropertyDescriptor(raw, "viewport");
+  if (viewportDescriptor) {
+    if (!("value" in viewportDescriptor) || !viewportDescriptor.enumerable) fail("Invalid viewport request field.", "INVALID_VIEWPORT");
+    if (viewportDescriptor.value !== undefined) viewport = validatePineViewport(viewportDescriptor.value);
+  }
   let sourceSnapshot: PineSourceSnapshot | undefined;
   const sourceDescriptor = Object.getOwnPropertyDescriptor(raw, "sourceSnapshot");
   if (sourceDescriptor && (!("value" in sourceDescriptor) || !sourceDescriptor.enumerable)) fail("Source snapshots require an ordinary request field.", "INVALID_BARS");
@@ -284,7 +303,7 @@ export function validatePineRequest(value: unknown): PineRequest {
     if (raw.action !== "run" || mode !== "historical" || !context || !bars?.length) fail("Intrabar source snapshots are available only for historical execution.", "UNAVAILABLE_DATA");
     sourceSnapshot = validateSourceSnapshot(sourceDescriptor.value, bars, context);
   }
-  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}) };
+  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}), ...(sourceSnapshot ? { sourceSnapshot } : {}), ...(viewport !== undefined ? { viewport } : {}) };
 }
 
 // Bound cumulative text before JSON allocation; binary is permitted only in the packed buffer list.
@@ -452,7 +471,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -467,7 +486,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}) };
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);

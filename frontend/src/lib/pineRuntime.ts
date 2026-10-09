@@ -3,7 +3,7 @@ import { migratePineEnumInputs } from "./pineInputMigration";
 import type { PinePrepareResult } from "./pineProtocol";
 import type { Candle } from "./api";
 import { createSandboxWorkerJob, createSandboxWorkerSession } from "./pineSandbox";
-import { PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest } from "./pineProtocol";
+import { PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest, type PineViewport } from "./pineProtocol";
 import { PINE_LIVE_PROTOCOL, PINE_LIVE_QUEUE_LIMIT, pineLiveRequestId, validatePineLiveRequest, validatePineLiveResponse, type PineLiveRequest } from "./pineLiveProtocol";
 
 async function loadTrustedPineWorker(signal: AbortSignal) {
@@ -31,6 +31,7 @@ export type PineLiveRuntimeSession = {
   id: string;
   promise: Promise<PineExecutionResult>;
   update(bar: Candle, confirmed: boolean): Promise<PineExecutionResult>;
+  setViewport(viewport: PineViewport | null): Promise<PineExecutionResult>;
   cancel(): void;
 };
 
@@ -49,7 +50,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
     });
     const promise = ready.then((owned) => owned.promise);
     void promise.catch(cancel);
-    return { id: preparation.id, promise, cancel, update: (bar, confirmed) => {
+    const enqueue = (run: (owned: PineLiveRuntimeSession) => Promise<PineExecutionResult>) => {
       if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped."));
       if (pending >= PINE_LIVE_QUEUE_LIMIT) {
         cancel();
@@ -58,9 +59,11 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
       pending++;
       return ready.then((owned) => {
         if (halted) throw new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped.");
-        return owned.update(bar, confirmed);
+        return run(owned);
       }).catch((error) => { cancel(); throw error; }).finally(() => { pending--; });
-    } };
+    };
+    return { id: preparation.id, promise, cancel, update: (bar, confirmed) => enqueue(owned => owned.update(bar, confirmed)),
+      setViewport: viewport => enqueue(owned => owned.setViewport(viewport)) };
   }
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   const id = `pine-live-${Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")}`;
@@ -68,10 +71,12 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
   const command = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: 0, action: "start", request });
   const expected = new Map<number, PineRequest>([[0, request]]);
   let bars = request.bars!;
+  let viewport = request.viewport;
   let sequence = 0, confirmedTail = true, halted = false;
   const session = createSandboxWorkerSession<PineLiveRequest, PineExecutionResult>({
     id, request: command, timeoutMs: 10_000, updateTimeoutMs: 2_000, maxQueued: PINE_LIVE_QUEUE_LIMIT,
     loadWorker: loadTrustedPineWorker,
+    requestTimeoutMs: command => command.action === "update" ? 2_000 : 10_000,
     validate: (value, pending) => {
       const owner = expected.get(pending.sequence);
       if (!owner) throw new PineProtocolError("LIVE_SEQUENCE", "Live Pine response has no active command.");
@@ -86,6 +91,19 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
     id,
     promise: session.promise,
     cancel,
+    setViewport: value => {
+      if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped."));
+      try {
+        const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "viewport", viewport: value });
+        if (next.action !== "viewport") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Expected a viewport event.");
+        viewport = next.viewport;
+        expected.set(next.sequence, { ...request, viewport, id: pineLiveRequestId(id, next.sequence), bars });
+        return session.send(next).catch(error => { cancel(); throw error; }).finally(() => expected.delete(next.sequence));
+      } catch (error) {
+        cancel();
+        return Promise.reject(error);
+      }
+    },
     update: (bar, confirmed) => {
       if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped. Reapply the indicator to restart."));
       try {
@@ -101,7 +119,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
           bars = [...bars, next.bar];
         }
         confirmedTail = next.confirmed;
-        expected.set(next.sequence, { ...request, id: pineLiveRequestId(id, next.sequence), bars });
+        expected.set(next.sequence, { ...request, viewport, id: pineLiveRequestId(id, next.sequence), bars });
         return session.send(next).catch(error => { cancel(); throw error; }).finally(() => expected.delete(next.sequence));
       } catch (error) {
         cancel();

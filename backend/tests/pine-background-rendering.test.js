@@ -3,12 +3,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
+import { build } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
-const bundle = buildSync({ bundle:true,format:"esm",platform:"browser",write:false,logLevel:"silent",stdin:{
+const bundle = (await build({ plugins: [createPineEnginePlugin()], bundle:true,format:"esm",platform:"browser",write:false,logLevel:"silent",stdin:{
   contents:'export * from "./frontend/src/workers/pineNative.worker.ts"; export * from "./frontend/src/lib/pineProtocol.ts"; export * from "./frontend/src/lib/pinePacked.ts"; export * from "./frontend/src/lib/pineChartAdapter.ts"; export {PineTS,Indicator} from "pinets";',
   loader:"ts",resolveDir:fileURLToPath(new URL("../..",import.meta.url)),sourcefile:"pine-background-oracles.ts",
-}}).outputFiles[0].text;
+}})).outputFiles[0].text;
 const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`);
 const bytes = readFileSync(new URL("../../e2e/pine-visuals.bars.json",import.meta.url));
 assert.equal(createHash("sha256").update(bytes).digest("hex"),"fc9a28c87aed819daae602ea45422d0d40979bd42f86097607310b0300645ea1");

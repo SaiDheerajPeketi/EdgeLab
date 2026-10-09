@@ -76,6 +76,10 @@ function displayName(source: string, declaration: string): string {
   }
   return `Pine ${declaration}`;
 }
+function bindViewport(engine: PineTS, request: PineRequest) {
+  const viewport = request.viewport;
+  if (viewport !== undefined) engine.setVisibleRange(viewport ? viewport.from * 1000 : NaN, viewport ? viewport.to * 1000 : NaN);
+}
 function normalizeSymbol(symbol: string): string { return symbol.toUpperCase(); }
 type RequestContext = Context & {
   _edgelabRequestDepth?: number;
@@ -172,6 +176,7 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       return bound(child);
     };
     Object.defineProperties(fn, { _pineVersion: { value: parent.pineVersion }, _ltfSlices: { value: parent._ltfTruncatedBodies } });
+    bindViewport(engine, request);
     engine.setMaxLoops(PINE_LIMITS.loops); engine.setTimezone("UTC");
     const child = await engine.runPretranspiled(fn, parent.inputs);
     for (const owner of [child, ...child.lctx.values()] as (Context & { varip: Record<string, unknown> })[]) {
@@ -1194,6 +1199,9 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   try { prepared = indicator.prepare({ debug: false, ln: false }); } catch (cause) {
     error("COMPILE_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine compilation failed.");
   }
+  const dependency = Object.getOwnPropertyDescriptor(prepared.fn, "_edgelabUsesVisibleRange")?.value;
+  if (typeof dependency !== "boolean") error("UNSUPPORTED_EXECUTION_CONTEXT", "Missing native viewport dependency metadata.");
+  prepared.usesVisibleRange = dependency;
   const declaration = indicator.getDeclarationType();
   if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
   const settings = request.strategySettings ?? {};
@@ -1209,7 +1217,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
   // Omitted declarations have the public schema default true; expressions can remain unresolved.
   const pendingLayer = typeof parsedLayer !== "boolean";
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategies calculate at the candle close and can recalculate after historical order fills with calc_on_order_fills=true. Bar magnification uses covered loaded smaller candles for fills; uncovered candles use the chart OHLC path. Every candle’s OHLC path is inferred and can differ from actual trades. Historical callbacks see final OHLCV values. Trailing exits arm and follow the best price reached along the remaining path. Live strategy scheduling, calc_on_every_history_tick and intrabar margin-liquidation simulations with fill recalculation or magnification are unavailable.")] : []),
@@ -1226,10 +1234,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const encounteredAlerts = new Set<string>();
   const magnifier = magnifierSnapshot(request);
   bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts, false, request.context?.quantityStep, magnifier);
-  const local = chartProvider(request, false, encounteredAlerts);
-  const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
-  engine.setMaxLoops(PINE_LIMITS.loops);
-  engine.setTimezone("UTC");
+  const { local, engine } = ownedEngine(request, encounteredAlerts);
   let context;
   try { context = await engine.run(indicator); } catch (cause) {
     if (local.unavailable()) throw local.unavailable();
@@ -1275,13 +1280,23 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
 
 
 type RealtimeEngine = PineTS & {
-  setRealtimeMode(enabled: boolean, options: { initialTail: "historical" }): void;
+  setRealtimeMode(enabled: boolean, options: { initialTail: "historical" | "open" }): void;
   updateTail(context: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean>;
 };
+/** Fresh owned data and identical limits for initial runs and viewport reloads. */
+function ownedEngine(request: PineRequest, alerts: Set<string>, initialTail?: "historical" | "open") {
+  const local = chartProvider(request, initialTail !== undefined, alerts);
+  const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
+  bindViewport(engine, request);
+  engine.setMaxLoops(PINE_LIMITS.loops);
+  engine.setTimezone("UTC");
+  if (initialTail !== undefined) engine.setRealtimeMode(true, { initialTail });
+  return { local, engine };
+}
 type LiveState = {
   sessionId: string; sequence: number; confirmed: boolean; request: PineRequest;
   engine: RealtimeEngine; context?: Context; local: ReturnType<typeof chartProvider>;
-  descriptor: PinePrepareResult; inputs: Record<string, PineInputValue>; alerts: Set<string>;
+  indicator: Indicator; descriptor: PinePrepareResult; inputs: Record<string, PineInputValue>; alerts: Set<string>;
 };
 // Each result owns fresh output buffers; only its validated bar index is retained for encoding.
 const liveResultBars = new WeakMap<PineExecutionResult, readonly Candle[]>();
@@ -1312,12 +1327,8 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           if (declaration !== "indicator") error("LIVE_STRATEGY_UNAVAILABLE", "Persistent realtime execution is available only for indicators; strategy tick scheduling is unavailable.");
           const alerts = new Set<string>();
           bindClosedSnapshot(prepared, false, alerts, true, request.context?.quantityStep);
-          const local = chartProvider(request, true, alerts);
-          const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
-          engine.setMaxLoops(PINE_LIMITS.loops);
-          engine.setTimezone("UTC");
-          engine.setRealtimeMode(true, { initialTail: "historical" });
-          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, request, engine, local, descriptor, inputs, alerts };
+          const { local, engine } = ownedEngine(request, alerts, "historical");
+          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, request, engine, local, indicator, descriptor, inputs, alerts };
           state = owner;
           const context = await engine.run(indicator);
           active(owner);
@@ -1325,25 +1336,35 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         } else {
           if (!state) error("LIVE_SEQUENCE", "Initialize the live Pine session before updating it.");
           owner = state;
-          if (command.sessionId !== owner.sessionId) error("LIVE_SESSION_MISMATCH", "The live Pine command belongs to another session.");
           if (command.sequence !== owner.sequence + 1) error("LIVE_SEQUENCE", "Live Pine updates require the exact next sequence.");
-          const bars = owner.request.bars!;
-          const previous = bars[bars.length - 1];
-          const append = command.bar.time > previous.time;
-          if (command.bar.time < previous.time) error("INVALID_BARS", "Live Pine cannot revise the committed chart history.");
-          if (append) {
-            if (!owner.confirmed) error("INVALID_BARS", "Confirm the current Pine bar before appending another bar.");
-            if (command.bar.time !== owner.local.nextTime()) error("INVALID_BARS", "Live Pine accepts exactly the next UTC/calendar chart bucket; gaps require a new session.");
-            if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
-          } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
-          owner.local.reset();
-          owner.local.update(command.bar, append);
-          owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
-          const changed = await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
-          active(owner);
-          if (!changed) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
-          owner.confirmed = command.confirmed;
-          owner.sequence = command.sequence;
+          if (command.action === "viewport") {
+            owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), viewport: command.viewport };
+            if (owner.descriptor.usesVisibleRange) {
+              const { local, engine } = ownedEngine(owner.request, owner.alerts, owner.confirmed ? "historical" : "open");
+              const context = await engine.run(owner.indicator);
+              active(owner);
+              owner.engine = engine; owner.local = local; owner.context = context;
+            }
+            owner.sequence = command.sequence;
+          } else {
+            const bars = owner.request.bars!;
+            const previous = bars[bars.length - 1];
+            const append = command.bar.time > previous.time;
+            if (command.bar.time < previous.time) error("INVALID_BARS", "Live Pine cannot revise the committed chart history.");
+            if (append) {
+              if (!owner.confirmed) error("INVALID_BARS", "Confirm the current Pine bar before appending another bar.");
+              if (command.bar.time !== owner.local.nextTime()) error("INVALID_BARS", "Live Pine accepts exactly the next UTC/calendar chart bucket; gaps require a new session.");
+              if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
+            } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
+            owner.local.reset();
+            owner.local.update(command.bar, append);
+            owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+            const changed = await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
+            active(owner);
+            if (!changed) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
+            owner.confirmed = command.confirmed;
+            owner.sequence = command.sequence;
+          }
         }
         active(owner);
         if (owner.local.unavailable()) throw owner.local.unavailable();

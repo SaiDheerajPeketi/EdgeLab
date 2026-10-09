@@ -53,7 +53,7 @@ const bridge = `(() => {
       return [];
     }
     if (Object.keys(payload).some(key => !['id','status','encoding','result','buffers'].includes(key)) || payload.status !== 'completed') throw new Error('Invalid packed envelope fields');
-    if (!payload.result || Object.keys(payload.result).some(key => !['kind','source','language','pineVersion','declaration','name','overlay','behindChart','inputDefinitions','diagnostics','inputs','plots','lines','lineFills','boxes','labels','polylines','tables','strategy','audit'].includes(key))) throw new Error('Invalid packed result fields');
+    if (!payload.result || Object.keys(payload.result).some(key => !['kind','source','language','pineVersion','declaration','name','overlay','behindChart','usesVisibleRange','inputDefinitions','diagnostics','inputs','plots','lines','lineFills','boxes','labels','polylines','tables','strategy','audit'].includes(key))) throw new Error('Invalid packed result fields');
     const plots = payload.result?.plots, buffers = payload.buffers;
     if (!Array.isArray(plots) || plots.length > 64 || !Array.isArray(buffers) || Object.getPrototypeOf(buffers) !== Array.prototype || Reflect.ownKeys(buffers).some(key => typeof key !== 'string' || (key !== 'length' && (!/^(0|[1-9]\\d*)$/.test(key) || Number(key) >= buffers.length))) || buffers.length !== plots.length * 3) throw new Error('Invalid packed envelope');
     let bytes = 0;
@@ -227,6 +227,7 @@ export function createSandboxWorkerSession<Request, Result>(options: {
   timeoutMs: number;
   maxQueued: number;
   updateTimeoutMs?: number;
+  requestTimeoutMs?(request: Request): number;
 }): SandboxSession<Request, Result> {
   type Entry = { request: Request; resolve(value: Result): void; reject(error: unknown): void };
   const queue: Entry[] = [];
@@ -270,7 +271,7 @@ export function createSandboxWorkerSession<Request, Result>(options: {
   const dispatch = () => {
     if (!frame || !ready || !loaded || pending || settling || stopped || !queue.length) return;
     pending = queue.shift()!;
-    arm(started ? options.updateTimeoutMs ?? options.timeoutMs : options.timeoutMs);
+    arm(options.requestTimeoutMs?.(pending.request) ?? (started ? options.updateTimeoutMs ?? options.timeoutMs : options.timeoutMs));
     if (!started) {
       started = true;
       frame.contentWindow?.postMessage({ nonce, type: "start", workerSource, request: pending.request }, "*");

@@ -5,6 +5,7 @@ import { PineInputAnchors } from "./PineInputAnchors";
 import { PineChartInputPicker } from "./PineChartInputPicker";
 import { pineInputPickerOwner } from "../lib/pineChartInputPicker";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useId,
@@ -181,12 +182,14 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { PresetApplyDropdown } from "./PresetApplyDropdown";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
+import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
 import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
-import type { PineExecutionResult, PineInputValue } from "../lib/pineProtocol";
+import type { PineExecutionResult, PineInputValue, PineViewport } from "../lib/pineProtocol";
+import { pineViewportFromSeries, pineViewportMatches } from "../lib/pineViewport";
 import { pineAnchorActive, pineInputAnchors } from "../lib/pineInteractiveInputs";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { PineInputControl } from "./PineInputControl";
@@ -321,9 +324,10 @@ type SnapshotRuntimeResults = {
   studies: CustomRuntimeStudy[];
   warnings: Record<string, Omit<PineChartNoticeStudy, "id" | "name">>;
   markers: Record<string, SeriesMarker<UTCTimestamp>[]>;
+  viewports: Record<string, PineViewport | null>;
 };
 
-const EMPTY_SNAPSHOT_RESULTS: SnapshotRuntimeResults = { owner: null, studies: [], warnings: {}, markers: {} };
+const EMPTY_SNAPSHOT_RESULTS: SnapshotRuntimeResults = { owner: null, studies: [], warnings: {}, markers: {}, viewports: {} };
 
 type DraftDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
@@ -559,6 +563,7 @@ export function TradingChart({
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const pineInstallationsRef = useRef(new Set<{ dispose(): void }>());
+  const pineOverlayStudiesRef = useRef(new Map<string, { plots: PineChartPlot[]; scale: string; anchorTime?: number; installation: { dispose(): void } }>());
   const primarySeriesRef = useRef<PrimaryChartSeries | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
@@ -579,6 +584,20 @@ export function TradingChart({
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
   const [snapshotRuntimeResults, setSnapshotRuntimeResults] = useState<SnapshotRuntimeResults>(EMPTY_SNAPSHOT_RESULTS);
+  const [pineViewport, setPineViewport] = useState<PineViewport | null>(null);
+  const pineViewportRef = useRef(pineViewport);
+  pineViewportRef.current = pineViewport;
+  const reconcileSnapshotViewportRef = useRef<(() => void) | null>(null);
+  const pineDependenciesRef = useRef(new Map<string, boolean>());
+  const capturePineViewport = useCallback(() => {
+    const chart = chartRef.current, series = primarySeriesRef.current;
+    if (!chart || !series) return;
+    const range = chart.timeScale().getVisibleLogicalRange();
+    const next = pineViewportFromSeries(range ? series.barsInLogicalRange(range) : null);
+    if (pineViewportMatches(next, pineViewportRef.current)) return;
+    pineViewportRef.current = next;
+    setPineViewport(next);
+  }, []);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
@@ -697,10 +716,27 @@ export function TradingChart({
     sessionTemplate,
   ]);
   const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
+  const runtimeIndicatorsRef = useRef(indicatorInstances);
+  const runtimeStateIndicatorsRef = useRef(indicatorInstances);
+  runtimeStateIndicatorsRef.current = indicatorInstances;
+  // Error acknowledgments are presentation state, not a new calculation owner.
+  const runtimeIndicatorInstances = useMemo(() => {
+    const previous = runtimeIndicatorsRef.current;
+    const same = previous.length === indicatorInstances.length && indicatorInstances.every((indicator, index) => {
+      const old = previous[index];
+      if (indicator === old) return true;
+      const keys = Object.keys(indicator).filter(key => key !== "runtimeError") as Array<keyof ChartIndicatorInstance>;
+      return keys.length === Object.keys(old).filter(key => key !== "runtimeError").length
+        && keys.every(key => indicator[key] === old[key]);
+    });
+    if (same) return previous;
+    runtimeIndicatorsRef.current = indicatorInstances;
+    return indicatorInstances;
+  }, [indicatorInstances]);
   const persistentPineFeed = indicatorRuntimeMode === "live" && chartSettings.tradingHoursMode === "extended"
     && ["crypto-24x7", "always-open"].includes(sessionTemplate.id) ? pineLiveFeed : undefined;
   const pineInstrument = usePineInstrumentContext(symbol ?? "", timeframe, pineLiveFeed, indicatorInstances.some(indicator => indicator.visible !== false && Boolean(indicator.customScriptSource) && isPineScriptSource(indicator.customScriptSource!)));
-  const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, sourceBars: sessionBars, sourceTimeframe: datasetTimeframe, indicators: indicatorInstances,
+  const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, sourceBars: sessionBars, sourceTimeframe: datasetTimeframe, indicators: runtimeIndicatorInstances,
     mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, metadataKey: pineInstrument.key, feed: pineLiveFeed,
     feedEpoch: pineLiveFeed?.getSnapshot().epoch, userId: authSession?.user.id, token: authSession?.token };
   // Expose an opaque lifetime key to the overlay, never an auth token or source text.
@@ -711,17 +747,27 @@ export function TradingChart({
   // and notices from being attributed to the newly selected chart/account.
   const ownedSnapshot = chartRuntimeOwnerMatches(snapshotRuntimeResults.owner, runtimeOwner)
     ? snapshotRuntimeResults : EMPTY_SNAPSHOT_RESULTS;
-  const snapshotRuntimeStudies = ownedSnapshot.studies;
-  const snapshotRuntimeWarnings = ownedSnapshot.warnings;
-  const pineStrategyMarkers = ownedSnapshot.markers;
+  const snapshotRuntimeStudies = useMemo(() => ownedSnapshot.studies.filter(study =>
+    !(study.sourceId in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[study.sourceId], pineViewport)), [ownedSnapshot, pineViewport]);
+  const snapshotRuntimeWarnings = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.warnings).filter(([id]) =>
+    !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
+  const pineStrategyMarkers = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.markers).filter(([id]) =>
+    !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
   const livePine = useLivePineRuntime({ feed: persistentPineFeed, context: pineInstrument.context,
     contextLoading: pineInstrument.loading, contextError: pineInstrument.error, metadataKey: pineInstrument.key,
-    timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token,
+    timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token, viewport: pineViewport,
     onRuntimeState: onIndicatorRuntimeState });
+  const livePineAdaptationRef = useRef(new WeakMap<PineExecutionResult, { bars: Candle[]; adapted: ReturnType<typeof adaptPineChartResult> }>());
   const livePineAdapted = useMemo(() => livePine.flatMap(study => {
     const indicator = indicatorInstances.find(item => item.id === study.sourceId && item.visible !== false);
     if (!indicator) return [];
-    return [{ ...study, indicator, adapted: study.result ? adaptPineChartResult(study.result, study.bars) : null }];
+    let adapted: ReturnType<typeof adaptPineChartResult> | null = null;
+    if (study.result) {
+      const cached = livePineAdaptationRef.current.get(study.result);
+      adapted = cached?.bars === study.bars ? cached.adapted : adaptPineChartResult(study.result, study.bars);
+      if (cached?.bars !== study.bars) livePineAdaptationRef.current.set(study.result, { bars: study.bars, adapted });
+    }
+    return [{ ...study, indicator, adapted }];
   }), [livePine, indicatorInstances]);
   const customRuntimeStudies = useMemo(() => [...snapshotRuntimeStudies, ...livePineAdapted.flatMap(study => {
     if (study.error) return [emptyCustomRuntimeStudy(study.indicator, study.error)];
@@ -731,10 +777,10 @@ export function TradingChart({
       return { color: plot.color, data: latest ? [latest] : [], error: null,
         id: `${study.sourceId}-${plot.id}`, label: `${study.result!.name} · ${plot.name}`,
         overlay: plot.overlay, plotName: plot.name, sourceId: study.sourceId, pinePlot: plot,
-        ...(plot.kind === "barcolor" ? { barcolorOwner: { bars: displayBars, indicators: indicatorInstances,
+        ...(plot.kind === "barcolor" ? { barcolorOwner: { bars: displayBars, indicators: runtimeIndicatorInstances,
           mode: indicatorRuntimeMode, symbol, timeframe, token: authSession?.token } } : {}) };
     });
-  })], [snapshotRuntimeStudies, livePineAdapted, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession?.token]);
+  })], [snapshotRuntimeStudies, livePineAdapted, displayBars, indicatorInstances, runtimeIndicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession?.token]);
   const customRuntimeWarnings = useMemo(() => ({ ...snapshotRuntimeWarnings,
     ...Object.fromEntries(livePineAdapted.flatMap(study => study.result && study.adapted ? [[study.sourceId,
       { diagnostics: study.result.diagnostics, adapterWarnings: study.adapted.adapterWarnings }]] : [])) }), [snapshotRuntimeWarnings, livePineAdapted]);
@@ -744,12 +790,12 @@ export function TradingChart({
     return customRuntimeStudies.flatMap((study) => {
       const owner = study.barcolorOwner;
       return study.sourceId === indicator.id && study.pinePlot?.kind === "barcolor" && owner
-        && owner.bars === displayBars && owner.indicators === indicatorInstances
+        && owner.bars === displayBars && owner.indicators === runtimeIndicatorInstances
         && owner.mode === indicatorRuntimeMode && owner.symbol === symbol && owner.timeframe === timeframe
         && owner.token === authSession?.token
         ? [study.pinePlot] : [];
     });
-  }), [authSession?.token, customRuntimeStudies, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe]);
+  }), [authSession?.token, customRuntimeStudies, displayBars, indicatorInstances, runtimeIndicatorInstances, indicatorRuntimeMode, symbol, timeframe]);
   const pineBarcolors = useMemo(() => projectPineBarColors(pineBarcolorPlots, displayBars), [pineBarcolorPlots, displayBars]);
 
   const candleData = useMemo(
@@ -827,11 +873,17 @@ export function TradingChart({
     ],
     [customRuntimeStudies, nativeIndicatorDefinitions],
   );
+  const pinePaneGroupsRef = useRef(new Map<string, PineChartPlot[]>());
   const pinePaneGroups = useMemo(() => {
     const groups = new Map<string, PineChartPlot[]>();
     customRuntimeStudies.forEach((study) => {
       if (!study.overlay && study.pinePlot) groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study.pinePlot]);
     });
+    for (const [id, plots] of groups) {
+      const previous = pinePaneGroupsRef.current.get(id);
+      if (previous?.length === plots.length && plots.every((plot, index) => previous[index] === plot)) groups.set(id, previous);
+    }
+    pinePaneGroupsRef.current = groups;
     return groups;
   }, [customRuntimeStudies]);
   const customHeaderGroups = useMemo(() => {
@@ -850,7 +902,7 @@ export function TradingChart({
   );
 
   useEffect(() => {
-    const customInstances = indicatorInstances.filter(
+    const customInstances = runtimeIndicatorInstances.filter(
       (indicator) => indicator.kind === "custom" && indicator.visible !== false
         && !(persistentPineFeed && isPersistentPineIndicator(indicator)),
     );
@@ -866,27 +918,60 @@ export function TradingChart({
         && storedAuth?.token === capturedContext.token && storedAuth?.user.id === capturedContext.userId
         && capturedContext.feedEpoch === pineLiveFeed?.getSnapshot().epoch;
     };
-    const jobs: ReturnType<typeof createCustomScriptRuntimeJob>[] = [];
+    type Entry = { indicator: ChartIndicatorInstance; nativePine: boolean; generation: number; dependent?: boolean;
+      viewport: PineViewport | null; job?: ReturnType<typeof createCustomScriptRuntimeJob>; preparation?: ReturnType<typeof createPineRuntimeJob>; timer?: ReturnType<typeof setTimeout> };
+    const entries = new Map<string, Entry>();
+    const reportRuntimeState = (id: string, error: string | null) => {
+      const current = runtimeStateIndicatorsRef.current.find(indicator => indicator.id === id);
+      if (current && (current.runtimeError ?? null) !== error) onIndicatorRuntimeState?.(id, error);
+    };
+    const learnDependency = (entry: Entry, dependent: boolean) => {
+      entry.dependent = dependent;
+      const source = entry.indicator.customScriptSource!;
+      const cache = pineDependenciesRef.current;
+      cache.delete(source); cache.set(source, dependent);
+      if (cache.size > 64) cache.delete(cache.keys().next().value!);
+    };
     setSnapshotRuntimeResults({ ...EMPTY_SNAPSHOT_RESULTS, owner: capturedContext });
-    const publish = (id: string, studies: CustomRuntimeStudy[], warning?: SnapshotRuntimeResults["warnings"][string], markers?: SeriesMarker<UTCTimestamp>[]) => {
-      if (!ownsResult()) return;
+    const publish = (id: string, studies: CustomRuntimeStudy[], warning?: SnapshotRuntimeResults["warnings"][string], markers?: SeriesMarker<UTCTimestamp>[], viewport?: PineViewport | null, ownsEntry = ownsResult) => {
+      if (!ownsEntry()) return;
       setSnapshotRuntimeResults((previous) => {
-        if (!ownsResult()) return previous;
+        if (!ownsEntry()) return previous;
         const current = chartRuntimeOwnerMatches(previous.owner, capturedContext) ? previous : EMPTY_SNAPSHOT_RESULTS;
+        const warnings = { ...current.warnings }, nextMarkers = { ...current.markers }, viewports = { ...current.viewports };
+        delete warnings[id]; delete nextMarkers[id]; delete viewports[id];
+        if (warning) warnings[id] = warning;
+        if (markers) nextMarkers[id] = markers;
+        if (viewport !== undefined) viewports[id] = viewport;
         return { owner: capturedContext,
           studies: [...current.studies.filter((study) => study.sourceId !== id), ...studies],
-          warnings: { ...current.warnings, ...(warning ? { [id]: warning } : {}) },
-          markers: { ...current.markers, ...(markers ? { [id]: markers } : {}) } };
+          warnings, markers: nextMarkers, viewports };
       });
     };
-    customInstances.forEach((indicator) => {
+    const queueViewport = (entry: Entry) => {
+      if (!ownsResult() || entry.dependent !== true || pineViewportMatches(entry.viewport, pineViewportRef.current)) return;
+      entry.generation += 1;
+      entry.job?.cancel(); entry.job = undefined;
+      entry.preparation?.cancel(); entry.preparation = undefined;
+      if (entry.timer !== undefined) clearTimeout(entry.timer);
+      entry.viewport = pineViewportRef.current;
+      publish(entry.indicator.id, []);
+      // Invalidate immediately, then settle pan/zoom bursts before a full historical run.
+      entry.timer = setTimeout(() => { entry.timer = undefined; run(entry); }, 80);
+    };
+    const run = (entry: Entry) => {
+      const { indicator, nativePine } = entry;
+      const generation = ++entry.generation;
+      entry.viewport = pineViewportRef.current;
+      const viewport = entry.viewport;
+      const ownsEntry = () => ownsResult() && entries.get(indicator.id) === entry && entry.generation === generation
+        && (entry.dependent !== true || pineViewportMatches(viewport, pineViewportRef.current));
       if (!indicator.customScriptSource) {
         const error = "This custom indicator has no saved script source.";
         publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
-        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+        reportRuntimeState(indicator.id, error);
         return;
       }
-      const nativePine = isPineScriptSource(indicator.customScriptSource);
       const snapshot = nativePine && indicatorRuntimeMode === "live"
         ? displayBars.filter((bar) => bar.time < bucketTime(Math.floor(Date.now() / 1000), timeframe)).slice(-20_000)
         : displayBars.slice(-20_000);
@@ -904,19 +989,24 @@ export function TradingChart({
           inputs: indicator.settings.customInputs,
           inputMetadata: nativePine ? (sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource) ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource)) : undefined,
           strategySettings: nativePine ? indicator.settings.pineStrategySettings : undefined,
+          viewport: nativePine ? viewport : undefined,
           mode: indicatorRuntimeMode,
           source: indicator.customScriptSource,
         });
       } catch (failure) {
         const error = failure instanceof Error ? failure.message : "Invalid chart script context.";
-        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
-        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)], undefined, undefined, entry.dependent ? viewport : undefined, ownsEntry);
+        reportRuntimeState(indicator.id, error);
         return;
       }
-      jobs.push(job);
+      entry.job = job;
       void job.promise.then((result) => {
-        if (!ownsResult()) return;
+        if (!ownsResult() || entries.get(indicator.id) !== entry || entry.generation !== generation) return;
         const nativeResult = "language" in result && result.language === "pine" ? result as PineExecutionResult : null;
+        if (nativeResult && typeof nativeResult.usesVisibleRange === "boolean") learnDependency(entry, nativeResult.usesVisibleRange);
+        // Older saved metadata may not know the dependency. Learn it from the genuine
+        // compiler before accepting an initial result that used an obsolete window.
+        if (!ownsEntry()) { queueViewport(entry); return; }
         const adapted = nativeResult ? adaptPineChartResult(nativeResult, snapshot) : null;
         const studies = adapted ? adapted.plots.map((plot): CustomRuntimeStudy => {
           const latest = latestPineChartPoint(plot);
@@ -925,7 +1015,7 @@ export function TradingChart({
             error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
             overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
             ...(plot.kind === "barcolor" ? { barcolorOwner: {
-              bars: displayBars, indicators: indicatorInstances,
+              bars: displayBars, indicators: runtimeIndicatorInstances,
               mode: capturedContext.mode, symbol: capturedContext.symbol,
               timeframe, token: capturedContext.token,
             } } : {}),
@@ -934,20 +1024,49 @@ export function TradingChart({
         publish(indicator.id, studies, adapted ? {
             diagnostics: nativeResult!.diagnostics,
             adapterWarnings: adapted.adapterWarnings,
-          } : undefined, adapted?.strategyMarkers);
-        if (indicator.runtimeError) onIndicatorRuntimeState?.(indicator.id, null);
-      }).catch((failure) => {
-        if (!ownsResult() || (failure instanceof Error && "code" in failure && failure.code === "CANCELLED")) return;
+          } : undefined, adapted?.strategyMarkers, entry.dependent ? viewport : undefined, ownsEntry);
+        reportRuntimeState(indicator.id, null);
+      }).catch(async (failure) => {
+        if (!ownsResult() || entries.get(indicator.id) !== entry || entry.generation !== generation
+          || (failure instanceof Error && "code" in failure && failure.code === "CANCELLED")) return;
+        // A failed run cannot return dependency metadata. Prepare only this unknown
+        // source so a deliberate error in an empty window can recover after panning.
+        if (nativePine && entry.dependent === undefined) {
+          const preparation = createPineRuntimeJob({ action: "prepare", source: indicator.customScriptSource! });
+          entry.preparation = preparation;
+          try {
+            const prepared = await preparation.promise;
+            if (!ownsResult() || entries.get(indicator.id) !== entry || entry.generation !== generation) return;
+            if (typeof prepared.usesVisibleRange === "boolean") learnDependency(entry, prepared.usesVisibleRange);
+          } catch { /* Keep the original execution error when compilation cannot establish a dependency. */ }
+          finally { if (entry.preparation === preparation) entry.preparation = undefined; }
+        }
+        if (!ownsEntry()) { queueViewport(entry); return; }
         const error = failure instanceof Error ? failure.message : "Indicator execution failed.";
-        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)]);
-        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+        publish(indicator.id, [emptyCustomRuntimeStudy(indicator, error)], undefined, undefined, entry.dependent ? viewport : undefined, ownsEntry);
+        reportRuntimeState(indicator.id, error);
       });
+    };
+    customInstances.forEach(indicator => {
+      const nativePine = Boolean(indicator.customScriptSource && isPineScriptSource(indicator.customScriptSource));
+      const prepared = nativePine ? sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!)
+        ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+      const dependent = nativePine ? pineDependenciesRef.current.get(indicator.customScriptSource!) ?? prepared?.usesVisibleRange : undefined;
+      const entry: Entry = { indicator, nativePine, generation: 0, dependent, viewport: pineViewportRef.current };
+      entries.set(indicator.id, entry);
+      run(entry);
     });
+    const reconcileViewport = () => entries.forEach(queueViewport);
+    reconcileSnapshotViewportRef.current = reconcileViewport;
     return () => {
       active = false;
-      jobs.forEach((job) => job.cancel());
+      if (reconcileSnapshotViewportRef.current === reconcileViewport) reconcileSnapshotViewportRef.current = null;
+      entries.forEach(entry => { entry.job?.cancel(); entry.preparation?.cancel(); if (entry.timer !== undefined) clearTimeout(entry.timer); });
+      entries.clear();
     };
-  }, [authSession, displayBars, sessionBars, datasetTimeframe, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe, pineInstrument.key, pineInstrument.context, pineInstrument.loading, pineInstrument.error]);
+  }, [authSession, displayBars, sessionBars, datasetTimeframe, runtimeIndicatorInstances, indicatorRuntimeMode, persistentPineFeed, pineLiveFeed, runtimeContextKey, runtimeOwner.feedEpoch, symbol, timeframe, pineInstrument.key, pineInstrument.context, pineInstrument.loading, pineInstrument.error]);
+
+  useEffect(() => { reconcileSnapshotViewportRef.current?.(); }, [pineViewport]);
 
   useEffect(() => {
     if (!drawingControlsActive) {
@@ -1628,6 +1747,7 @@ export function TradingChart({
     });
     const handleVisibleRangeChange = () => {
       refreshDrawingLayer();
+      capturePineViewport();
       if (syncApplyingRef.current || !onVisibleRangeSyncRef.current) return;
       const range = chart.timeScale().getVisibleRange();
       if (!range || typeof range.from !== "number" || typeof range.to !== "number") return;
@@ -1642,6 +1762,7 @@ export function TradingChart({
     const stopObservingSize = observeSharedChartSize(chartContainer, ({ height, width }) => {
       chart.resize(width, height);
       refreshDrawingLayer();
+      capturePineViewport();
     });
 
     return () => {
@@ -1651,6 +1772,7 @@ export function TradingChart({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       pineInstallationsRef.current.forEach((installation) => installation.dispose());
       pineInstallationsRef.current.clear();
+      pineOverlayStudiesRef.current.clear();
       chart.remove();
       chartRef.current = null;
       primarySeriesRef.current = null;
@@ -1664,7 +1786,7 @@ export function TradingChart({
       volumeSeriesDataRef.current = [];
       indicatorRefs.current = {};
     };
-  }, [candleSnapshotStore, paneId]);
+  }, [candleSnapshotStore, capturePineViewport, paneId]);
 
   useLayoutEffect(() => {
     const chart = chartRef.current;
@@ -1924,11 +2046,13 @@ export function TradingChart({
     if (dataChanged) {
       setPlotVersion((value) => value + 1);
     }
+    capturePineViewport();
     return () => {
       resetFrames.forEach((frame) => window.cancelAnimationFrame(frame));
     };
   }, [
     candleData,
+    capturePineViewport,
     chartSettings.volume,
     chartStyle,
     closeLineData,
@@ -2098,13 +2222,28 @@ export function TradingChart({
   useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const plots = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot ? [study.pinePlot] : []);
-    const installed = installPineChartPlots(chart, plots, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement), { allowFillOnlyScale: false, scaleAnchor: barsRef.current.at(-1) });
-    pineInstallationsRef.current.add(installed);
-    return () => {
-      pineInstallationsRef.current.delete(installed);
-      installed.dispose();
-    };
+    const groups = new Map<string, PineChartPlot[]>();
+    customRuntimeStudies.forEach(study => {
+      if (study.overlay && study.pinePlot) groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study.pinePlot]);
+    });
+    const scale = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
+    const installedStudies = pineOverlayStudiesRef.current;
+    for (const [id, installed] of installedStudies) {
+      const plots = groups.get(id);
+      if (plots?.length === installed.plots.length && plots.every((plot, index) => plot === installed.plots[index])
+        && scale === installed.scale && latestDisplayBarTime === installed.anchorTime) {
+        groups.delete(id);
+        continue;
+      }
+      pineInstallationsRef.current.delete(installed.installation);
+      installed.installation.dispose();
+      installedStudies.delete(id);
+    }
+    groups.forEach((plots, id) => {
+      const installation = installPineChartPlots(chart, plots, scale, { allowFillOnlyScale: false, scaleAnchor: barsRef.current.at(-1) });
+      pineInstallationsRef.current.add(installation);
+      installedStudies.set(id, { plots, scale, anchorTime: latestDisplayBarTime, installation });
+    });
   }, [customRuntimeStudies, chartSettings.scalePlacement, paneId, latestDisplayBarTime]);
 
   useEffect(() => {

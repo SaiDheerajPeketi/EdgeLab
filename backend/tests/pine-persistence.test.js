@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { pathToFileURL } from "node:url";
-import { buildSync } from "esbuild";
+import { build, buildSync } from "esbuild";
+import { createPineEnginePlugin } from "../../scripts/pine-engine.mjs";
 
 const directory = mkdtempSync(path.join(tmpdir(), "edgelab-pine-persistence-"));
 const bundle = path.join(directory, "persistence.mjs");
@@ -95,7 +96,7 @@ test("chart context translates EdgeLab timeframes without inventing instrument m
 });
 
 test("starter indicator and strategy prepare and execute in the native engine", async () => {
-  const workerBundle = buildSync({ entryPoints: ["frontend/src/workers/pineNative.worker.ts"], bundle: true, platform: "browser", format: "esm", target: "es2020", write: false, logLevel: "silent" }).outputFiles[0].text;
+  const workerBundle = (await build({ plugins: [createPineEnginePlugin()], entryPoints: ["frontend/src/workers/pineNative.worker.ts"], bundle: true, platform: "browser", format: "esm", target: "es2020", write: false, logLevel: "silent" })).outputFiles[0].text;
   const pine = await import(`data:text/javascript;base64,${Buffer.from(workerBundle).toString("base64")}`);
   const bars = Array.from({ length: 180 }, (_, index) => {
     const close = 100 + Math.sin(index / 8) * 12;
