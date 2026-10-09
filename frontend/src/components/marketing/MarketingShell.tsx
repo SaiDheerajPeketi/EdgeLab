@@ -1,4 +1,4 @@
-import { ArrowRight, Menu, X } from "lucide-react";
+import { ArrowRight, Menu, Pause, Play, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -12,9 +12,9 @@ import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { StudioAttribution } from "../brand/StudioAttribution";
 import { isBetaMode } from "../../lib/deploymentMode";
-import { loadGsap, prefersReducedMotion } from "../../lib/gsap";
+import { loadGsap } from "../../lib/gsap";
 import { buildMarketingCta } from "../../lib/marketingCta";
-import { useReducedMotionPreference } from "../../lib/motionPreferences";
+import { prefersMarketingReducedMotion, setMarketingMotionChoice, useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
 type NavItem = {
@@ -143,7 +143,7 @@ export function MarketingShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeHref, setActiveHref] = useState<string | null>(null);
-  const reducedMotion = useReducedMotionPreference();
+  const reducedMotion = useMarketingReducedMotionPreference();
   const shellRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLElement | null>(null);
@@ -316,7 +316,7 @@ export function MarketingShell({
 
         try {
           context = gsap.context(() => {
-            const reduceMotion = prefersReducedMotion();
+            const reduceMotion = prefersMarketingReducedMotion();
             const revealEase =
               plugins.CustomEase?.create("edgelab-reveal", "0.16,1,0.3,1") ?? "power3.out";
             const headerNodes = Array.from(
@@ -489,7 +489,7 @@ export function MarketingShell({
       const top = target.getBoundingClientRect().top + window.scrollY - headerOffset - 12;
       window.history.replaceState(null, "", hash);
 
-      if (reducedMotion || prefersReducedMotion()) {
+      if (reducedMotion || prefersMarketingReducedMotion()) {
         window.scrollTo({ top, behavior: "auto" });
         return;
       }
@@ -527,6 +527,7 @@ export function MarketingShell({
   return (
     <div
       className="relative min-h-screen max-w-[100vw] overflow-x-clip bg-edgelab-base text-edgelab-text-primary"
+      data-marketing-motion={reducedMotion ? "reduced" : "full"}
       ref={shellRef}
     >
       <div className="pointer-events-none absolute inset-0">
@@ -567,6 +568,17 @@ export function MarketingShell({
                 />
               ))}
             </nav>
+
+            <button
+              aria-label={reducedMotion ? "Enable animations" : "Pause animations"}
+              title={reducedMotion ? "Enable page animations for this tab" : "Pause page animations for this tab"}
+              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-el-md px-2 text-xs text-edgelab-text-secondary hover:text-edgelab-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
+              type="button"
+            >
+              {reducedMotion ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
+              <span className="hidden xl:inline">{reducedMotion ? "Enable animations" : "Pause animations"}</span>
+            </button>
 
             <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
               <Link

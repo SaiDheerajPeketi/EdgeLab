@@ -17,15 +17,23 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-motion-content,
+  :is(.landing-motion-content,
   [data-marketing-reveal],
   [data-marketing-flow],
   .landing-story [data-flow-row],
   .landing-story [data-scene-content],
-  .landing-story :is(h2, h3, p) {
+  .landing-story :is(h2, h3, p)):not([data-marketing-motion="full"] *) {
     opacity: 1 !important;
     transform: none !important;
   }
+}
+
+[data-marketing-motion="reduced"] *,
+[data-marketing-motion="reduced"] *::before,
+[data-marketing-motion="reduced"] *::after {
+  animation: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
 }
 
 @font-face {
@@ -253,7 +261,9 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *:not([data-marketing-motion="full"], [data-marketing-motion="full"] *),
+  *:not([data-marketing-motion="full"], [data-marketing-motion="full"] *)::before,
+  *:not([data-marketing-motion="full"], [data-marketing-motion="full"] *)::after {
     animation: none !important;
     animation-delay: 0s !important;
     scroll-behavior: auto !important;
@@ -351,7 +361,7 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 
 @media (prefers-reduced-motion: reduce) {
   .ui-route-transition { animation: none !important; contain: none; }
-  [data-motion], [data-marketing-reveal], .edgelab-mesh { animation: none !important; transform: none !important; }
+  :is([data-motion], [data-marketing-reveal], .edgelab-mesh):not([data-marketing-motion="full"] *) { animation: none !important; transform: none !important; }
 }
 
 /* EdgeLab typography utilities — used across landing + app retheme. */
@@ -560,17 +570,17 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
     scroll-behavior: auto !important;
   }
 
-  .edgelab-float-metric,
+  :is(.edgelab-float-metric,
   .edgelab-mesh,
   .edgelab-stage-enter,
-  .edgelab-word-reveal {
+  .edgelab-word-reveal):not([data-marketing-motion="full"] *) {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
   }
 
-  .edgelab-marquee-active,
-  .edgelab-marquee-paused {
+  :is(.edgelab-marquee-active,
+  .edgelab-marquee-paused):not([data-marketing-motion="full"] *) {
     animation: none !important;
     transform: translate3d(0, 0, 0) !important;
     will-change: auto;

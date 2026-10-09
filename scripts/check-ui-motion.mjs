@@ -50,7 +50,7 @@ assert.match(landing, /const isRunning = isActive && !isPaused && !reducedMotion
 assert.match(landing, /if \(!isRunning\)/);
 assert.match(landing, /isRunning \? "edgelab-marquee-active" : "edgelab-marquee-paused"/);
 const hero = fs.readFileSync(path.join(sourceRoot, "components/marketing/HeroDemo.tsx"), "utf8");
-assert.match(hero, /if \(reducedMotion(?: \|\| prefersReducedMotion\(\))?\)\s*\{\s*return;/);
+assert.match(hero, /if \(reducedMotion(?: \|\| prefers(?:Marketing)?ReducedMotion\(\))?\)\s*\{\s*return;/);
 assert.match(hero, /stageTransitionRef\.current\?\.kill\(\)/);
 assert.match(hero, /IntersectionObserver/);
 const shell = fs.readFileSync(path.join(sourceRoot, "components/marketing/MarketingShell.tsx"), "utf8");

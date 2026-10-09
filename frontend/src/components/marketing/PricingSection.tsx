@@ -70,7 +70,7 @@ const publicFaqItems: FaqItem[] = [
   { question: "Can I change or cancel my subscription?", answer: "Open Account and choose Manage billing to use Stripe’s customer portal. When cancellation is scheduled for the end of a billing period, access continues until that period ends. Signing out does not cancel a subscription." },
   { question: "Can I bring my own CSV data?", answer: "Yes. Import market datasets with instrument and timeframe metadata, or import backtest trades with preview, column mapping, and skipped-row reporting. Market-data rights and provider licences remain your responsibility." },
   { question: "Can I export my data?", answer: "An active paid subscription enables application-data JSON, trade CSV, and chart-image exports. Large market-data files are not included in the JSON bundle. Keep separate copies of important records; exports are unavailable after paid access ends." },
-  { question: "Does Pro include live data and AI?", answer: "Pro includes the software workspace. Supported live data, broker synchronisation, and AI integrations require their own configured providers, credentials, permissions, and any applicable fees. Footprint and TPO need qualified trade-level data; candle-only feeds do not unlock order flow." },
+  { question: "Does Pro include live data and AI?", answer: "Pro includes the software workspace. Live feeds, broker connections, and AI services use your own accounts and may charge separately. Order-flow views use individual trade data; candle-only imports support candle charts." },
 ];
 
 export function getPricingFaqItems(mode: DeploymentMode): FaqItem[] {

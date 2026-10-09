@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useReducedMotionPreference } from "../../lib/motionPreferences";
+import { useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
 import { CANDLES, PRICE_SCALE, ENTRY_INDEX, EXIT_INDEX, FLOOR_Y, STOP_PRICE, WORLD_YAW, CAMERA_FOV, candlePosition, priceY } from "../../lib/marketSculptureGeometry";
 import { MarketSculptureProjection } from "./MarketSculptureProjection";
 import type { BufferGeometry, InstancedMesh, Material, Object3D, WebGLRenderer } from "three";
@@ -28,7 +28,7 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
   const [size, setSize] = useState({ width: 600, height: 500 });
   const [projectionScroll, setProjectionScroll] = useState(0);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
-  const reducedMotion = useReducedMotionPreference();
+  const reducedMotion = useMarketingReducedMotionPreference();
   const orbit = (x: number, y: number) => setView((current) => ({
     yaw: Math.max(-0.42, Math.min(0.42, current.yaw + x)),
     pitch: Math.max(-0.3, Math.min(0.3, current.pitch + y)),

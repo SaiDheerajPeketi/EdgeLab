@@ -10,7 +10,7 @@ import {
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
 import { buildMarketingCta } from "../lib/marketingCta";
-import { useReducedMotionPreference } from "../lib/motionPreferences";
+import { useMarketingReducedMotionPreference } from "../lib/marketingMotion";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 const HeroDemo = lazy(() => import("../components/marketing/HeroDemo").then((module) => ({ default: module.HeroDemo })));
@@ -115,7 +115,7 @@ function MarketTape() {
   const [items, setItems] = useState(MARKET_PULSE);
   const [isActive, setIsActive] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
-  const reducedMotion = useReducedMotionPreference();
+  const reducedMotion = useMarketingReducedMotionPreference();
   const isRunning = isActive && !isPaused && !reducedMotion;
 
   useEffect(() => {

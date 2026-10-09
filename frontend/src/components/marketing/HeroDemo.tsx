@@ -14,9 +14,9 @@ import { appendDemoReplay, createDemoReplay, demoVisibleBarCount } from "../../l
 import { MetricsBar } from "../MetricsBar";
 import { ResultsPanel } from "../ResultsPanel";
 import { TradeLog } from "../TradeLog";
-import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
+import { loadGsap, type GsapPlugins } from "../../lib/gsap";
 import type { BacktestSession, Metrics, Playbook, Trade } from "../../lib/api";
-import { useReducedMotionPreference } from "../../lib/motionPreferences";
+import { prefersMarketingReducedMotion, useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
 import { isRichTextEmpty, normalizeStoredNoteHtml, sanitizeRichTextHtml } from "../../lib/richText";
 import { formatMarketSymbol } from "../../lib/symbols";
 import { tradeStrategyName } from "../../lib/strategy";
@@ -1236,7 +1236,7 @@ export function HeroDemo({
   const [visibleScenarioId, setVisibleScenarioId] = useState(initialScenarioId ?? SCENARIOS[0]?.id ?? "replay");
   const [autoplayActive, setAutoplayActive] = useState(initialAutoplayActive ?? true);
   const [demoVisible, setDemoVisible] = useState(true);
-  const reducedMotion = useReducedMotionPreference();
+  const reducedMotion = useMarketingReducedMotionPreference();
   const [selectedReviewTradeId, setSelectedReviewTradeId] = useState<number | null>(
     SCENARIOS.find((item) => item.id === "review")?.featuredTradeId ??
       SCENARIOS.find((item) => item.id === "review")?.trades[0]?.id ??
@@ -1412,7 +1412,7 @@ export function HeroDemo({
     transitionedScenarioIdRef.current = nextScenarioId;
     setVisibleScenarioId(nextScenarioId);
 
-    if (reducedMotion || prefersReducedMotion()) {
+    if (reducedMotion || prefersMarketingReducedMotion()) {
       return;
     }
 
@@ -1465,7 +1465,7 @@ export function HeroDemo({
     }
 
     const scenarioButtons = scenarioRailRef.current?.querySelectorAll("[data-scenario-pill]");
-    if (scenarioButtons && scenarioButtons.length > 0 && flipPluginRef.current && !reducedMotion && !prefersReducedMotion()) {
+    if (scenarioButtons && scenarioButtons.length > 0 && flipPluginRef.current && !reducedMotion && !prefersMarketingReducedMotion()) {
       pendingFlipStateRef.current = flipPluginRef.current.getState(scenarioButtons);
     }
     setSelectedScenarioId(nextScenarioId);
@@ -1474,7 +1474,7 @@ export function HeroDemo({
   useEffect(() => {
     const flip = flipPluginRef.current;
     const state = pendingFlipStateRef.current;
-    if (!flip || !state || reducedMotion || prefersReducedMotion()) {
+    if (!flip || !state || reducedMotion || prefersMarketingReducedMotion()) {
       pendingFlipStateRef.current = null;
       return;
     }
