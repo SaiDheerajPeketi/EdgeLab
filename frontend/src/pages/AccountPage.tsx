@@ -13,41 +13,44 @@ export function AccountPage() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [busy, setBusy] = useState<"refresh" | "portal" | "export" | "signout" | null>("refresh");
   const [error, setError] = useState("");
+  const [billingError, setBillingError] = useState("");
   const [notice, setNotice] = useState("");
   const [clock, setClock] = useState(Date.now());
   const generation = useRef(0);
-  const ownerToken = session?.token;
+  const ownerKey = session ? `${session.user.id}:${session.token}` : "";
 
   async function refresh() {
     const run = ++generation.current;
-    setBusy("refresh"); setBilling(null); setError(""); setNotice("");
+    setBusy("refresh"); setBilling(null); setBillingError(""); setError(""); setNotice("");
     try {
       const value = await getBillingStatus();
       if (run === generation.current) { setBilling(value); setClock(Date.now()); }
     } catch (caught) {
-      if (run === generation.current) setError(caught instanceof Error ? caught.message : "Your subscription could not be checked. Try again.");
+      if (run === generation.current) setBillingError(caught instanceof Error ? caught.message : "Your subscription could not be checked. Try again.");
     } finally { if (run === generation.current) setBusy(null); }
   }
 
   useEffect(() => {
     setBilling(null);
-    if (ownerToken) void refresh();
+    if (ownerKey) void refresh();
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => { generation.current += 1; window.clearInterval(timer); };
-  }, [ownerToken]);
+  }, [ownerKey]);
 
   if (!session) return <Navigate replace to="/auth/signin?from=%2Faccount" />;
   const subscribed = hasActiveSubscription(billing, clock);
   const workspace = hasWorkspaceAccess(session, clock);
-  const billingUnavailable = busy !== "refresh" && billing === null && Boolean(error);
+  const billingUnavailable = busy !== "refresh" && billing === null && Boolean(billingError);
+  // A failed status reconciliation does not prevent the server from opening an owned billing portal.
+  const canManageBilling = session.user.provider === "google" && billing?.configured !== false;
   const subscriptionLabel = busy === "refresh" ? "Checking subscription" : billingUnavailable ? "Subscription status unavailable" : subscribed ? "Subscription active" : billing?.mode === "test" && billing.subscription_access ? "Test subscription" : "No active subscription";
 
   async function perform(action: "portal" | "export" | "signout") {
-    if (busy || !session || (action === "export" && !hasActiveSubscription(billing))) return;
+    if (busy || !session || (action === "portal" && !canManageBilling) || (action === "export" && !hasActiveSubscription(billing))) return;
     const run = ++generation.current;
     setBusy(action); setError(""); setNotice("");
     try {
-      if (action === "portal") await openBillingPortal();
+      if (action === "portal") await openBillingPortal(session);
       else if (action === "signout") {
         await deleteAuthSession(session.token);
         if (run === generation.current) clearStoredAuthSession();
@@ -89,7 +92,7 @@ export function AccountPage() {
       </p>
       <div className="mt-5 flex flex-wrap gap-3">
         <Link className={actionClass} to={workspace ? "/app" : "/pricing"}>{workspace ? "Open workspace" : "View plans"}<ArrowRight aria-hidden="true" size={16} /></Link>
-        <button className={actionClass} disabled={busy !== null || billing?.configured !== true} onClick={() => void perform("portal")} type="button">{busy === "portal" ? "Opening billing…" : "Manage billing"}<ExternalLink aria-hidden="true" size={16} /></button>
+        <button className={actionClass} disabled={busy !== null || !canManageBilling} onClick={() => void perform("portal")} type="button">{busy === "portal" ? "Opening billing…" : "Manage billing"}<ExternalLink aria-hidden="true" size={16} /></button>
         <button className={actionClass} disabled={busy !== null} onClick={() => void refresh()} type="button"><RefreshCw aria-hidden="true" size={16} />{busy === "refresh" ? "Checking…" : "Refresh status"}</button>
       </div>
     </section>
@@ -99,6 +102,7 @@ export function AccountPage() {
       <button aria-describedby="account-export-requirement" className={`${actionClass} mt-5`} disabled={busy !== null || !subscribed} onClick={() => void perform("export")} type="button"><Download aria-hidden="true" size={16} />{busy === "export" ? "Preparing export…" : "Export data"}</button>
       <p className="mt-3 text-sm leading-6 text-edgelab-text-secondary" id="account-export-requirement">{billingUnavailable ? "Exports are unavailable until your subscription status can be verified." : subscribed ? "Your subscription is active. Exports are available." : "Activate a subscription, then refresh your status to export."}</p>
     </section>
+    {billingError && <p className="mt-5 text-sm leading-6 text-amber-100" role="alert">{billingError}</p>}
     {error ? <p className="mt-5 text-sm leading-6 text-amber-100" role="alert">{error}</p> : notice ? <p className="mt-5 text-sm leading-6 text-cyan-100" role="status">{notice}</p> : null}
   </AuthJourneyShell>;
 }
