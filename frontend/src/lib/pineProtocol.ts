@@ -34,11 +34,15 @@ export type PineRequest = {
   strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext; marketData?: PineMarketDataConfig; liveObservation?: PineLiveObservation;
 };
 export type PineAlertConditionDefinition = { id: string; title: string; message: string };
+export type PineCalculationInputs = {
+  timeframeInputId: string; defaultTimeframe: string; defaultGaps: boolean; gapsInputId?: string;
+};
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
   declaration: "indicator" | "strategy"; name: string; overlay: boolean; behindChart?: boolean;
   inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[]; usesVisibleRange?: boolean;
   alertConditions?: PineAlertConditionDefinition[];
+  calculationInputs?: PineCalculationInputs;
 };
 export type PinePlot = {
   id: string; name: string; style: string; overlay: boolean; options: Record<string, PineScalar>;
@@ -481,6 +485,29 @@ export function validatePineAlertConditions(value: unknown): PineAlertConditionD
     return { id: raw.id as string, title: string(raw.title, 512), message: string(raw.message) };
   });
 }
+/** Generated controls are identified by exact trailing IDs, never display labels. */
+export function validatePineCalculationInputs(value: unknown, definitions: readonly PineInputDefinition[]): PineCalculationInputs {
+  boundedPineMetadataBytes(value);
+  const raw = record(value);
+  if (Object.keys(raw).some(key => !["timeframeInputId", "defaultTimeframe", "defaultGaps", "gapsInputId"].includes(key))) fail("Unexpected calculation input metadata field.");
+  const timeframeInputId = string(raw.timeframeInputId, 96), defaultTimeframe = string(raw.defaultTimeframe, 8), defaultGaps = bool(raw.defaultGaps);
+  const gapsInputId = raw.gapsInputId === undefined ? undefined : string(raw.gapsInputId, 96);
+  const index = definitions.length - (gapsInputId === undefined ? 1 : 2), timeframe = definitions[index];
+  if (index < 0 || timeframeInputId !== `in_${index}` || timeframe?.id !== timeframeInputId || timeframe.type !== "timeframe"
+    || typeof timeframe.defval !== "string") fail("Calculation timeframe must identify its generated trailing input.");
+  let declaredTimeframe: string;
+  try {
+    if (defaultTimeframe && canonicalPineTimeframe(defaultTimeframe) !== defaultTimeframe) fail("Calculation default timeframe must be canonical.");
+    declaredTimeframe = timeframe.defval ? canonicalPineTimeframe(timeframe.defval) : "";
+  } catch { fail("Invalid calculation default timeframe."); }
+  if (defaultTimeframe !== declaredTimeframe) fail("Calculation default timeframe differs from its input definition.");
+  if (gapsInputId !== undefined) {
+    const gaps = definitions[index + 1];
+    if (gapsInputId !== `in_${index + 1}` || gaps?.id !== gapsInputId || gaps.type !== "bool" || gaps.defval !== defaultGaps)
+      fail("Calculation gaps must identify its generated trailing boolean input.");
+  } else if (!defaultGaps) fail("An omitted calculation gaps control must retain the default true.");
+  return { timeframeInputId, defaultTimeframe, defaultGaps, ...(gapsInputId === undefined ? {} : { gapsInputId }) };
+}
 export function validatePineResponse(value: unknown, request: PineRequest): PineResult {
   const response = record(value);
   const packed = response.encoding === "pine-packed-v1";
@@ -504,11 +531,13 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions", "calculationInputs"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.alertEvents !== undefined && (request.action !== "run" || request.mode !== "live")) fail("Pine alerts require an owned live update.");
   const alertEvents = raw.alertEvents === undefined ? undefined : validatePineAlertEvents(raw.alertEvents);
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
+  if (raw.calculationInputs !== undefined && raw.declaration !== "indicator") fail("Calculation inputs require an indicator declaration.");
+  const calculationInputs = raw.calculationInputs === undefined ? undefined : validatePineCalculationInputs(raw.calculationInputs, inputDefinitions);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
   for (const [index, definition] of inputDefinitions.entries()) {
     if (definition.activeCondition && pineInputConditionReferences(definition.activeCondition).some((id) => !inputDefinitions.slice(0, index).some((item) => item.id === id))) fail("Pine input activation must reference an earlier declared input.");
@@ -521,7 +550,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(raw.alertConditions !== undefined ? { alertConditions: validatePineAlertConditions(raw.alertConditions) } : {}) };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(raw.alertConditions !== undefined ? { alertConditions: validatePineAlertConditions(raw.alertConditions) } : {}), ...(calculationInputs ? { calculationInputs } : {}) };
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);

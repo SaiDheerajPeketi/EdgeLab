@@ -16,7 +16,7 @@ import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
-import type { PineDiagnostic, PineTableDrawing, PineTableCell, PinePolylineDrawing, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+import type { PineCalculationInputs, PineDiagnostic, PineTableDrawing, PineTableCell, PinePolylineDrawing, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PineLineDrawing, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
 function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
@@ -1501,7 +1501,12 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   const calculationMeta = Object.getOwnPropertyDescriptor(prepared.fn, "_edgelabCalculation")?.value as { hasTimeframe: boolean; hasGaps: boolean; timeframe?: string; gaps?: boolean } | undefined;
   if (!calculationMeta || typeof calculationMeta.hasTimeframe !== "boolean") error("UNSUPPORTED_EXECUTION_CONTEXT", "Missing native calculation-timeframe metadata.");
   let timeframeInput: string | undefined, gapsInput: string | undefined;
+  let calculationInputs: PineCalculationInputs | undefined;
   if (calculationMeta.hasTimeframe) {
+    let defaultTimeframe = calculationMeta.timeframe!;
+    if (defaultTimeframe) {
+      try { defaultTimeframe = canonicalPineTimeframe(defaultTimeframe); } catch { error("COMPILE_ERROR", "Choose a valid calculation timeframe, such as 60 or 1D."); }
+    }
     timeframeInput = `in_${inputDefinitions.length}`;
     inputDefinitions.push({ id: timeframeInput, name: "Timeframe", title: "Timeframe", type: "timeframe", defval: calculationMeta.timeframe!, group: "Calculation", tooltip: "Leave empty to use the chart timeframe. Minute values such as 60 or calendar values such as 1D select the calculation candles." });
     if (calculationMeta.hasGaps) {
@@ -1509,6 +1514,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
       inputDefinitions.push({ id: gapsInput, name: "Wait for timeframe closes", title: "Wait for timeframe closes", type: "bool", defval: calculationMeta.gaps!, group: "Calculation" });
     }
     if (inputDefinitions.length > PINE_LIMITS.inputs) error("INPUT_LIMIT", "The script and its Calculation settings exceed 24 inputs.");
+    calculationInputs = { timeframeInputId: timeframeInput, defaultTimeframe, defaultGaps: calculationMeta.gaps!, ...(gapsInput ? { gapsInputId: gapsInput } : {}) };
   }
   const inputs = runtimeInputs(request, inputDefinitions);
   let calculation: Calculation | undefined;
@@ -1532,7 +1538,7 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
   // Omitted declarations have the public schema default true; expressions can remain unresolved.
   const pendingLayer = typeof parsedLayer !== "boolean";
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, alertConditions, diagnostics: [
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, alertConditions, ...(calculationInputs ? { calculationInputs } : {}), diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Historical strategies calculate at candle close and can recalculate after order fills. Bar magnification uses covered loaded smaller candles; uncovered candles use the inferred chart OHLC path. Historical callbacks see final OHLCV values. Live strategies calculate at candle close, on each received update when calc_on_every_tick=true, and additionally after fills when calc_on_order_fills=true. Fills use received prices without reconstructing unreceived trades. Historical-tick recalculation and intrabar margin-liquidation with chronological fills remain unavailable.")] : []),
