@@ -13,6 +13,14 @@
 .landing-story [data-scene-content]:focus-within,
 .landing-story :is(h2, h3, p):focus-within {
   opacity: 1 !important;
+}
+
+:is(.landing-motion-content,
+[data-marketing-reveal],
+[data-marketing-flow],
+.landing-story [data-flow-row],
+.landing-story [data-scene-content],
+.landing-story :is(h2, h3, p)):focus-within:not([data-marketing-pointer]) {
   transform: none !important;
 }
 

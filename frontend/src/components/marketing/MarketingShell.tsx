@@ -292,7 +292,9 @@ export function MarketingShell({
     let cancelled = false;
     let context: { revert(): void } | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
     let refreshFrame = 0;
+    const flowRegistrations = new Map<HTMLElement, () => void>();
     const restoreRevealNodes = () => {
       const revealNodes = flowNodes(shell);
       const headerNodes = Array.from(header.querySelectorAll<HTMLElement>("[data-shell-motion]"));
@@ -315,14 +317,13 @@ export function MarketingShell({
         }
 
         try {
+          const revealEase =
+            plugins.CustomEase?.create("edgelab-reveal", "0.16,1,0.3,1") ?? "power3.out";
           context = gsap.context(() => {
             const reduceMotion = prefersMarketingReducedMotion();
-            const revealEase =
-              plugins.CustomEase?.create("edgelab-reveal", "0.16,1,0.3,1") ?? "power3.out";
             const headerNodes = Array.from(
               header.querySelectorAll<HTMLElement>("[data-shell-motion]"),
             );
-            const revealNodes = flowNodes(shell);
 
             if (headerNodes.length > 0) {
               if (reduceMotion) {
@@ -344,71 +345,163 @@ export function MarketingShell({
               }
             }
 
-            if (revealNodes.length > 0) {
-              if (reduceMotion) {
-                gsap.set(revealNodes, { clearProps: "all" });
-              } else {
-                revealNodes.forEach((node) => {
-                  const targets = [node];
-                  const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 40 : 28;
-                  const authoredDelay = Number(node.dataset.revealDelay ?? 0);
-                  const delay = Number.isFinite(authoredDelay) ? Math.min(0.4, Math.max(0, authoredDelay)) : 0;
-
-                  if (plugins.ScrollTrigger) {
-                    // Play/reverse are finite tweens: a stopped scroll never leaves half-revealed text.
-                    gsap.fromTo(targets, { opacity: 0, y: offsetY }, {
-                      delay,
-                      duration: 0.72,
-                      ease: revealEase,
-                      opacity: 1,
-                      y: 0,
-                      scrollTrigger: {
-                        start: "top 92%",
-                        end: "bottom top",
-                        toggleActions: "play reverse play reverse",
-                        trigger: node,
-                      },
-                    });
-                    return;
-                  }
-
-                  gsap.to(targets, {
-                    clearProps: "opacity,transform,willChange",
-                    delay,
-                    duration: 0.82,
-                    ease: revealEase,
-                    opacity: 1,
-                    y: 0,
-                  });
-                });
-              }
-            }
-
           }, shell);
 
-          const refresh = () => {
-            window.cancelAnimationFrame(refreshFrame);
-            refreshFrame = window.requestAnimationFrame(() => { if (!cancelled) plugins.ScrollTrigger?.refresh(); });
+          const registerFlow = (node: HTMLElement) => {
+            const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 64 : 44;
+            const authoredDelay = Number(node.dataset.revealDelay ?? 0);
+            const delay = Number.isFinite(authoredDelay) ? Math.min(0.4, Math.max(0, authoredDelay)) : 0;
+            let animation: { kill(): void } | null = null;
+            let trigger: { kill(): void } | null = null;
+            let pointerId: number | null = null;
+            let pointerFrame = 0;
+            let phase: "before" | "inside" | "after" | null = null;
+            const bounds = () => {
+              // Measure the layout, not the pose being animated across the trigger.
+              const transform = getComputedStyle(node).transform;
+              const translation = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+              const rect = node.getBoundingClientRect();
+              return {
+                start: rect.top + window.scrollY - translation - window.innerHeight * 0.88,
+                end: rect.bottom + window.scrollY - translation - window.innerHeight * 0.28,
+              };
+            };
+            const showFocus = () => {
+              animation?.kill();
+              gsap.set(node, pointerId === null ? { opacity: 1, y: 0 } : { opacity: 1 });
+            };
+            const enter = (direction: 1 | -1) => {
+              phase = "inside";
+              animation?.kill();
+              if (pointerId !== null) return;
+              if (node.contains(document.activeElement)) { showFocus(); return; }
+              if (Number(getComputedStyle(node).opacity) < 0.01) gsap.set(node, { y: direction * offsetY });
+              animation = gsap.to(node, { opacity: 1, y: 0, delay, duration: 0.8, ease: revealEase, overwrite: "auto" });
+            };
+            const leave = (direction: 1 | -1) => {
+              phase = direction === 1 ? "after" : "before";
+              animation?.kill();
+              if (pointerId !== null) return;
+              if (node.contains(document.activeElement)) { showFocus(); return; }
+              animation = gsap.to(node, { opacity: 0, y: -direction * Math.min(offsetY, 44), duration: 0.5, ease: "power2.inOut", overwrite: "auto" });
+            };
+            const synchronize = () => {
+              const range = bounds();
+              const next = window.scrollY < range.start ? "before" : window.scrollY > range.end ? "after" : "inside";
+              if (next !== phase) {
+                if (next === "inside") enter(phase === "after" ? -1 : 1);
+                else leave(next === "after" ? 1 : -1);
+              }
+            };
+            const blur = (event: FocusEvent) => {
+              if (event.relatedTarget instanceof Node && node.contains(event.relatedTarget)) return;
+              phase = null;
+              synchronize();
+            };
+            const beginPointer = (event: PointerEvent) => {
+              if (!event.isPrimary || (pointerId !== null && pointerFrame === 0)) return;
+              window.cancelAnimationFrame(pointerFrame);
+              pointerFrame = 0;
+              pointerId = event.pointerId;
+              node.dataset.marketingPointer = "true";
+              animation?.kill();
+            };
+            const releasePointer = () => {
+              if (pointerId === null) return;
+              window.cancelAnimationFrame(pointerFrame);
+              // Keep the hit target stationary through pointerup and its native click.
+              pointerFrame = window.requestAnimationFrame(() => {
+                pointerFrame = 0;
+                pointerId = null;
+                delete node.dataset.marketingPointer;
+                phase = null;
+                synchronize();
+              });
+            };
+            const endPointer = (event: PointerEvent) => {
+              if (event.pointerId === pointerId) releasePointer();
+            };
+            const nodeContext = gsap.context(() => {
+              if (!plugins.ScrollTrigger) return;
+              gsap.set(node, { opacity: 0, y: offsetY });
+              trigger = plugins.ScrollTrigger.create({
+                trigger: node,
+                start: () => bounds().start,
+                end: () => bounds().end,
+                onEnter: () => enter(1),
+                onLeave: () => leave(1),
+                onEnterBack: () => enter(-1),
+                onLeaveBack: () => leave(-1),
+                onRefresh: synchronize,
+              });
+              synchronize();
+            }, shell);
+            node.addEventListener("focusin", showFocus);
+            node.addEventListener("focusout", blur);
+            node.addEventListener("pointerdown", beginPointer, true);
+            window.addEventListener("pointerup", endPointer, true);
+            window.addEventListener("pointercancel", endPointer, true);
+            window.addEventListener("blur", releasePointer);
+            flowRegistrations.set(node, () => {
+              animation?.kill();
+              trigger?.kill();
+              window.cancelAnimationFrame(pointerFrame);
+              delete node.dataset.marketingPointer;
+              node.removeEventListener("focusin", showFocus);
+              node.removeEventListener("focusout", blur);
+              node.removeEventListener("pointerdown", beginPointer, true);
+              window.removeEventListener("pointerup", endPointer, true);
+              window.removeEventListener("pointercancel", endPointer, true);
+              window.removeEventListener("blur", releasePointer);
+              nodeContext.revert();
+            });
           };
+          const reconcileFlow = () => {
+            const nodes = new Set(flowNodes(shell));
+            for (const [node, dispose] of flowRegistrations) {
+              if (nodes.has(node)) continue;
+              dispose();
+              flowRegistrations.delete(node);
+            }
+            for (const node of nodes) if (!flowRegistrations.has(node)) registerFlow(node);
+          };
+          const refresh = () => {
+            if (cancelled) return;
+            window.cancelAnimationFrame(refreshFrame);
+            refreshFrame = window.requestAnimationFrame(() => {
+              if (cancelled) return;
+              reconcileFlow();
+              plugins.ScrollTrigger?.refresh();
+            });
+          };
+          reconcileFlow();
+          mutationObserver = new MutationObserver(refresh);
+          mutationObserver.observe(shell.querySelector("main") ?? shell, { childList: true, subtree: true });
           resizeObserver = new ResizeObserver(refresh);
           const main = shell.querySelector("main");
           if (main) resizeObserver.observe(main);
           plugins.ScrollTrigger?.refresh();
           void document.fonts?.ready.then(refresh);
         } catch (error) {
+          flowRegistrations.forEach((dispose) => dispose());
+          flowRegistrations.clear();
           restoreRevealNodes();
           console.warn("EdgeLab marketing animations were restored after GSAP setup failed.", error);
         }
       })
       .catch((error) => {
+        if (cancelled) return;
         restoreRevealNodes();
         console.warn("EdgeLab marketing animations could not load.", error);
       });
 
     return () => {
       cancelled = true;
+      mutationObserver?.disconnect();
       resizeObserver?.disconnect();
       window.cancelAnimationFrame(refreshFrame);
+      flowRegistrations.forEach((dispose) => dispose());
+      flowRegistrations.clear();
       context?.revert();
     };
   }, [pageTitle, reducedMotion]);

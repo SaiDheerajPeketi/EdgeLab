@@ -1125,7 +1125,7 @@ function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
               Results that still trace back to the session
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              The landing widget now reuses the same in-app results workspace, then carries that into day-level analysis.
+              Review closed trades alongside session results, then compare performance day by day.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1159,7 +1159,7 @@ function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
               Recent sessions in sequence
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              Daily closes stay visible here so the landing preview still reads like a real review workflow.
+              Compare daily gains, losses, and trade counts to spot patterns across recent sessions.
             </p>
           </div>
           <span className="status-pill">
@@ -1336,6 +1336,7 @@ export function HeroDemo({
     let cancelled = false;
     let intersectionObserver: IntersectionObserver | null = null;
     let observer: { kill(): void } | null = null;
+    let gestureAdvanced = false;
     let intersecting = true;
     const updateVisibility = () => setDemoVisible(intersecting && !document.hidden);
     document.addEventListener("visibilitychange", updateVisibility);
@@ -1349,6 +1350,11 @@ export function HeroDemo({
       const nextIndex =
         (safeIndex + direction + SCENARIOS.length) % Math.max(SCENARIOS.length, 1);
       selectScenario(SCENARIOS[nextIndex]?.id ?? SCENARIOS[0]?.id ?? "replay");
+    };
+    const stepGesture = (direction: 1 | -1) => {
+      if (gestureAdvanced) return;
+      gestureAdvanced = true;
+      stepScenario(direction);
     };
 
     if ("IntersectionObserver" in window) {
@@ -1368,10 +1374,10 @@ export function HeroDemo({
 
           flipPluginRef.current = plugins.Flip ?? null;
           observer = plugins.Observer?.create({
-            onDown: () => stepScenario(-1),
-            onLeft: () => stepScenario(1),
-            onRight: () => stepScenario(-1),
-            onUp: () => stepScenario(1),
+            lockAxis: true,
+            onPress: () => { gestureAdvanced = false; },
+            onLeft: () => stepGesture(1),
+            onRight: () => stepGesture(-1),
             target: scenarioRail,
             tolerance: 18,
             type: "touch,pointer",
@@ -1516,7 +1522,7 @@ export function HeroDemo({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Trading workspace examples">
+        <div className="mt-3 grid touch-pan-y grid-cols-3 overflow-hidden rounded-md bg-[#0b1017]" ref={scenarioRailRef} aria-label="Trading workspace examples">
           {SCENARIOS.map((item) => (
             <button
               data-scenario-pill="true"
