@@ -90,16 +90,21 @@ export function LandingPage() {
   const location = useLocation();
   const presentationMode = marketingPresentationFromSearch(location.search);
   const betaMode = isBetaMode(presentationMode);
-  const { loading, program } = useBetaProgramStatus();
+  const { error, loading, program } = useBetaProgramStatus();
+  const betaAvailable = !loading && !error && program.mode === "beta";
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
   const accessLabel =
-    seatsRemaining == null
-      ? "Checking seats"
-      : seatsRemaining > 0
-        ? `${seatsRemaining} seats open`
-        : "Waitlist open";
-  const primaryCta = buildMarketingCta({ search: location.search, seatsRemaining });
+    error
+      ? "Beta access unavailable"
+      : !loading && program.mode !== "beta"
+        ? "Beta access closed"
+        : seatsRemaining == null
+          ? "Checking seats"
+          : seatsRemaining > 0
+            ? `${seatsRemaining} seats open`
+            : "Waitlist open";
+  const primaryCta = buildMarketingCta({ mode: betaMode && betaAvailable ? "beta" : "production", search: location.search, seatsRemaining });
 
   return (
     <MarketingShell
@@ -160,9 +165,9 @@ export function LandingPage() {
                     <strong className="font-medium text-cyan-100">
                       {loading ? "Checking beta access…" : accessLabel}
                     </strong>
-                    <span className="text-edgelab-text-secondary">
+                    {betaAvailable ? <span className="text-edgelab-text-secondary">
                       {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
-                    </span>
+                    </span> : null}
                 </div> : null}
                 {betaMode ? <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
                   Private beta · temporary test workspaces
@@ -236,7 +241,7 @@ export function LandingPage() {
               <SectionHeading
                 description={
                   betaMode
-                    ? "Approved users can test the current replay, Journal, analytics, and playbook workflow free during private beta. The queue opens automatically when seats fill."
+                    ? "Check beta availability below. Approved beta users can test replay, Journal, analytics, and playbooks."
                     : "The chart, replay, and journal you need to build a repeatable review process. Choose monthly or yearly billing."
                 }
                 title={betaMode ? "Core workflow. Limited beta." : "Your process, connected."}
@@ -247,7 +252,7 @@ export function LandingPage() {
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
                   {betaMode
-                    ? "The approved beta workspace is free. Pro subscriptions enable paid data exports."
+                  ? "Beta access requires approval. Pro subscriptions enable data exports."
                     : "One Pro plan. Two billing choices. Provider data and model access remain separate."}
                 </p>
               </div>
@@ -282,7 +287,7 @@ export function LandingPage() {
                 Make every replay leave evidence.
               </h2>
               <p className="mt-5 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg">
-                {betaMode ? "Enter the beta when a seat is open, or reserve a place in the queue when it is full." : "Build a review process that keeps your decisions beside the market context. Explore Pro and choose your billing cadence."}
+                {betaMode ? "Check current beta availability or explore Pro plans." : "Build a review process that keeps your decisions beside the market context. Explore Pro and choose your billing cadence."}
               </p>
             </div>
             <Link

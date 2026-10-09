@@ -208,23 +208,26 @@ test("text and components visibly travel inside the viewport before finishing wi
   await capture(page, info, "visible-scroll-motion", { evidence });
 });
 
-test("launch is default and beta presentation cannot mutate auth or operational CTA", async ({ page }, info) => {
+test("launch is default and beta marketing CTA changes without mutating auth", async ({ page }, info) => {
   await openLanding(page); const hero = page.locator("[data-landing-hero]");
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "production");
   await expect(page.locator("#pricing")).toContainText("Choose monthly or yearly billing");
   await expect(hero).not.toContainText("Private beta");
-  const cta = hero.locator('[data-marketing-reveal="hero-actions"] a').first(); const operationalHref = await cta.getAttribute("href");
+  const cta = hero.locator('[data-marketing-reveal="hero-actions"] a').first(); const launchHref = await cta.getAttribute("href");
+  await expect(cta).toHaveText(/View plans/); await expect(cta).toHaveAttribute("href", "/pricing");
   const authState = () => page.evaluate(({ auth, google }) => ({ localAuth: localStorage.getItem(auth), sessionAuth: sessionStorage.getItem(auth),
     googleState: sessionStorage.getItem(google), localGoogle: localStorage.getItem(google) }), { auth: AUTH_SESSION_KEY, google: GOOGLE_STATE_KEY });
   const before = await authState();
   await gotoStable(page, "/?variant=beta"); await expect(hero).toContainText("Private beta");
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "beta");
-  await expect(cta).toHaveAttribute("href", operationalHref!); expect(await authState()).toEqual(before);
-  await capture(page, info, "beta-presentation", { operationalHref, authBefore: before, authAfter: await authState() }, hero);
+  await expect(cta).toHaveText(/Join beta/); await expect(cta).toHaveAttribute("href", "/auth/signin");
+  const betaHref = await cta.getAttribute("href"); expect(betaHref).not.toBe(launchHref); expect(new URL(betaHref!, "https://edgelab.invalid").searchParams.has("variant")).toBe(false);
+  expect(await authState()).toEqual(before);
+  await capture(page, info, "beta-presentation", { launchHref, betaHref, authBefore: before, authAfter: await authState() }, hero);
   await gotoStable(page, "/?variant=unknown"); await expect(page.locator("#pricing")).toContainText("Choose monthly or yearly billing");
   await expect(page.locator("[data-marketing-variant]")).toHaveAttribute("data-marketing-variant", "production");
-  await expect(hero).not.toContainText("Private beta"); await expect(cta).toHaveAttribute("href", operationalHref!);
-  expect(await authState()).toEqual(before); await capture(page, info, "default-launch-presentation", { operationalHref, authState: before }, hero);
+  await expect(hero).not.toContainText("Private beta"); await expect(cta).toHaveAttribute("href", launchHref!); await expect(cta).toHaveText(/View plans/);
+  expect(await authState()).toEqual(before); await capture(page, info, "default-launch-presentation", { launchHref, betaHref, authState: before }, hero);
 });
 
 test("footer motion preference preserves the session choice while the header stays clean", async ({ page }, info) => {

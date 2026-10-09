@@ -2,13 +2,15 @@ import { TrustEvidence } from "../components/marketing/TrustEvidence";
 import {
   FaqAccordion,
   PricingSection,
-  pricingFaqItems,
+  getPricingFaqItems,
 } from "../components/marketing/PricingSection";
 import {
   buildMarketingNavItems,
   MarketingShell,
 } from "../components/marketing/MarketingShell";
-import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
+import { useLocation } from "react-router-dom";
+import { isBetaMode } from "../lib/deploymentMode";
+import { marketingPresentationFromSearch } from "../lib/marketingCta";
 
 const pricingNavItems = buildMarketingNavItems("inner").map((item) => ({
   ...item,
@@ -18,13 +20,16 @@ const pricingNavItems = buildMarketingNavItems("inner").map((item) => ({
 }));
 
 export function PricingPage() {
-  const betaMode = isBetaMode(deploymentMode);
+  const location = useLocation();
+  const presentationMode = marketingPresentationFromSearch(location.search);
+  const betaMode = isBetaMode(presentationMode);
 
   return (
     <MarketingShell
       navItems={pricingNavItems}
       pageDescription={betaMode ? "EdgeLab beta access and optional Pro subscriptions, with clear billing and provider requirements." : "EdgeLab Pro monthly and yearly subscriptions for charting, replay, journaling, and trade review."}
       pageTitle="Pricing and access"
+      presentationMode={presentationMode}
     >
       <section className="px-3 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:px-8 lg:pb-24">
         <div className="mx-auto max-w-7xl">
@@ -35,7 +40,7 @@ export function PricingPage() {
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-edgelab-text-secondary">
                 {betaMode
-                  ? "The private beta workspace is free for approved users. Optional Pro subscriptions enable data exports; beta workspace access still requires approval."
+                  ? "Check beta availability below. Pro subscriptions are separate and are required for data exports; beta workspace access requires approval."
                   : "Chart, replay, journal, and review in one connected workspace. Choose monthly or yearly billing, with the current price and renewal terms visible before checkout."}
               </p>
             </div>
@@ -43,7 +48,7 @@ export function PricingPage() {
               <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
                 <dt className="text-edgelab-text-secondary">Access</dt>
                 <dd className="font-medium text-edgelab-text-primary">
-                  {betaMode ? "Free beta workspace" : "EdgeLab Pro"}
+                  {betaMode ? "Check beta availability" : "EdgeLab Pro"}
                 </dd>
               </div>
               <div className="flex justify-between gap-6 py-4">
@@ -57,7 +62,7 @@ export function PricingPage() {
 
       <section className="scroll-mt-28 px-3 pb-24 sm:px-6 sm:pb-32 lg:px-8" id="pricing" tabIndex={-1}>
         <div className="mx-auto max-w-7xl">
-          <PricingSection mode={deploymentMode} showComparison />
+          <PricingSection mode={presentationMode} showComparison />
         </div>
       </section>
 
@@ -73,7 +78,7 @@ export function PricingPage() {
               {betaMode ? "Beta access, optional subscriptions, and data handling in plain language." : "What your plan includes, how billing works, and where provider access begins."}
             </p>
           </div>
-          <FaqAccordion items={pricingFaqItems} />
+          <FaqAccordion items={getPricingFaqItems(presentationMode)} />
         </div>
       </section>
     </MarketingShell>

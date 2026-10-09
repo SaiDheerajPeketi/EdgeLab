@@ -11,9 +11,9 @@ import {
 import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { StudioAttribution } from "../brand/StudioAttribution";
-import { deploymentMode, isBetaMode, type DeploymentMode } from "../../lib/deploymentMode";
+import { isBetaMode, type DeploymentMode } from "../../lib/deploymentMode";
 import { loadGsap } from "../../lib/gsap";
-import { buildMarketingCta } from "../../lib/marketingCta";
+import { buildMarketingCta, marketingPresentationFromSearch, marketingPresentationHref } from "../../lib/marketingCta";
 import { prefersMarketingReducedMotion, setMarketingMotionChoice, useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
@@ -117,6 +117,8 @@ function BetaBanner({ mode }: { mode: DeploymentMode }) {
       ? "checking availability"
       : error || program.seats_remaining == null
         ? "availability unavailable"
+      : program.mode !== "beta"
+        ? "access closed"
       : program.seats_remaining > 0
         ? `${program.seats_remaining} open now`
         : "waitlist live";
@@ -139,9 +141,10 @@ export function MarketingShell({
   navItems,
   pageDescription,
   pageTitle,
-  presentationMode = deploymentMode,
+  presentationMode: requestedPresentationMode,
 }: MarketingShellProps) {
   const location = useLocation();
+  const presentationMode = requestedPresentationMode ?? marketingPresentationFromSearch(location.search);
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeHref, setActiveHref] = useState<string | null>(null);
@@ -150,9 +153,10 @@ export function MarketingShell({
   const headerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const { loading, program } = useBetaProgramStatus();
+  const { error, loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const primaryCta = buildMarketingCta({
+    mode: isBetaMode(presentationMode) && !loading && !error && program.mode === "beta" ? "beta" : "production",
     search: location.search,
     seatsRemaining: loading ? null : seatsRemaining,
   });
@@ -643,7 +647,7 @@ export function MarketingShell({
         <BetaBanner mode={presentationMode} />
         <header className={headerClassName} ref={headerRef}>
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
-            <Link aria-label="EdgeLab home" data-shell-motion="wordmark" to="/">
+            <Link aria-label="EdgeLab home" data-shell-motion="wordmark" to={marketingPresentationHref("/", presentationMode)}>
               <EdgeLabWordmark />
             </Link>
 
@@ -660,7 +664,7 @@ export function MarketingShell({
                       ? "border-cyan-300 text-cyan-100"
                       : "border-transparent hover:text-edgelab-text-primary"
                   }`}
-                  href={item.href}
+                  href={marketingPresentationHref(item.href, presentationMode)}
                   isCurrent={activeHref === item.href}
                   label={item.label}
                   onClick={handleNavClick}
@@ -706,7 +710,7 @@ export function MarketingShell({
                         ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100"
                         : "border-edgelab-border bg-edgelab-surface text-edgelab-text-primary"
                     }`}
-                    href={item.href}
+                    href={marketingPresentationHref(item.href, presentationMode)}
                     isCurrent={activeHref === item.href}
                     label={item.label}
                     onClick={handleNavClick}
@@ -748,7 +752,7 @@ export function MarketingShell({
                 {navItems.map((item) => (
                   <NavAnchor
                     className="transition-colors hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                    href={item.href}
+                    href={marketingPresentationHref(item.href, presentationMode)}
                     key={item.href}
                     label={item.label}
                     onClick={handleNavClick}

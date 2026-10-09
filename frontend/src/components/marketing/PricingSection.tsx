@@ -138,7 +138,7 @@ export function PricingSection({
 
 function BetaPricingSection({ showComparison }: { showComparison: boolean }) {
   const location = useLocation();
-  const { loading, program } = useBetaProgramStatus();
+  const { error, loading, program } = useBetaProgramStatus();
 
   const seatsTaken = program.seats_taken ?? 0;
   const seatsRemaining = program.seats_remaining;
@@ -146,9 +146,19 @@ function BetaPricingSection({ showComparison }: { showComparison: boolean }) {
   const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
   const capacityKnown = !loading && seatsRemaining != null;
   const betaCta = buildMarketingCta({
+    mode: "beta",
     search: location.search,
     seatsRemaining: capacityKnown ? seatsRemaining : null,
   });
+
+  if (loading || error || program.mode !== "beta") {
+    return <div className="grid gap-8">
+      <p className="text-sm leading-7 text-edgelab-text-secondary" role="status">
+        {loading ? "Checking beta access…" : error ? "Beta access could not be checked. View current Pro plans below." : "Beta access is closed. View current Pro plans below."}
+      </p>
+      <ProPricing />
+    </div>;
+  }
 
   return (
     <div className="grid gap-10">

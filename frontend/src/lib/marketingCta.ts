@@ -17,6 +17,22 @@ export function marketingPresentationFromSearch(search: string): DeploymentMode 
   return new URLSearchParams(search).get("variant") === "beta" ? "beta" : "production";
 }
 
+/** Keep the preview variant only on public destinations, never on private routes. */
+export function marketingPresentationHref(href: string, mode: DeploymentMode): string {
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
+  const url = new URL(href, "https://edgelab.invalid");
+  if (url.pathname !== "/" && url.pathname !== "/pricing") return href;
+  if (mode === "beta") url.searchParams.set("variant", "beta");
+  else url.searchParams.delete("variant");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+export function buildMarketingPricingHref(search: string, cadence: "monthly" | "annual") {
+  const query = marketingAttributionFromSearch(search);
+  query.set("cadence", cadence);
+  return marketingPresentationHref(`/pricing?${query.toString()}`, marketingPresentationFromSearch(search));
+}
+
 type MarketingCtaOptions = {
   mode?: DeploymentMode;
   forceWaitlist?: boolean;

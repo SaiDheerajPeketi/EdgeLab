@@ -2,6 +2,7 @@ import { Check, ArrowRight } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { authDestinationFromLocation, buildAuthSignInHref } from "../../lib/authJourney";
+import { buildMarketingPricingHref } from "../../lib/marketingCta";
 import { getAuthSession } from "../../lib/api";
 import { getStoredAuthSession, hasWorkspaceAccess, setStoredAuthSession, subscribeAuthSession, toStoredAuthSession } from "../../lib/authSession";
 import {
@@ -97,7 +98,8 @@ export function ProPricing({ betaMode = false }: { betaMode?: boolean }) {
   const recoveredDestination = getBillingDestination(session);
   const chosenDestination = explicitFrom ? destination : recoveredDestination ?? destination;
   const workspaceDestination = chosenDestination === "/account" || chosenDestination.startsWith("/pricing") ? "/app" : chosenDestination;
-  const signInHref = buildAuthSignInHref({ fromPath: `/pricing?cadence=${cadence}` });
+  const pricingReturnHref = buildMarketingPricingHref(location.search, cadence);
+  const signInHref = buildAuthSignInHref({ fromPath: pricingReturnHref });
 
   const startCheckout = async () => {
     if (!session || !googleIdentity || checkout.current || !catalog?.checkout_available || !status || existing || awaiting || betaWaiting) return;
@@ -166,7 +168,7 @@ export function ProPricing({ betaMode = false }: { betaMode?: boolean }) {
           {active && workspaceReady ? <>
             <Link className={`${actionClass} border-cyan-200/60 bg-cyan-200 text-slate-950 hover:bg-cyan-100`} to={workspaceDestination} onClick={() => clearBillingDestination(session)}>Open workspace <ArrowRight aria-hidden="true" size={16} /></Link>
             <Link className={`${actionClass} text-edgelab-text-primary`} to="/account">Manage billing</Link>
-          </> : !googleIdentity ? <Link className={`${actionClass} border-cyan-200/60 bg-cyan-200 text-slate-950 hover:bg-cyan-100`} to={signInHref} state={{ fromPath: `/pricing?cadence=${cadence}`, pricingDestination: workspaceDestination }}>Sign in with Google <ArrowRight aria-hidden="true" size={16} /></Link> : existing || awaiting || betaWaiting ? <Link className={`${actionClass} text-edgelab-text-primary`} to="/account">{betaWaiting ? "Check account access" : "Manage billing"}</Link> : <button type="button" className={`${actionClass} border-cyan-200/60 bg-cyan-200 text-slate-950 hover:bg-cyan-100`} onClick={() => void startCheckout()} disabled={busy || catalogLoading || statusLoading || !status || !catalog?.checkout_available}>{busy ? "Opening checkout…" : catalog && !catalog.checkout_available ? "Checkout unavailable" : catalog?.mode === "test" ? "Continue to test checkout" : "Continue to checkout"}<ArrowRight aria-hidden="true" size={16} /></button>}
+          </> : !googleIdentity ? <Link className={`${actionClass} border-cyan-200/60 bg-cyan-200 text-slate-950 hover:bg-cyan-100`} to={signInHref} state={{ fromPath: pricingReturnHref, pricingDestination: workspaceDestination }}>Sign in with Google <ArrowRight aria-hidden="true" size={16} /></Link> : existing || awaiting || betaWaiting ? <Link className={`${actionClass} text-edgelab-text-primary`} to="/account">{betaWaiting ? "Check account access" : "Manage billing"}</Link> : <button type="button" className={`${actionClass} border-cyan-200/60 bg-cyan-200 text-slate-950 hover:bg-cyan-100`} onClick={() => void startCheckout()} disabled={busy || catalogLoading || statusLoading || !status || !catalog?.checkout_available}>{busy ? "Opening checkout…" : catalog && !catalog.checkout_available ? "Checkout unavailable" : catalog?.mode === "test" ? "Continue to test checkout" : "Continue to checkout"}<ArrowRight aria-hidden="true" size={16} /></button>}
           {googleIdentity && <button type="button" className={`${actionClass} text-edgelab-text-primary`} disabled={busy || statusLoading || catalogLoading} onClick={() => setRetry(value => value + 1)}>Refresh billing status</button>}
           {session && !active && !existing && !awaiting && !betaWaiting && <Link className={`${actionClass} text-edgelab-text-primary`} to="/account">View account</Link>}
         </div>
