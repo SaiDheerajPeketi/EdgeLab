@@ -8,6 +8,7 @@ import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PINE_LABEL_STYLES, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, pineTickRepresentation, validatePineResponse, validatePineEnumMetadata, validatePineTableDrawings } from "../lib/pineProtocol";
 import { advancePineLiveSource, PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
+import { advancePineLiveMarkets, assertPineLiveMarketBudget, createPineLiveMarketLedger, pineLiveMarketReceipt, type PineLiveMarketLedger, type PineLiveMarketReceipt } from "../lib/pineLiveMarkets";
 import type { PineLiveRequest } from "../lib/pineLiveProtocol";
 import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
@@ -1450,12 +1451,13 @@ type LiveState = {
   sessionId: string; sequence: number; confirmed: boolean; sourceConfirmed: boolean; request: PineRequest;
   engine: RealtimeEngine; context?: Context; local: ReturnType<typeof chartProvider>;
   indicator: Indicator; descriptor: PinePrepareResult; inputs: Record<string, PineInputValue>; alerts: Set<string>;
+  marketLedger: PineLiveMarketLedger;
 };
 // Each result owns fresh output buffers; only its validated bar index is retained for encoding.
 const liveResultBars = new WeakMap<PineExecutionResult, readonly Candle[]>();
 
 /** One isolated, immutable-source study session. Cancellation never publishes pending work. */
-export function createPineLiveExecutor(): { execute(value: unknown): Promise<PineExecutionResult>; dispose(): void } {
+export function createPineLiveExecutor(): { execute(value: unknown): Promise<PineExecutionResult | PineLiveMarketReceipt>; dispose(): void } {
   let state: LiveState | undefined;
   let busy = false, halted = false;
   const dispose = () => { halted = true; state = undefined; };
@@ -1480,7 +1482,8 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           const alerts = new Set<string>();
           bindClosedSnapshot(prepared, declaration === "strategy", alerts, true, request.context?.quantityStep, () => magnifierSnapshot(owner.request)());
           const { local, engine } = ownedEngine(request, alerts, "historical");
-          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, sourceConfirmed: true, request, engine, local, indicator, descriptor, inputs, alerts };
+          const marketLedger = command.marketStreams === undefined ? Object.freeze([]) : createPineLiveMarketLedger(request, command.marketStreams);
+          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, sourceConfirmed: true, request, engine, local, indicator, descriptor, inputs, alerts, marketLedger };
           state = owner;
           const context = await engine.run(indicator);
           active(owner);
@@ -1489,6 +1492,15 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
           if (!state) error("LIVE_SEQUENCE", "Initialize the live Pine session before updating it.");
           owner = state;
           if (command.sequence !== owner.sequence + 1) error("LIVE_SEQUENCE", "Live Pine updates require the exact next sequence.");
+          if (command.action === "markets") {
+            // A remote feed owns its own history; it cannot execute the chart,
+            // roll back main variables, fill orders or republish alert output.
+            const ledger = advancePineLiveMarkets(owner.marketLedger, command.events, owner.request);
+            active(owner);
+            owner.marketLedger = ledger;
+            owner.sequence = command.sequence;
+            return pineLiveMarketReceipt(ledger);
+          }
           if (command.action === "viewport") {
             owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), viewport: command.viewport };
             if (owner.descriptor.usesVisibleRange) {
@@ -1509,9 +1521,11 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
               if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
             } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
             const sourceSnapshot = advancePineLiveSource(owner.request.sourceSnapshot, owner.sourceConfirmed, command, owner.request.context!.timeframe);
+            const nextRequest = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), sourceSnapshot, bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+            assertPineLiveMarketBudget(owner.marketLedger, nextRequest);
             owner.local.reset();
             owner.local.update(command.bar, append, command.confirmed, sourceSnapshot, command.source?.confirmed ?? true);
-            owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), sourceSnapshot, bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+            owner.request = nextRequest;
             const changed = await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
             active(owner);
             if (!changed) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
@@ -1557,7 +1571,7 @@ if (typeof self !== "undefined" && typeof document === "undefined") {
         liveStarted = true;
         if (oneShotRunning) { live.dispose(); error("LIVE_CONCURRENT", "The worker already has an execution in progress."); }
         const result = await live.execute(event.data);
-        const response = toPineWireResponse(id, result, liveResultBars.get(result));
+        const response = result.kind === "market-update" ? { id, status: "completed" as const, ack: result } : toPineWireResponse(id, result, liveResultBars.get(result));
         scope.postMessage(envelope(response), "buffers" in response ? response.buffers : []);
       } else {
         if (liveStarted) { live.dispose(); error("LIVE_SESSION_MISMATCH", "A live Pine worker cannot accept one-shot requests."); }

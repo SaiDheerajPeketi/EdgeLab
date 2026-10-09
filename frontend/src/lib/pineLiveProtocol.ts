@@ -1,4 +1,5 @@
 import type { Candle } from "./api";
+import { validatePineLiveMarketEvents, validatePineLiveMarketStreams, validatePineLiveMarketReceipt, type PineLiveMarketEvent, type PineLiveMarketStream, type PineLiveMarketReceipt, type PineLiveMarketLedger } from "./pineLiveMarkets";
 import { PINE_LIMITS, pineFixedTimeframeDuration, PineProtocolError, validatePineBar, validatePineViewport, validatePineRequest, validatePineResponse, type PineExecutionResult, type PineRequest, type PineResponse, type PineSourceSnapshot, type PineViewport } from "./pineProtocol";
 
 export const PINE_LIVE_PROTOCOL = "pine-live-v1" as const;
@@ -6,11 +7,12 @@ export const PINE_LIVE_QUEUE_LIMIT = 32;
 type LiveIdentity = { protocol: typeof PINE_LIVE_PROTOCOL; sessionId: string; sequence: number };
 export type PineLiveSourceEvent = { bar: Candle; confirmed: boolean };
 export type PineLiveRequest = LiveIdentity & (
-  { action: "start"; request: PineRequest } |
+  { action: "start"; request: PineRequest; marketStreams?: PineLiveMarketStream[] } |
   { action: "update"; bar: Candle; confirmed: boolean; source?: PineLiveSourceEvent } |
+  { action: "markets"; events: PineLiveMarketEvent[] } |
   { action: "viewport"; viewport: PineViewport | null }
 );
-export type PineLiveResponse = LiveIdentity & { response: PineResponse };
+export type PineLiveResponse = LiveIdentity & { response: PineResponse | { id: string; status: "completed"; ack: PineLiveMarketReceipt } };
 
 function invalid(message: string): never { throw new PineProtocolError("INVALID_LIVE_MESSAGE", message); }
 function plain(value: unknown): Record<string, unknown> {
@@ -31,7 +33,7 @@ export function pineLiveRequestId(sessionId: string, sequence: number): string {
 export function validatePineLiveRequest(value: unknown): PineLiveRequest {
   const raw = plain(value);
   const owner = identity(raw);
-  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source"];
+  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request", "marketStreams"] : raw.action === "markets" ? ["protocol", "sessionId", "sequence", "action", "events"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source"];
   if (Object.keys(raw).some(key => !fields.includes(key))) invalid("Unexpected live Pine request field.");
   if (raw.action === "start") {
     if (owner.sequence !== 0) invalid("Live Pine initialization requires sequence zero.");
@@ -60,7 +62,12 @@ export function validatePineLiveRequest(value: unknown): PineLiveRequest {
         if (!["open", "high", "low", "close", "volume"].every(key => aggregate[key as keyof typeof aggregate] === expected[key as keyof Candle])) invalid("Live source history does not match the chart's committed candles.");
       }
     }
-    return { ...owner, action: "start", request };
+    const marketStreams = raw.marketStreams === undefined ? undefined : validatePineLiveMarketStreams(raw.marketStreams);
+    return { ...owner, action: "start", request, ...(marketStreams ? { marketStreams } : {}) };
+  }
+  if (raw.action === "markets") {
+    if (owner.sequence === 0) invalid("Requested-market changes require an initialized ordered live session.");
+    return { ...owner, action: "markets", events: validatePineLiveMarketEvents(raw.events) };
   }
   if (raw.action === "viewport") {
     if (owner.sequence === 0 || !Object.prototype.hasOwnProperty.call(raw, "viewport") || raw.viewport === undefined) invalid("Live Pine viewport changes require an ordered explicit range or null.");
@@ -108,6 +115,7 @@ export function advancePineLiveSource(snapshot: PineSourceSnapshot | undefined, 
 }
 /** Bind every response to its immutable owner, command and exact expected history. */
 export function validatePineLiveResponse(value: unknown, command: PineLiveRequest, expected: PineRequest): PineExecutionResult {
+  if (command.action === "markets") invalid("Requested-market commands cannot publish chart execution results.");
   const raw = plain(value);
   const owner = identity(raw);
   if (Object.keys(raw).some(key => !["protocol", "sessionId", "sequence", "response"].includes(key))
@@ -116,4 +124,14 @@ export function validatePineLiveResponse(value: unknown, command: PineLiveReques
   const result = validatePineResponse(raw.response, expected);
   if (result.kind !== "run" || !["indicator", "strategy"].includes(result.declaration) || result.audit.mode !== "live") invalid("Live Pine sessions require study execution results.");
   return result;
+}
+
+export function validatePineLiveMarketResponse(value: unknown, command: Extract<PineLiveRequest, { action: "markets" }>, expected: PineRequest, ledger: PineLiveMarketLedger): PineLiveMarketReceipt {
+  const raw = plain(value), owner = identity(raw);
+  if (Object.keys(raw).some(key => !["protocol", "sessionId", "sequence", "response"].includes(key))
+    || owner.sessionId !== command.sessionId || owner.sequence !== command.sequence || expected.id !== pineLiveRequestId(owner.sessionId, owner.sequence)) invalid("Requested-market acknowledgement belongs to a different command.");
+  const response = plain(raw.response);
+  if (response.status === "failed") validatePineResponse(response, expected);
+  if (response.id !== expected.id || response.status !== "completed" || Object.keys(response).some(key => !["id", "status", "ack"].includes(key))) invalid("Requested-market commands require their owned acknowledgement without chart results.");
+  return validatePineLiveMarketReceipt(response.ack, ledger);
 }
