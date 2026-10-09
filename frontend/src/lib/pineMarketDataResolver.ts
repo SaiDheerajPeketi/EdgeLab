@@ -1,6 +1,6 @@
 import { getBinanceInstruments, type Candle, type BinanceInstrument } from "./api";
 import { getStoredAuthSession, hasWorkspaceAccess, subscribeAuthSession, type AuthSession } from "./authSession";
-import { binanceChartPlan, loadBinanceRequestHistory } from "./binanceChartFeed";
+import { binanceChartPlan, loadBinanceRequestHistory, type BinanceChartPlan } from "./binanceChartFeed";
 import { normalizeChartTimeframe } from "./charting";
 import { pineContextForChart } from "./customIndicators";
 import { pineContextWithBinanceInstrument } from "./pineInstrumentContext";
@@ -13,6 +13,10 @@ export type PineMarketDataScope = {
   owns(): boolean; signal?: AbortSignal;
 };
 export type PineMarketDataDemand = { symbol: string; timeframe: string; warmupPeriods?: number };
+/** Trusted host seam, called only after instrument qualification and before REST. */
+export type PineMarketHistoryAdmission = {
+  providerSymbol: string; context: Readonly<PineContext>; plan: Readonly<BinanceChartPlan>; signal: AbortSignal;
+};
 export type PineResolvedMarketData = {
   provider: "binance"; providerSymbol: string; revision: string;
   context: Readonly<PineContext>; sourceTimeframe: string; interval: string; bars: readonly Readonly<Candle>[];
@@ -25,6 +29,7 @@ type Dependencies = {
   subscribeIdentity(listener: () => void): () => void;
   instruments: typeof getBinanceInstruments;
   history: typeof loadBinanceRequestHistory;
+  beforeHistory?(admission: PineMarketHistoryAdmission): Promise<void>;
 };
 function unavailable(message: string): never { throw new PineProtocolError("UNAVAILABLE_DATA", message); }
 function subscribeIdentity(listener: () => void) {
@@ -141,6 +146,9 @@ export function createPineMarketDataResolver(scope: PineMarketDataScope, overrid
         ensureActive();
         const symbol = `BINANCE:${requested.symbol}`;
         const context = pineContextWithBinanceInstrument(symbol, frame, requested.symbol, instrument);
+        ensureActive();
+        await deps.beforeHistory?.({ providerSymbol: requested.symbol, context: Object.freeze({ ...context }),
+          plan: Object.freeze({ ...plan }), signal: controller.signal });
         ensureActive();
         const history = await deps.history(requested.symbol, plan, { from: range.from, to: range.to,
           warmupPeriods: requested.warmupPeriods, candleLimit: PINE_MARKET_DATA_LIMITS.historyCandles,
