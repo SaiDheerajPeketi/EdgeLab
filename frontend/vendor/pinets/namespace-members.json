@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "version": "0.11.0",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
-  "namespaceSourcesSha256": "b967ac21ffe67f1af42b40a1b66e505a7a3d7744cf9c6555bb5f70ae0cd6a67c",
+  "namespaceSourcesSha256": "3166c0dbdf345b823ed9fb157b728c2229a5ac476088d81cb53bbd23d47a8fc7",
   "overrides": [
     {
       "source": "src/Context.class.ts",
@@ -86,7 +86,7 @@
     },
     {
       "source": "src/namespaces/strategy/utils.ts",
-      "sha256": "16bd09c6bf9c01025ffaec0c681637262998b8b8d7af28fb46f46cd9a6e31f35"
+      "sha256": "e477018c9f2884003d6c35020179db4a9cf0086dd905d7f94afbcea19c3dcfee"
     },
     {
       "source": "src/namespaces/table/TableHelper.ts",

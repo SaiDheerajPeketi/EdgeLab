@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { editor, checkedRun } from "./pine-layering.product-support";
 import { AUTH_SESSION_KEY, betaSessionResponse, gotoStable, installDeterminism, seedChartLayout } from "./support/app";
 import { fulfillReplayContext } from "./support/replay-context";
+import { formatChartTimeframeLabel } from "../frontend/src/lib/charting";
 
 const artifacts = path.resolve(".artifacts/pine-live-strategy147");
 const hash = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
@@ -40,7 +41,7 @@ if barstate.isrealtime and close>67525 and strategy.position_size>0
     strategy.close("Long147")`;
 }
 const ordinarySource = '//@version=6\nindicator("Ordinary147",overlay=true)\nvarip int ticks=0\nticks+=1\nplot(ticks,"Ticks",display=display.none)\nplot(close,"Price",color=#ffffff)';
-async function setup(page: Page) {
+async function setup(page: Page, timeframe = "1m") {
   const now = Date.now(), currentMinute = Math.floor(now / 60_000) * 60, origin = currentMinute - 600 * 60;
   const history = Array.from({ length: 600 }, (_, i) => ({ time: origin + i * 60, open: 67500 + i / 100 - 1,
     high: 67500 + i / 100 + 2, low: 67500 + i / 100 - 2, close: 67500 + i / 100, volume: 10 }));
@@ -59,11 +60,15 @@ async function setup(page: Page) {
     localStorage.setItem(key, JSON.stringify({ createdAt: session.created_at, expiresAt: session.expires_at, token: session.token, user: {
       id: user.id, email: user.email, name: user.name, provider: user.provider, approved: user.approved, betaPosition: user.beta_position,
       deploymentMode: user.deployment_mode, workspaceAccess: user.workspace_access, accessExpiresAt: user.access_expires_at, isBetaUser: user.is_beta_user, plan: user.plan } }));
-    const state: any = { results: [], hold: null, held: null }; (window as any).__strategy147 = state;
+    const state: any = { results: [], latestLive: {}, hold: null, held: null }; (window as any).__strategy147 = state;
     addEventListener("message", event => {
       const frame = [...document.querySelectorAll<HTMLIFrameElement>('iframe[sandbox="allow-scripts"]')].find(item => item.contentWindow === event.source && item.srcdoc.includes(`data-job="${event.data?.nonce}"`));
       if (!frame || event.origin !== "null" || event.data?.type !== "result") return;
       state.results.push(event.data.payload);
+      const payload = event.data.payload;
+      if (payload?.protocol === "pine-live-v1" && payload.response?.status === "completed" && payload.response.result?.kind === "run") {
+        state.latestLive[payload.response.result.source] = payload;
+      }
       if (state.hold && event.data.payload?.sessionId === state.hold.sessionId && event.data.payload?.sequence === state.hold.sequence) {
         state.held = event; event.stopImmediatePropagation();
       }
@@ -96,8 +101,9 @@ async function setup(page: Page) {
     return route.fulfill({ json: { symbols: [{ symbol: "BTCUSDT", status: "TRADING", baseAsset: "BTC", quoteAsset: "USDT" }] } });
   });
   await gotoStable(page, "/app/live", { waitForNetworkIdle: false }); await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
-  if (!await page.getByRole("button", { name: "1m", exact: true }).first().isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
-  await page.getByRole("button", { name: "1m", exact: true }).first().click();
+  const timeframeLabel = formatChartTimeframeLabel(timeframe);
+  if (!await page.getByRole("button", { name: timeframeLabel, exact: true }).first().isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: timeframeLabel, exact: true }).first().click();
   await expect.poll(() => sockets.some(socket => socket.url().includes("btcusdt@kline_1m"))).toBe(true);
   let eventTime = now;
   const emit = (index: number, close: number, confirmed = false) => {
@@ -183,6 +189,93 @@ test("default live strategy calculates only on actual close while next received 
   for (const result of [first, tick, closed, filled]) { expect(result.freshBuffers).toBe(true); expect(result.encoding).toBe("pine-packed-v1"); expect(result.retainedPreviousBufferBytes.every((bytes: number) => bytes > 0)).toBe(true); }
   await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(1);
   await save(page, info, "close-and-next-tick", { initial, first, tick, closed, filled }, state);
+});
+
+// Only the latest authentic response is decoded for each event. Older responses
+// remain available for receipts, without repeatedly scanning their plot history.
+async function capacityResponse(page: Page, source: string, sessionId: string | null, sequence: number) {
+  await page.waitForFunction(({ source, sessionId, sequence }) => {
+    const payload = (window as any).__strategy147.latestLive[source];
+    return payload && payload.sequence === sequence && (!sessionId || payload.sessionId === sessionId);
+  }, { source, sessionId, sequence });
+  return page.evaluate(source => {
+    const payload = (window as any).__strategy147.latestLive[source], response = payload.response, result = response.result;
+    return { sessionId: payload.sessionId, sequence: payload.sequence, audit: result.audit, strategy: result.strategy,
+      plots: result.plots.map((plot: any) => {
+        if (!plot.packed) return { name: plot.name, values: plot.points.map((point: any) => point.value) };
+        const values = new Float64Array(response.buffers[plot.packed.values]), kinds = new Uint8Array(response.buffers[plot.packed.kinds]);
+        return { name: plot.name, values: Array.from({ length: plot.packed.slots }, (_, index) => kinds[index] === 4 ? values[index]
+          : kinds[index] === 3 ? true : kinds[index] === 2 ? false : null).filter((_, index) => kinds[index] !== 0) };
+      }) };
+  }, source);
+}
+
+test("one-hour live strategy keeps one candle and owner through 1025 actual provider updates", async ({ page }, info) => {
+  const state = await setup(page, "1h"), text = `//@version=6
+strategy("Hour capacity149",overlay=true,calc_on_every_tick=true,initial_capital=1000000)
+var int ordinary=0
+varip int tick=0
+if barstate.isnew
+    tick:=0
+ordinary+=1
+tick+=1
+plot(ordinary,"Ordinary",display=display.none)
+plot(tick,"Tick",display=display.none)
+plot(close,"Price",color=#ff00ff,linewidth=3)
+plot(close[1],"Prior close",display=display.none)
+if barstate.isrealtime and tick==513
+    strategy.entry("Late149",strategy.long,qty=1)`;
+  await add(page, text, state);
+  // Chart timeframe is 1h; every input event remains a genuine 1m provider event
+  // for the same currently developing minute/hour. No application clock changes.
+  state.emit(600, 67520);
+  const first = await capacityResponse(page, text, null, 1), sessionId = first.sessionId;
+  const warmup = first.audit.bars - 1;
+  expect(warmup).toBeGreaterThan(0); expect(warmup).toBeLessThan(12);
+  expect(tail(first, "Ordinary")).toBe(warmup + 1);
+  expect(tail(first, "Tick")).toBe(1);
+  const priorClose = tail(first, "Prior close"), checkpoints: any[] = [first];
+  const firstSnapshot = structuredClone(first);
+  let latest = first;
+  for (let event = 2; event <= 1025; event++) {
+    const close = 67520 + event % 7;
+    state.emit(600, close);
+    latest = await capacityResponse(page, text, sessionId, event);
+    expect(latest.audit.bars).toBe(warmup + 1);
+    for (const plot of latest.plots) expect(plot.values).toHaveLength(warmup + 1);
+    expect(tail(latest, "Ordinary")).toBe(warmup + 1);
+    expect(tail(latest, "Tick")).toBe(event);
+    expect(tail(latest, "Price")).toBe(close);
+    expect(tail(latest, "Prior close")).toBe(priorClose);
+    if (event === 513) {
+      expect(latest.strategy.openTrades).toEqual([]);
+      expect(latest.strategy.pendingOrders).toHaveLength(1);
+      expect(latest.strategy.pendingOrders[0]).toMatchObject({ id: "Late149", type: "market" });
+    }
+    if (event >= 514) {
+      expect(latest.strategy.openTrades).toHaveLength(1);
+      expect(latest.strategy.openTrades[0]).toMatchObject({ entry_id: "Late149", entry_price: 67523, size: 1, entry_bar_index: warmup });
+      expect(latest.strategy.pendingOrders).toEqual([]);
+      expect(latest.strategy.closedTrades).toEqual([]);
+    }
+    if ([512, 513, 514, 1025].includes(event)) checkpoints.push(latest);
+  }
+  expect(first).toEqual(firstSnapshot);
+  expect(state.providerEvents).toHaveLength(1025);
+  expect(new Set(state.providerEvents.map(event => event.data.k.t)).size).toBe(1);
+  expect(state.providerEvents.every(event => event.data.k.i === "1m" && event.data.k.x === false)).toBe(true);
+  expect(state.providerEvents.every((event, index) => index === 0 || event.data.E > state.providerEvents[index - 1].data.E)).toBe(true);
+  const lifecycle = await page.evaluate(source => {
+    const payloads = (window as any).__strategy147.results.filter((payload: any) => payload.protocol === "pine-live-v1" && payload.response?.result?.source === source);
+    return { sessions: [...new Set(payloads.map((payload: any) => payload.sessionId))], sequences: payloads.map((payload: any) => payload.sequence),
+      failed: (window as any).__strategy147.results.filter((payload: any) => payload.protocol === "pine-live-v1" && payload.response?.status === "failed") };
+  }, text);
+  expect(lifecycle.sessions).toEqual([sessionId]);
+  expect(lifecycle.sequences).toEqual(Array.from({ length: 1026 }, (_, index) => index));
+  expect(lifecycle.failed).toEqual([]);
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(1);
+  await save(page, info, "hour-capacity149", { timeframe: "1h", providerTimeframe: "1m", receivedEvents: 1025,
+    warmup, checkpoints, lifecycle, qualification: "Sequential controlled provider transport; each emission awaits its actual opaque worker response. No accelerated timers or generated worker results." }, state);
 });
 
 test("everytick broker ledger, chart inputs and execution settings retain precise session ownership", async ({ page }, info) => {

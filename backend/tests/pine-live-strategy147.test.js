@@ -329,22 +329,21 @@ test("packed strategy snapshots transfer only owned buffers and preserve the liv
 });
 
 
-test("512 live calculations are bounded cumulatively across received events in one chart bar", async () => {
+test("more than 512 received updates remain usable in one chart bar", async () => {
   const session = await live(script(counters, 'calc_on_every_tick=true'));
   try {
-    for (let index = 0; index < 512; index++) {
+    for (let index = 0; index < 640; index++) {
       const result = await session.step(candle(3, 100));
       assert.equal(tail(result, "Executions"), 4 + index);
     }
-    await assert.rejects(session.step(candle(3, 100)), cause => {
-      assert.match(cause.message, /512|calculations|execution.*limit/i);
-      return true;
-    });
-    await assert.rejects(session.step(candle(3, 100)), failure("LIVE_SESSION_HALTED"));
+    const confirmed = await session.step(candle(3, 100), true);
+    assert.equal(tail(confirmed, "Executions"), 644);
+    const next = await session.step(candle(4, 100));
+    assert.equal(tail(next, "Executions"), 645);
   } finally { session.executor.dispose(); }
 });
 
-test("broker transition budget accumulates across ticks and cannot reset on each received event", async () => {
+test("more than 2048 broker transitions across distinct received events preserve next-tick eligibility", async () => {
   const source = script(counters + `
 if barstate.isrealtime and (executions==4 or executions==7)
     for i=0 to 599
@@ -360,11 +359,15 @@ if barstate.isrealtime and executions==6
     assert.equal(firstFills.strategy.closedTrades.length, 600);
     await session.step(candle(3, 100, { high: 120, low: 80 }));
     await session.step(candle(3, 120, { low: 80 }));
-    await assert.rejects(session.step(candle(3, 80, { high: 120 })), cause => {
-      assert.match(cause.message, /2,?048|transitions|execution.*limit/i);
-      return true;
-    });
-    await assert.rejects(session.step(candle(3, 80, { high: 120 })), failure("LIVE_SESSION_HALTED"));
+    const secondFills = await session.step(candle(3, 80, { high: 120 }));
+    assert.equal(secondFills.strategy.closedTrades.length, 600);
+    assert.equal(secondFills.strategy.openTrades.length, 600);
+    assert.equal(secondFills.strategy.pendingOrders.length, 0);
+    assert.equal(secondFills.strategy.metrics.position_size, 600);
+    for (const trade of secondFills.strategy.closedTrades) {
+      assert.deepEqual([trade.entry_price, trade.exit_price, trade.profit], [80, 80, 0]);
+    }
+    for (const trade of secondFills.strategy.openTrades) assert.equal(trade.entry_price, 80);
   } finally { session.executor.dispose(); }
 });
 

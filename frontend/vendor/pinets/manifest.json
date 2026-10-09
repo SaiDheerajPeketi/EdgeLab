@@ -74,7 +74,7 @@
       "source": "src/namespaces/strategy/utils.ts",
       "file": "overrides/namespaces/strategy/utils.ts",
       "upstreamSha256": "24afd57f6668a5ee2ac050c441cf4155ab798d1b5b26952afff18caf709883c4",
-      "sha256": "16bd09c6bf9c01025ffaec0c681637262998b8b8d7af28fb46f46cd9a6e31f35"
+      "sha256": "e477018c9f2884003d6c35020179db4a9cf0086dd905d7f94afbcea19c3dcfee"
     },
     {
       "source": "src/namespaces/strategy/methods/entry.ts",
@@ -217,6 +217,6 @@
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "be2162ab694a93780fc0aca10dfb261708b81b8babf35aedb9ba1a55505a778f"
+    "sha256": "c9b8f2abb408b0ebf0f64c2d92dc32a4090246b4d60d64bf358133f15f673da8"
   }
 }

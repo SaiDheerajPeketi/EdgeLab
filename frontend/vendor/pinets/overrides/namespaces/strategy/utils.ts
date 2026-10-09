@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: chronological fills, loaded intrabar paths, persistent exits and received-event realtime scheduling.
+// EdgeLab modification, 2026-10-08: chronological fills, loaded intrabar paths, persistent exits and received-event realtime scheduling with per-event work bounds.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -2503,7 +2503,7 @@ export function inheritHistoricalTrailingState(previous: object, replacement: ob
 }
 
 
-type RealtimeBrokerBar = { bar: number; event: number; calculations: number; transitions: number };
+type RealtimeBrokerBar = { bar: number; event: number };
 const realtimeBrokerBars = new WeakMap<object, RealtimeBrokerBar>();
 type ReceivedStrategyEvent = { confirmed: boolean; calculate: boolean };
 
@@ -2539,7 +2539,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     if (received) {
         brokerBar = realtimeBrokerBars.get(strategy);
         if (!brokerBar || brokerBar.bar !== context.idx) {
-            brokerBar = { bar: context.idx, event: -1, calculations: 0, transitions: 0 };
+            brokerBar = { bar: context.idx, event: -1 };
             realtimeBrokerBars.set(strategy, brokerBar);
         }
         brokerBar.event++;
@@ -2561,6 +2561,8 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     const births = new WeakMap<object, number>();
     const exitRemaining = historicalMarketExitRemaining;
     for (const order of strategy.pending_orders) births.set(order, received ? lastVertex - 1 : initial ? lastVertex : -1);
+    // Work is bounded per invocation: one received event, or one historical bar.
+    // The per-bar event ordinal remains persistent for next-tick/trailing timing.
     let cursor = received || initial ? lastVertex : 0, executions = initial ? 1 : 0, transitions = 0;
     let lastCalculation = initial ? lastVertex : -1, result = initial?.result;
     let regularDone = false;
@@ -2620,7 +2622,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         for (const order of strategy.pending_orders) if (!births.has(order)) births.set(order, cursor);
     };
     const execute = async () => {
-        if ((brokerBar ? ++brokerBar.calculations : ++executions) > 512) fail('Strategy recalculation exceeded 512 calculations in one bar.', 'STRATEGY_EXECUTION_LIMIT');
+        if (++executions > 512) fail(`Strategy recalculation exceeded 512 calculations in one ${received ? 'received event' : 'bar'}.`, 'STRATEGY_EXECUTION_LIMIT');
         result = await calculate(); lastCalculation = cursor; stamp();
     };
     type Event = { at: number; price: number; order: any; kind: 'entry' | 'activate' | 'trail-activate' | 'market-exit' | 'profit' | 'loss' | 'trailing'; trade?: any };
@@ -2832,7 +2834,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         if (next && next.at <= vertex) {
             // Price vertices are separately bounded by the validated child count.
             // Only broker events consume the transition budget, not passive walking.
-            if ((brokerBar ? ++brokerBar.transitions : ++transitions) > 2048) fail('Chronological fills exceeded 2,048 broker transitions in one bar.', 'STRATEGY_EXECUTION_LIMIT');
+            if (++transitions > 2048) fail(`Chronological fills exceeded 2,048 broker transitions in one ${received ? 'received event' : 'bar'}.`, 'STRATEGY_EXECUTION_LIMIT');
             cursor = next.at; mark(priceAt(cursor));
             if (fill(next) && strategy.config.calc_on_order_fills === true) await execute();
             continue;
