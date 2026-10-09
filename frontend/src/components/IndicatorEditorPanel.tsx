@@ -50,6 +50,7 @@ import { pickPineChartInputs } from "../lib/pineChartInputPicker";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { loadPineCatalogOriginal, pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
+import { PINE_INDICATOR_STARTERS } from "../lib/pineStarters";
 import { PineCatalogBrowser } from "./PineCatalogBrowser";
 import { PineInputControl } from "./PineInputControl";
 import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
@@ -601,9 +602,12 @@ export function IndicatorEditorPanel({
           <div className="flex flex-wrap items-center gap-1.5">
             <label className="sr-only" htmlFor="edge-new-template">New script template</label>
             <select className="input-control h-8 max-w-40 text-xs" id="edge-new-template" value="" onChange={(event) => {
-              const next = event.target.value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : event.target.value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE;
+              const next = PINE_INDICATOR_STARTERS.find((starter) => starter.id === event.target.value)?.source
+                ?? (event.target.value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : event.target.value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE);
               setSelectedId(""); changeSource(next); setInputs({}); setStrategySettings({}); setHistoryRevision(null); setCatalogOrigin(undefined);
-            }}><option value="" disabled>New script…</option><option value="edge">EdgeLab DSL</option><option value="pine-indicator">Pine indicator</option><option value="pine-strategy">Pine strategy</option></select>
+              setCompletionOpen(false);
+              window.requestAnimationFrame(() => { if (currentOwner()) textareaRef.current?.focus(); });
+            }}><option value="" disabled>New script…</option><option value="edge">EdgeLab DSL</option><option value="pine-indicator">Pine indicator</option><option value="pine-strategy">Pine strategy</option><optgroup label="Pine indicators">{PINE_INDICATOR_STARTERS.map((starter) => <option key={starter.id} value={starter.id}>{starter.name}</option>)}</optgroup></select>
             <button className="studio-tool-button" disabled={!canSave} onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
             <button className="studio-tool-button" disabled={!canSave || runState.status === "running"} onClick={() => save()} type="button"><Save size={13} /> Save</button>
