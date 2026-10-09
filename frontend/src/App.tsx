@@ -3551,7 +3551,7 @@ export function WorkspaceApp() {
                               dataState={paneDataState}
                               syncedCrosshair={chartSyncSettings.crosshair ? syncedCrosshair : null}
                               syncedVisibleRange={journalFocusRange
-                                ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length }
+                                ? journalFocusRange
                                 : chartSyncSettings.visibleRange ? syncedVisibleRange : null}
                               symbol={pane.symbol}
                               currency={sessionCurrency}

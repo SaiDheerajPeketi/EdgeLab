@@ -1,3 +1,4 @@
+import { chartCandleLogical, chartGapMatches, chartLogicalRangesMatch, createChartViewportInitializer, recentChartLogicalRange, requestChartLogicalRange, translatedChartLogicalRange } from "../lib/chartViewportNavigation";
 import { colorWithOpacity } from "../lib/colorTokens";
 import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
@@ -56,6 +57,7 @@ import type {
   ISeriesApi,
   SeriesMarker,
   Logical,
+  LogicalRange,
   LineData,
   MouseEventParams,
   Time,
@@ -208,10 +210,6 @@ const RADIAL_TOOLBOX_EDGE_PADDING = 118;
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 const WEAK_MAGNET_THRESHOLD_PX = 14;
-const DEFAULT_REPLAY_BAR_SPACING = 6;
-const DEFAULT_REPLAY_RIGHT_OFFSET = 8;
-const MIN_RESET_REPLAY_BARS = 96;
-const MAX_RESET_REPLAY_BARS = 320;
 const EMPTY_MARKET_PROFILE: MarketProfile = {
   pointOfControl: null,
   rows: [],
@@ -641,6 +639,19 @@ export function TradingChart({
   const previousTimeframeRef = useRef(timeframe);
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
   const previousChartStyleRef = useRef(chartStyle);
+  const viewportInitializerRef = useRef<ReturnType<typeof createChartViewportInitializer> | null>(null);
+  const resetViewportRef = useRef<() => boolean>(() => false);
+  const restoreViewportRef = useRef<() => boolean>(() => false);
+  const viewportNavigationRef = useRef<{
+    following: boolean; range: LogicalRange | null; expected: LogicalRange | null;
+    anchorTime: number | null; anchorLogical: number | null; gap: number | null;
+    followGap: number | null; baseLogical: number | null; adoptingLinked: boolean;
+  }>({ following: false, range: null, expected: null, anchorTime: null, anchorLogical: null, gap: null, followGap: null, baseLogical: null, adoptingLinked: false });
+  const viewportResizeApplyingRef = useRef(false);
+  const viewportDataApplyingRef = useRef(false);
+  const viewportGestureRef = useRef({ active: false, until: 0 });
+  const rangeSyncOwnerRef = useRef<object | null>(null);
+
   const syncApplyingRef = useRef(false);
   const localPointerActiveRef = useRef(false);
   const linkedCrosshairAppliedRef = useRef(false);
@@ -674,7 +685,11 @@ export function TradingChart({
     [sessionBars, timeframe],
   );
   const latestDisplayBarTime = displayBars.at(-1)?.time;
-  const previousDisplayBarsRef = useRef<Candle[] | null>(null);
+  const viewportOwner = useMemo(() => ({}), [paneId, symbol, timeframe, datasetTimeframe,
+    runtimeContextKey, indicatorRuntimeMode, pineLiveFeed, pineLiveFeed?.getSnapshot().epoch,
+    replaySeekVersion, authSession?.user.id, authSession?.token,
+    chartSettings.tradingHoursMode, sessionTemplate.id]);
+
   const sessionFilteredBarCount = bars.length - sessionBars.length;
   const sourceOrderFlowBars = useMemo(
     () => readOrderFlowSeries(sessionBars),
@@ -1703,6 +1718,7 @@ export function TradingChart({
         timeVisible: true,
         secondsVisible: false,
         lockVisibleTimeRangeOnResize: true,
+        shiftVisibleRangeOnNewBar: false,
       },
       localization: {
         priceFormatter: (price: number) => formatPrice(price),
@@ -1717,6 +1733,25 @@ export function TradingChart({
     };
 
     chartRef.current = chart;
+    const initializer = createChartViewportInitializer({
+      request: callback => window.requestAnimationFrame(callback),
+      cancel: frame => window.cancelAnimationFrame(frame),
+    });
+    viewportInitializerRef.current = initializer;
+    const handleViewportInteraction = (event: Event) => {
+      viewportGestureRef.current.active = event.type === "pointerdown";
+      viewportGestureRef.current.until = performance.now() + 500;
+    };
+    const endViewportInteraction = () => {
+      if (!viewportGestureRef.current.active) return;
+      viewportGestureRef.current.active = false;
+      viewportGestureRef.current.until = performance.now() + 500;
+    };
+    window.addEventListener("pointerup", endViewportInteraction);
+    window.addEventListener("pointercancel", endViewportInteraction);
+    chartContainer.addEventListener("pointerdown", handleViewportInteraction, true);
+    chartContainer.addEventListener("wheel", handleViewportInteraction, { capture: true, passive: true });
+
     const handlePointerEnter = () => {
       localPointerActiveRef.current = true;
     };
@@ -1749,31 +1784,101 @@ export function TradingChart({
         onCrosshairSyncRef.current?.(value);
       }
     });
+    let lastBroadcastRange: { from: number; to: number } | null = null;
     const handleVisibleRangeChange = () => {
+      if (viewportDataApplyingRef.current) return;
+      const scale = chart.timeScale();
+      const range = scale.getVisibleLogicalRange();
+      const navigation = viewportNavigationRef.current;
+      const adoptingLinked = navigation.adoptingLinked;
+      const latestTime = barsRef.current.at(-1)?.time;
+      const latestLogical = latestTime === undefined ? null : chartCandleLogical(scale, latestTime);
+      const latestX = latestTime === undefined ? null : scale.timeToCoordinate(latestTime as UTCTimestamp);
+      const gesture = viewportGestureRef.current;
+      const manual = gesture.active || performance.now() < gesture.until;
+      if (range && latestLogical !== null && latestX !== null) {
+        const gap = scale.width() - latestX;
+        const linked = navigation.adoptingLinked;
+        const baseLogical = range.to - scale.scrollPosition();
+        const rangeChanged = !chartLogicalRangesMatch(range, navigation.range);
+        if (manual && rangeChanged && !chartLogicalRangesMatch(range, navigation.expected)) {
+          initializer.adopt();
+          navigation.expected = null;
+          navigation.adoptingLinked = false;
+        } else if (initializer.pending && !navigation.expected) {
+          // Readiness and timeline updates cannot consume a pending reset.
+          return;
+        } else if (navigation.expected && !chartLogicalRangesMatch(range, navigation.expected)) {
+          return;
+        }
+        if (!navigation.expected && !linked && !viewportResizeApplyingRef.current && navigation.range) {
+          const anchor = navigation.anchorTime === null ? null : chartCandleLogical(scale, navigation.anchorTime);
+          const reindexed = anchor !== null && navigation.anchorLogical !== null && anchor !== navigation.anchorLogical;
+          const timelineChanged = navigation.baseLogical !== null && Math.abs(baseLogical - navigation.baseLogical) > 0.0001;
+          if ((reindexed || timelineChanged) && anchor !== null && navigation.anchorLogical !== null) {
+            const restored = translatedChartLogicalRange(navigation.range, navigation.anchorLogical, anchor);
+            if (!chartLogicalRangesMatch(range, restored)) {
+              applyChartViewport(restored, navigation.following);
+              return;
+            }
+          } else if (rangeChanged) {
+            // Native pan/zoom (including ongoing touch inertia) and explicit
+            // public range changes are navigation, rather than data updates.
+            initializer.adopt();
+            const edgeGap = navigation.following ? navigation.gap : navigation.followGap;
+            navigation.following = chartGapMatches(gap, edgeGap);
+          }
+        }
+        navigation.expected = null;
+        navigation.adoptingLinked = false;
+        navigation.range = range;
+        navigation.anchorTime = latestTime!;
+        navigation.anchorLogical = latestLogical;
+        navigation.gap = gap;
+        navigation.baseLogical = baseLogical;
+        if (navigation.following) navigation.followGap = gap;
+      }
       refreshDrawingLayer();
       capturePineViewport();
-      if (syncApplyingRef.current || !onVisibleRangeSyncRef.current) return;
-      const range = chart.timeScale().getVisibleRange();
-      if (!range || typeof range.from !== "number" || typeof range.to !== "number") return;
-      onVisibleRangeSyncRef.current({
-        from: Number(range.from),
-        revision: Date.now(),
-        sourcePaneId: paneId,
-        to: Number(range.to),
-      });
+      const visibleTimeRange = chart.timeScale().getVisibleRange();
+      if (!visibleTimeRange || typeof visibleTimeRange.from !== "number" || typeof visibleTimeRange.to !== "number") return;
+      const visible = { from: Number(visibleTimeRange.from), to: Number(visibleTimeRange.to) };
+      const unchanged = lastBroadcastRange?.from === visible.from && lastBroadcastRange?.to === visible.to;
+      lastBroadcastRange = visible;
+      if (adoptingLinked || syncApplyingRef.current || unchanged || !onVisibleRangeSyncRef.current) return;
+      onVisibleRangeSyncRef.current({ ...visible, revision: Date.now(), sourcePaneId: paneId });
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+    chart.timeScale().subscribeVisibleTimeRangeChange(handleVisibleRangeChange);
+    let resizeFrame: number | null = null;
     const stopObservingSize = observeSharedChartSize(chartContainer, ({ height, width }) => {
+      viewportResizeApplyingRef.current = true;
       chart.resize(width, height);
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => { viewportResizeApplyingRef.current = false; resizeFrame = null; });
+      initializer.retry();
       refreshDrawingLayer();
       capturePineViewport();
     });
 
     return () => {
+      initializer.dispose();
+      if (viewportInitializerRef.current === initializer) viewportInitializerRef.current = null;
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      viewportResizeApplyingRef.current = false;
+      rangeSyncOwnerRef.current = null;
+      rangeSyncRevisionRef.current = -1;
+      viewportNavigationRef.current = { following: false, range: null, expected: null, anchorTime: null, anchorLogical: null, gap: null, followGap: null, baseLogical: null, adoptingLinked: false };
+      viewportGestureRef.current = { active: false, until: 0 };
+      window.removeEventListener("pointerup", endViewportInteraction);
+      window.removeEventListener("pointercancel", endViewportInteraction);
+      chartContainer.removeEventListener("pointerdown", handleViewportInteraction, true);
+      chartContainer.removeEventListener("wheel", handleViewportInteraction, true);
       stopObservingSize();
       chartContainer.removeEventListener("pointerenter", handlePointerEnter);
       chartContainer.removeEventListener("pointerleave", handlePointerLeave);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange);
       pineInstallationsRef.current.forEach((installation) => installation.dispose());
       pineInstallationsRef.current.clear();
       pineOverlayStudiesRef.current.clear();
@@ -1853,6 +1958,19 @@ export function TradingChart({
     setPlotVersion((value) => value + 1);
 
     return () => {
+      if (chartRef.current === chart) {
+        const scale = chart.timeScale(), range = scale.getVisibleLogicalRange();
+        const navigation = viewportNavigationRef.current;
+        const latestTime = barsRef.current.at(-1)?.time;
+        const logical = latestTime === undefined ? null : chartCandleLogical(scale, latestTime);
+        if (range && logical !== null && !viewportInitializerRef.current?.pending) {
+          navigation.range = range;
+          navigation.anchorTime = latestTime!;
+          navigation.anchorLogical = logical;
+          navigation.expected = null;
+          viewportInitializerRef.current?.reset(() => restoreViewportRef.current());
+        }
+      }
       priceLinesRef.current.forEach((line) => removePriceLineSafely(primarySeries, line));
       settingPriceLinesRef.current.forEach((line) =>
         removePriceLineSafely(primarySeries, line),
@@ -1977,22 +2095,30 @@ export function TradingChart({
     if (
       !syncedVisibleRange ||
       syncedVisibleRange.sourcePaneId === paneId ||
-      syncedVisibleRange.revision <= rangeSyncRevisionRef.current
+      syncedVisibleRange.revision <= rangeSyncRevisionRef.current && rangeSyncOwnerRef.current === viewportOwner
     ) {
       return;
     }
     const chart = chartRef.current;
     if (!chart || barsRef.current.length === 0) return;
     rangeSyncRevisionRef.current = syncedVisibleRange.revision;
+    rangeSyncOwnerRef.current = viewportOwner;
+    viewportInitializerRef.current?.adopt();
+    viewportNavigationRef.current.following = false;
+    viewportNavigationRef.current.expected = null;
+    viewportNavigationRef.current.adoptingLinked = true;
     syncApplyingRef.current = true;
     chart.timeScale().setVisibleRange({
       from: syncedVisibleRange.from as UTCTimestamp,
       to: syncedVisibleRange.to as UTCTimestamp,
     });
-    window.requestAnimationFrame(() => {
-      syncApplyingRef.current = false;
-    });
-  }, [paneId, syncedVisibleRange]);
+    const releaseSync = () => {
+      if (chartRef.current === chart && rangeSyncOwnerRef.current === viewportOwner &&
+        rangeSyncRevisionRef.current === syncedVisibleRange.revision) syncApplyingRef.current = false;
+    };
+    const frame = window.requestAnimationFrame(releaseSync);
+    return () => { window.cancelAnimationFrame(frame); releaseSync(); };
+  }, [displayBars, paneId, syncedVisibleRange, viewportOwner]);
 
   useLayoutEffect(() => {
     const timeframeChanged = previousTimeframeRef.current !== timeframe;
@@ -2001,59 +2127,63 @@ export function TradingChart({
     previousTimeframeRef.current = timeframe;
     previousReplaySeekVersionRef.current = replaySeekVersion;
     previousChartStyleRef.current = chartStyle;
-    const sourceDataChanged = previousDisplayBarsRef.current !== displayBars;
-    previousDisplayBarsRef.current = displayBars;
+    const initializer = viewportInitializerRef.current;
+    if (initializer?.setOwner(viewportOwner, () => resetViewportRef.current())) {
+      viewportGestureRef.current = { active: false, until: 0 };
+    }
+    const navigation = viewportNavigationRef.current;
     const forceSetData = timeframeChanged || replaySeekChanged || styleChanged;
     let dataChanged = false;
+    viewportDataApplyingRef.current = true;
 
-    if (candlesRef.current) {
-      const next = toAscendingSeriesData(candleData);
-      const plan = planSeriesDataUpdate(candleSeriesDataRef.current, next, forceSetData);
-      applyCandlestickDataPlan(candlesRef.current, plan);
-      candleSeriesDataRef.current = next;
-      dataChanged ||= plan.mode !== "none";
+    try {
+      if (candlesRef.current) {
+        const next = toAscendingSeriesData(candleData);
+        const plan = planSeriesDataUpdate(candleSeriesDataRef.current, next, forceSetData);
+        applyCandlestickDataPlan(candlesRef.current, plan);
+        candleSeriesDataRef.current = next;
+        dataChanged ||= plan.mode !== "none";
+      }
+      if (lineRef.current) {
+        const next = toAscendingSeriesData(closeLineData);
+        const plan = planSeriesDataUpdate(lineSeriesDataRef.current, next, forceSetData);
+        applyLineDataPlan(lineRef.current, plan);
+        lineSeriesDataRef.current = next;
+        dataChanged ||= plan.mode !== "none";
+      }
+      if (areaRef.current) {
+        const next = toAscendingSeriesData(closeLineData);
+        const plan = planSeriesDataUpdate(areaSeriesDataRef.current, next, forceSetData);
+        applyAreaDataPlan(areaRef.current, plan);
+        areaSeriesDataRef.current = next;
+        dataChanged ||= plan.mode !== "none";
+      }
+      if (volumeRef.current) {
+        const next = toAscendingHistogramData(volumeData);
+        const plan = planSeriesDataUpdate(volumeSeriesDataRef.current, next, forceSetData);
+        applyHistogramDataPlan(volumeRef.current, plan);
+        volumeSeriesDataRef.current = next;
+        dataChanged ||= plan.mode !== "none";
+      }
+    } finally {
+      viewportDataApplyingRef.current = false;
     }
-    if (lineRef.current) {
-      const next = toAscendingSeriesData(closeLineData);
-      const plan = planSeriesDataUpdate(lineSeriesDataRef.current, next, forceSetData);
-      applyLineDataPlan(lineRef.current, plan);
-      lineSeriesDataRef.current = next;
-      dataChanged ||= plan.mode !== "none";
-    }
-    if (areaRef.current) {
-      const next = toAscendingSeriesData(closeLineData);
-      const plan = planSeriesDataUpdate(areaSeriesDataRef.current, next, forceSetData);
-      applyAreaDataPlan(areaRef.current, plan);
-      areaSeriesDataRef.current = next;
-      dataChanged ||= plan.mode !== "none";
-    }
-    if (volumeRef.current) {
-      const next = toAscendingHistogramData(volumeData);
-      const plan = planSeriesDataUpdate(volumeSeriesDataRef.current, next, forceSetData);
-      applyHistogramDataPlan(volumeRef.current, plan);
-      volumeSeriesDataRef.current = next;
-      dataChanged ||= plan.mode !== "none";
-    }
-
-    const resetFrames: number[] = [];
-    if (displayBars.length > 0 && dataChanged && (sourceDataChanged || forceSetData)) {
-      if (timeframeChanged || replaySeekChanged) {
-        const firstFrame = window.requestAnimationFrame(() => {
-          const secondFrame = window.requestAnimationFrame(() => resetChartView());
-          resetFrames.push(secondFrame);
-        });
-        resetFrames.push(firstFrame);
-      } else {
-        chartRef.current?.timeScale().scrollToRealTime();
+    if (displayBars.length > 0 && dataChanged) {
+      if (initializer?.pending) initializer.retry();
+      else if (navigation.range && navigation.anchorLogical !== null && !navigation.adoptingLinked) {
+        const chart = chartRef.current;
+        const anchorTime = navigation.following ? displayBars.at(-1)!.time : navigation.anchorTime;
+        const logical = !chart || anchorTime === null ? null : chartCandleLogical(chart.timeScale(), anchorTime);
+        if (logical !== null) {
+          const delta = logical - navigation.anchorLogical;
+          if (delta !== 0) {
+            applyChartViewport(translatedChartLogicalRange(navigation.range, navigation.anchorLogical, logical), navigation.following);
+          }
+        }
       }
     }
-    if (dataChanged) {
-      setPlotVersion((value) => value + 1);
-    }
+    if (dataChanged) setPlotVersion((value) => value + 1);
     capturePineViewport();
-    return () => {
-      resetFrames.forEach((frame) => window.cancelAnimationFrame(frame));
-    };
   }, [
     candleData,
     capturePineViewport,
@@ -2065,6 +2195,7 @@ export function TradingChart({
     paneId,
     replaySeekVersion,
     timeframe,
+    viewportOwner,
     volumeData,
   ]);
 
@@ -2730,36 +2861,55 @@ export function TradingChart({
     items[nextIndex]?.focus();
   }
 
-  function resetChartView() {
-    resetReplayChartViewport();
-    primarySeriesRef.current?.priceScale().applyOptions({ autoScale: true });
-    setPlotVersion((value) => value + 1);
-  }
-
-  function resetReplayChartViewport() {
+  function applyChartViewport(range: LogicalRange, following: boolean) {
     const chart = chartRef.current;
-    if (!chart || displayBars.length === 0) {
-      return;
+    if (!chart) return;
+    const navigation = viewportNavigationRef.current;
+    navigation.following = following;
+    if (!viewportGestureRef.current.active) viewportGestureRef.current.until = 0;
+    navigation.expected = range;
+    navigation.range = range;
+    const latestTime = barsRef.current.at(-1)?.time;
+    navigation.anchorTime = latestTime ?? null;
+    navigation.anchorLogical = latestTime === undefined ? null : chartCandleLogical(chart.timeScale(), latestTime);
+    const scale = chart.timeScale();
+    if (!requestChartLogicalRange(scale, range)) {
+      // A history prepend can already have produced this exact range. Native
+      // LWC will emit no event, so acknowledge it before later user navigation.
+      navigation.expected = null;
+      navigation.baseLogical = range.to - scale.scrollPosition();
+      const x = latestTime === undefined ? null : scale.timeToCoordinate(latestTime as UTCTimestamp);
+      navigation.gap = x === null ? null : scale.width() - x;
+      if (following) navigation.followGap = navigation.gap;
     }
-
-    const plotWidth =
-      chartFrameRef.current && chartPlotWidth(chart, chartFrameRef.current) > 0
-        ? chartPlotWidth(chart, chartFrameRef.current)
-        : chart.paneSize().width;
-    const visibleBars = clamp(
-      Math.round(plotWidth / DEFAULT_REPLAY_BAR_SPACING),
-      MIN_RESET_REPLAY_BARS,
-      MAX_RESET_REPLAY_BARS,
-    );
-    const latestLogical = displayBars.length - 1;
-    const to = latestLogical + DEFAULT_REPLAY_RIGHT_OFFSET;
-    const from = Math.max(0, to - visibleBars);
-
-    chart.timeScale().setVisibleLogicalRange({
-      from: from as Logical,
-      to: to as Logical,
-    });
   }
+
+  function resetChartView() {
+    viewportInitializerRef.current?.reset(() => resetViewportRef.current());
+  }
+
+  resetViewportRef.current = () => {
+    const chart = chartRef.current, latestTime = barsRef.current.at(-1)?.time;
+    if (!chart || latestTime === undefined) return false;
+    const latest = chartCandleLogical(chart.timeScale(), latestTime);
+    if (latest === null) return false;
+    const width = chartFrameRef.current ? chartPlotWidth(chart, chartFrameRef.current) : chart.paneSize().width;
+    const range = recentChartLogicalRange(latest, width);
+    if (!range) return false;
+    applyChartViewport(range, true);
+    primarySeriesRef.current?.priceScale().applyOptions({ autoScale: true });
+    setPlotVersion(value => value + 1);
+    return true;
+  };
+
+  restoreViewportRef.current = () => {
+    const chart = chartRef.current, navigation = viewportNavigationRef.current;
+    if (!chart || !navigation.range || navigation.anchorTime === null || navigation.anchorLogical === null) return false;
+    const logical = chartCandleLogical(chart.timeScale(), navigation.anchorTime);
+    if (logical === null) return false;
+    applyChartViewport(translatedChartLogicalRange(navigation.range, navigation.anchorLogical, logical), navigation.following);
+    return true;
+  };
 
   function removeAllIndicators() {
     indicatorInstances.forEach((indicator) => onRemoveIndicator(indicator.id));
