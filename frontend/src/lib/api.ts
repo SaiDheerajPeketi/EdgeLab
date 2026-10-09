@@ -1023,8 +1023,8 @@ export function requestDevAuthBypass() {
   });
 }
 
-export function getAuthSession(token: string) {
-  return requestWithAuthorization<BetaAuthSession>("/auth/session", token);
+export function getAuthSession(token: string, signal?: AbortSignal) {
+  return requestWithAuthorization<BetaAuthSession>("/auth/session", token, { signal });
 }
 
 export function deleteAuthSession(token: string) {

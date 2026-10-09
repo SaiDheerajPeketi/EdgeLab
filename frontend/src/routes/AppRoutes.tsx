@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
+import { AuthJourneyShell } from "../components/auth/AuthJourneyShell";
+import { EdgePulseLoader } from "../components/EdgePulseLoader";
 import { DataTransferProvider } from "../components/settings/useDataTransfer";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { ApiError, getAuthSession, getUiRolloutConfig } from "../lib/api";
@@ -68,59 +69,13 @@ function preloadWorkspaceSurface() {
 
 function AppRouteFallback() {
   const location = useLocation();
-
-  if (location.pathname === "/auth/callback/google") {
-    return (
-      <AuthTransitionScreen
-        activeStep={0}
-        description="This usually takes a moment."
-        eyebrow="Secure callback"
-        panelEyebrow="Auth path"
-        panelTitle="Google return"
-        statusLabel="Signing in"
-        steps={[
-          {
-            detail: "Open callback route.",
-            label: "Load callback",
-          },
-          {
-            detail: "Exchange code.",
-            label: "Restore session",
-          },
-          {
-            detail: "Open workspace.",
-            label: "Open workspace",
-          },
-        ]}
-        title="Signing in"
-      />
-    );
-  }
+  const signingIn = location.pathname === "/auth/callback/google";
+  const title = signingIn ? "Signing in" : "Opening EdgeLab";
 
   return (
-    <AuthTransitionScreen
-      activeStep={1}
-      description="This usually takes a moment."
-      eyebrow="Routing"
-      panelEyebrow="Route path"
-      panelTitle="Surface transition"
-      statusLabel="Opening EdgeLab"
-      steps={[
-        {
-          detail: "Resolve destination.",
-          label: "Match route",
-        },
-        {
-          detail: "Load surface.",
-          label: "Load surface",
-        },
-        {
-          detail: "Restore state.",
-          label: "Hand off state",
-        },
-      ]}
-      title="Opening EdgeLab"
-    />
+    <AuthJourneyShell description="This usually takes a moment." statusLabel={signingIn ? "Secure sign-in" : "Loading"} title={title}>
+      <EdgePulseLoader label={title} showLabel size="lg" />
+    </AuthJourneyShell>
   );
 }
 
