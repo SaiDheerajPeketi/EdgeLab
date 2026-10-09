@@ -8,7 +8,7 @@ type LiveIdentity = { protocol: typeof PINE_LIVE_PROTOCOL; sessionId: string; se
 export type PineLiveSourceEvent = { bar: Candle; confirmed: boolean };
 export type PineLiveRequest = LiveIdentity & (
   { action: "start"; request: PineRequest; marketStreams?: PineLiveMarketStream[] } |
-  { action: "update"; bar: Candle; confirmed: boolean; source?: PineLiveSourceEvent } |
+  { action: "update"; bar: Candle; confirmed: boolean; source?: PineLiveSourceEvent; collectAlerts?: boolean } |
   { action: "markets"; events: PineLiveMarketEvent[] } |
   { action: "viewport"; viewport: PineViewport | null }
 );
@@ -33,7 +33,7 @@ export function pineLiveRequestId(sessionId: string, sequence: number): string {
 export function validatePineLiveRequest(value: unknown): PineLiveRequest {
   const raw = plain(value);
   const owner = identity(raw);
-  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request", "marketStreams"] : raw.action === "markets" ? ["protocol", "sessionId", "sequence", "action", "events"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source"];
+  const fields = raw.action === "start" ? ["protocol", "sessionId", "sequence", "action", "request", "marketStreams"] : raw.action === "markets" ? ["protocol", "sessionId", "sequence", "action", "events"] : raw.action === "viewport" ? ["protocol", "sessionId", "sequence", "action", "viewport"] : ["protocol", "sessionId", "sequence", "action", "bar", "confirmed", "source", "collectAlerts"];
   if (Object.keys(raw).some(key => !fields.includes(key))) invalid("Unexpected live Pine request field.");
   if (raw.action === "start") {
     if (owner.sequence !== 0) invalid("Live Pine initialization requires sequence zero.");
@@ -74,6 +74,7 @@ export function validatePineLiveRequest(value: unknown): PineLiveRequest {
     return { ...owner, action: "viewport", viewport: validatePineViewport(raw.viewport) };
   }
   if (raw.action !== "update" || owner.sequence === 0 || typeof raw.confirmed !== "boolean") invalid("Live Pine updates require an ordered explicit confirmation event.");
+  if (raw.collectAlerts !== undefined && typeof raw.collectAlerts !== "boolean") invalid("Live Pine alert collection requires an explicit boolean.");
   let source: PineLiveSourceEvent | undefined;
   if (raw.source !== undefined) {
     const event = plain(raw.source);
@@ -82,7 +83,7 @@ export function validatePineLiveRequest(value: unknown): PineLiveRequest {
     if (!["time", "open", "high", "low", "close", "volume"].every(key => Object.prototype.hasOwnProperty.call(candle, key))) invalid("Source updates require explicit OHLCV fields.");
     source = { bar: validatePineBar(candle), confirmed: event.confirmed };
   }
-  return { ...owner, action: "update", bar: validatePineBar(raw.bar), confirmed: raw.confirmed, ...(source ? { source } : {}) };
+  return { ...owner, action: "update", bar: validatePineBar(raw.bar), confirmed: raw.confirmed, ...(source ? { source } : {}), ...(raw.collectAlerts !== undefined ? { collectAlerts: raw.collectAlerts } : {}) };
 }
 
 /** A chart update and its real source event are accepted atomically by host and worker. */
@@ -123,6 +124,12 @@ export function validatePineLiveResponse(value: unknown, command: PineLiveReques
     || expected.id !== pineLiveRequestId(owner.sessionId, owner.sequence)) invalid("Live Pine response does not match the active command.");
   const result = validatePineResponse(raw.response, expected);
   if (result.kind !== "run" || !["indicator", "strategy"].includes(result.declaration) || result.audit.mode !== "live") invalid("Live Pine sessions require study execution results.");
+  if (result.alertEvents !== undefined) {
+    if (command.action !== "update" || command.collectAlerts !== true) invalid("Pine alerts cannot publish outside their armed update.");
+    const latest = expected.bars!.at(-1)!;
+    if (result.alertEvents.events.some(event => event.time !== latest.time || event.time !== command.bar.time
+      || event.barIndex !== expected.bars!.length - 1 || event.freq === "once_per_bar_close" && !command.confirmed)) invalid("Pine alerts do not belong to the latest owned candle and confirmation.");
+  }
   return result;
 }
 

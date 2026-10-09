@@ -188,7 +188,7 @@ export function createPineLiveMarketCoordinator(input: PineRequest, scope: PineM
       void load(demand).then(() => { assertActive(); ready = true; }).catch(cancelWith);
       return reload;
     };
-    const send = (command: Exclude<PineLiveRequest, { action: "start" }>) => (command.action === "update" ? inner!.update(command.bar, command.confirmed, command.source)
+    const send = (command: Exclude<PineLiveRequest, { action: "start" }>) => (command.action === "update" ? inner!.update(command.bar, command.confirmed, command.source, command.collectAlerts)
       : command.action === "viewport" ? inner!.setViewport(command.viewport) : inner!.updateMarkets(command.events)).catch(error => {
         if (halted) throw halted;
         const demand = command.action === "viewport" && parsePineMarketDemand(error);
@@ -213,7 +213,7 @@ export function createPineLiveMarketCoordinator(input: PineRequest, scope: PineM
     };
     const session: PineLiveRuntimeSession = { id, promise: Promise.resolve(undefined as never),
       cancel: () => { if ((halted as PineProtocolError)?.code === PINE_MARKETS_RELOADING) return; cancel(); },
-      update: (bar, confirmed, source) => enqueue({ action: "update", bar, confirmed, ...(source ? { source } : {}) }),
+      update: (bar, confirmed, source, collectAlerts) => enqueue({ action: "update", bar, confirmed, ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}) }),
       setViewport: viewport => enqueue({ action: "viewport", viewport }),
       updateMarkets: () => Promise.reject(new PineProtocolError("INVALID_LIVE_MARKET", "Requested live updates belong to the coordinator's native transports.")),
     };

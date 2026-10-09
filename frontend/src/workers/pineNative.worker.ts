@@ -2,6 +2,7 @@
 import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../lib/pineHigherTimeframe";
 import { aggregatePineCalculationBars, pineCalculationCanAggregate, pineCalculationEnd } from "../lib/pineCalculationTimeframe";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
+import { PINE_ALERT_EVENT_LIMIT, PINE_ALERT_DROPPED_LIMIT, validatePineAlertEvent, type PineAlertEvents } from "../lib/pineAlertEvents";
 import { pineMarketChartTimeframe, pineMarketSymbol } from "../lib/pineMarketProtocol";
 import { pineHeikinAshiBase, pineHeikinAshiBars } from "../lib/pineHeikinAshi";
 import { bucketTime } from "../lib/charting";
@@ -333,7 +334,8 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     const childBase = childSymbol && pineHeikinAshiBase(childSymbol);
     const childMetadata = childBase && !sameSymbol(childBase)
       ? [...marketSnapshots.values()].find(item => item.context.symbol === marketSymbol(childBase))?.context : context;
-    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, childMetadata?.quantityStep, undefined, mainTimeframe);
+    bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, childMetadata?.quantityStep, undefined, mainTimeframe,
+      (parent as RequestContext & { _edgelabDeclaredCalculation?: boolean })._edgelabDeclaredCalculation === true);
     const bound = prepared.fn;
     const fn = (child: Context) => {
       Object.assign(child, { _edgelabStaticPath: staticPath ?? parent._edgelabStaticPath, _edgelabRequestDepth: depth, _edgelabEnclosingExpression: expressionName, _edgelabRequestDependencies: (slice as Function & { _edgelabRequestDependencies?: readonly string[] })._edgelabRequestDependencies, _propOverrides: { ...parent._propOverrides } });
@@ -1351,14 +1353,17 @@ function magnifierSnapshot(request: PineRequest): () => MagnifierSnapshot {
 }
 
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
-function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number, magnifier?: () => MagnifierSnapshot, mainTimeframe?: string) {
+const alertCollectors = new WeakMap<Context, { batch: PineAlertEvents; time: number; barIndex: number; confirmed: boolean }>();
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false, quantityStep?: number, magnifier?: () => MagnifierSnapshot, mainTimeframe?: string, inheritedCalculation = false) {
   const original = prepared.fn;
+  const declaredCalculation = inheritedCalculation || Object.getOwnPropertyDescriptor(original, "_edgelabCalculation")?.value?.hasTimeframe === true;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
   const barcolors = new WeakMap<Context, ReturnType<typeof bindBarColorOptions>>();
   const barplots = new WeakMap<Context, ReturnType<typeof bindBarPlotOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
+      Object.defineProperty(context, "_edgelabDeclaredCalculation", { value: declaredCalculation });
       if (mainTimeframe) Object.defineProperty(context.pine.timeframe, "main_period", { get: () => context.pineVersion! >= 6 ? canonicalPineTimeframe(mainTimeframe) : canonicalPineTimeframe(mainTimeframe).replace(/^1([DWM])$/, "$1") });
       if (quantityStep !== undefined) Object.defineProperty(context, "_edgelabQuantityStep", { value: quantityStep });
       bindDeclarationLayer(context, strategyDeclaration);
@@ -1384,10 +1389,28 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       const send = alert.any;
       Object.defineProperty(alert, "any", { configurable: true, writable: true, value: function(this: unknown, ...args: unknown[]) {
         encounteredAlerts.add("alert");
-        // Delivery is unavailable. Retire the evaluated event immediately,
-        // including secondary/viewport contexts and failed calls; keep gates.
-        try { return Reflect.apply(send, this, args); }
-        finally { context.alerts.length = 0; }
+        const collector = alertCollectors.get(context);
+        const exact = collector && context.idx === collector.barIndex
+          && context.data.openTime.data[context.idx] === collector.time * 1000;
+        Object.defineProperty(context, "_alertsEnabled", { configurable: true, writable: true, value: !!exact });
+        try {
+          if (declaredCalculation) error("COMPILE_ERROR", "An indicator with a timeframe argument cannot use alert(), including imported alert calls.");
+          return Reflect.apply(send, this, args);
+        }
+        finally {
+          try {
+            if (exact) for (const native of context.alerts) {
+              try {
+                if (collector.batch.events.length >= PINE_ALERT_EVENT_LIMIT || native.type !== "alert") throw new Error();
+                const event = validatePineAlertEvent({ id: native.id, message: native.message, freq: native.freq,
+                  time: native.time / 1000, barIndex: native.bar_index });
+                if (event.time !== collector.time || event.barIndex !== collector.barIndex
+                  || event.freq === "once_per_bar_close" && !collector.confirmed) throw new Error();
+                collector.batch.events.push(event);
+              } catch { collector.batch.dropped = Math.min(PINE_ALERT_DROPPED_LIMIT, collector.batch.dropped + 1); }
+            }
+          } finally { context.alerts.length = 0; Object.defineProperty(context, "_alertsEnabled", { configurable: true, writable: true, value: false }); }
+        }
       } });
       if (!realtime) Object.defineProperties(context.pine.barstate, {
         ishistory: { get: () => true },
@@ -1589,18 +1612,24 @@ function calculationPlots(context: Context, request: PineRequest, calculation: C
   return output;
 }
 
-function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false, requestedLive = false, calculation?: Calculation, chartConfirmed = true): PineExecutionResult {
+function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false, requestedLive = false, calculation?: Calculation, chartConfirmed = true, collectingAlerts?: PineAlertEvents): PineExecutionResult {
   const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
     warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
       ? requestedLive
-        ? "Execution samples independently supplied market candles on chart updates, with UTC and a 24x7 session. Closed requested bars are calculated in order; remote intrabar ticks between chart updates are not replayed. Other exchanges, exchange sessions and alert delivery are unavailable."
-        : "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
+        ? "Execution samples independently supplied market candles on chart updates, with UTC and a 24x7 session. Closed requested bars are calculated in order; remote intrabar ticks between chart updates are not replayed. Other exchanges and exchange sessions are unavailable."
+        : "Execution processes the received chart updates with UTC, a 24x7 session and the supplied quote currency (USD when omitted). Unsupplied trades, exchange sessions and additional market data are unavailable."
       : request.marketData
         ? "Execution uses the chart snapshot and requested Binance history through this run's cutoff, with UTC and a 24x7 session. Other exchanges, exchange sessions and tick history are unavailable."
         : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and the supplied quote currency (USD when omitted); exchange sessions, tick history and additional market data are unavailable."),
     ...(realtime ? [warning("REALTIME_STATE_BOUNDS", "Realtime execution retains at most 20,000 bars and bounded rollback state: 16,384 payload nodes, 262,144 mutable cells and 1,280,000 scoped Series slots. Exceeding a limit halts the session; these are not whole-engine heap limits.")] : []),
   ];
-  if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));
+  if (encounteredAlerts.size) {
+    if (!collectingAlerts) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert collection is not armed for this execution; no alert was sent.`));
+    else {
+      if (encounteredAlerts.has("alert")) diagnostics.push(warning("SCRIPT_ALERT_COLLECTION", "Indicator alerts run while this chart is open; delivery can pause if the browser suspends the tab. Server-run alerts are unavailable."));
+      if (encounteredAlerts.has("alertcondition")) diagnostics.push(warning("ALERTCONDITION_UNAVAILABLE", "alertcondition() notifications are unavailable; condition calls do not emit collected script alerts."));
+    }
+  }
   if (request.context!.mintick === undefined || request.context!.pointvalue === undefined || request.context!.mincontract === undefined || request.context!.quantityStep === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Unsupplied instrument details default to a price tick of 0.01, value per point of 1 and minimum quantity of 1; an omitted quantity increment uses the minimum. These assumptions can change fills and results."));
   if (request.context!.quantityStep !== undefined) diagnostics.push(warning("SYMBOL_FILTER_SCOPE", "Trade quantities use the supplied minimum and increment. This simulation does not enforce exchange notional limits, separate market-order filters, currency conversion or live order acceptance."));
   for (const item of context.warnings ?? []) {
@@ -1616,7 +1645,7 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const polylines = polylineResults(context.plots, overlay, diagnostics, request.bars!);
   const tables = tableResults(context.plots, overlay, diagnostics);
   const output = plotResults(calculationPlots(context, request, calculation, realtime, chartConfirmed), overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, ...(collectingAlerts ? { alertEvents: collectingAlerts } : {}), plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 
@@ -1666,6 +1695,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
       try {
         const command: PineLiveRequest = validatePineLiveRequest(value);
         let owner: LiveState;
+        let collectedAlerts: PineAlertEvents | undefined;
         if (state && command.sessionId !== state.sessionId) error("LIVE_SESSION_MISMATCH", "The live Pine command belongs to another session.");
         if (command.action === "start") {
           if (state) error("LIVE_SEQUENCE", "A live Pine session can only be initialized once.");
@@ -1719,9 +1749,16 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
             owner.local.reset();
             owner.local.update(command.bar, append, command.confirmed, sourceSnapshot, command.source?.confirmed ?? true);
             owner.request = nextRequest;
-            const changed = owner.calculation
-              ? await owner.engine.updateRequestTail(owner.context!, { confirmed: owner.local.calculationState().confirmed, received: true })
-              : await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
+            if (command.collectAlerts === true) {
+              collectedAlerts = { events: [], dropped: 0 };
+              alertCollectors.set(owner.context!, { batch: collectedAlerts, time: command.bar.time, barIndex: nextRequest.bars.length - 1, confirmed: command.confirmed });
+            }
+            let changed: boolean;
+            try {
+              changed = owner.calculation
+                ? await owner.engine.updateRequestTail(owner.context!, { confirmed: owner.local.calculationState().confirmed, received: true })
+                : await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
+            } finally { alertCollectors.delete(owner.context!); }
             active(owner);
             if (!changed && !owner.calculation) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
             owner.confirmed = command.confirmed;
@@ -1731,7 +1768,7 @@ export function createPineLiveExecutor(): { execute(value: unknown): Promise<Pin
         }
         active(owner);
         if (owner.local.unavailable()) throw owner.local.unavailable();
-        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true, owner.marketLedger.length > 0, owner.calculation, owner.confirmed);
+        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true, owner.marketLedger.length > 0, owner.calculation, owner.confirmed, collectedAlerts);
         active(owner);
         liveResultBars.set(result, owner.request.bars!);
         return result;

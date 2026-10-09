@@ -10,10 +10,11 @@ import { pineFeedNextSourceTime } from "../../lib/pineLiveFeed";
 import { PINE_MARKETS_RELOADING } from "../../lib/pineLiveMarketCoordinator";
 import { pineSourceSnapshotForChart } from "../../lib/pineSourceSnapshot";
 import { PINE_LIMITS, PineProtocolError, type PineContext, type PineExecutionResult, type PineViewport } from "../../lib/pineProtocol";
+import type { PineChartAlertHandle, PineChartAlertStore } from "../../lib/pineChartAlerts";
 
-type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string };
+type Owner = { feed: PineLiveFeed; epoch: number; timeframe: ChartTimeframe; symbol: string; userId?: number | string; token?: string; key: string; metadataKey?: string; alertStore?: PineChartAlertStore; alertGeneration?: number };
 export type LivePineStudy = { sourceId: string; owner: Owner; bars: Candle[]; viewport?: PineViewport | null; usesVisibleRange?: boolean; result?: PineExecutionResult; error?: string };
-type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; sourceOwned?: boolean; session?: PineLiveRuntimeSession; markets?: ReturnType<typeof createPineLiveMarketRuntime>; marketsReadyAfter?: number; startupMain?: PineFeedSnapshot[]; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob> };
+type Entry = { key: string; owner: Owner; sequence: number; bars: Candle[]; sourceOwned?: boolean; session?: PineLiveRuntimeSession; markets?: ReturnType<typeof createPineLiveMarketRuntime>; marketsReadyAfter?: number; startupMain?: PineFeedSnapshot[]; failed: boolean; usesVisibleRange?: boolean; viewport?: PineViewport | null; viewportInFlight?: boolean; failedViewport?: PineViewport | null; preparation?: ReturnType<typeof createPineRuntimeJob>; alert?: PineChartAlertHandle; alertName?: string };
 function sameViewport(a: PineViewport | null | undefined, b: PineViewport | null | undefined) {
   return a === b || (a != null && b != null && a.from === b.from && a.to === b.to);
 }
@@ -38,6 +39,7 @@ export function useLivePineRuntime(options: {
   indicators: ChartIndicatorInstance[];
   userId?: number | string;
   token?: string;
+  alerts?: { store: PineChartAlertStore; generation: number };
   onRuntimeState?: (id: string, error: string | null) => void;
 }): LivePineStudy[] {
   const [studies, setStudies] = useState<Record<string, LivePineStudy>>({});
@@ -54,15 +56,23 @@ export function useLivePineRuntime(options: {
       const current = latest.current, auth = getStoredAuthSession();
       return active && current.feed === feed && current.timeframe === options.timeframe && current.symbol === options.symbol
         && current.userId === options.userId && current.token === options.token && current.metadataKey === options.metadataKey
+        && current.alerts?.store === options.alerts?.store && current.alerts?.generation === options.alerts?.generation
+        && (!options.alerts || options.alerts.store.getGeneration() === options.alerts.generation)
         && auth?.user.id === options.userId && auth?.token === options.token;
     };
     const visible = () => latest.current.indicators.filter(indicator => indicator.visible !== false && isPersistentPineIndicator(indicator));
     const ownsStudy = (id: string, entry: Entry) => ownsContext() && entries.get(id) === entry
       && visible().some(indicator => indicator.id === id && signature(indicator) === entry.key);
+    const registerAlert = (id: string, entry: Entry) => options.alerts?.store.register({ name: entry.alertName ?? "Pine indicator", symbol: options.symbol, timeframe: options.timeframe,
+      readCurrent: () => { const current = feed.getSnapshot(); return { epoch: current.epoch, sequence: current.event?.sequence ?? -1, error: !!current.error }; },
+      owns: () => ownsStudy(id, entry) && !entry.failed && feed.getSnapshot().epoch === entry.owner.epoch && !feed.getSnapshot().error });
     const report = (id: string, entry: Entry, failure: unknown, viewport: PineViewport | null | undefined, session?: PineLiveRuntimeSession) => {
       if (!ownsStudy(id, entry) || entry.failed) return;
       if (session && entry.session !== session) return;
+      entry.alert?.disarm("Indicator restarted or stopped.");
       if (failure instanceof PineProtocolError && failure.code === PINE_MARKETS_RELOADING && entry.markets) {
+        entry.alert?.dispose();
+        entry.alert = registerAlert(id, entry);
         entry.session = undefined;
         entry.marketsReadyAfter = feed.getSnapshot().event?.sequence ?? entry.sequence;
         return;
@@ -109,8 +119,12 @@ export function useLivePineRuntime(options: {
       entry.viewport = viewport;
       entry.viewportInFlight = true;
       const session = entry.session;
+      entry.alert?.disarm("Chart view changed.");
       void session.setViewport(viewport).then(result => {
-        if (entry.session === session) publish(id, entry, result, bars, viewport);
+        if (entry.session === session && ownsStudy(id, entry) && !entry.failed && feed.getSnapshot().epoch === entry.owner.epoch && !feed.getSnapshot().error) {
+          if (sameViewport(viewport, latest.current.viewport ?? null)) entry.alert?.setReady();
+          publish(id, entry, result, bars, viewport);
+        }
       }).catch(error => report(id, entry, error, viewport, session)).finally(() => {
           entry.viewportInFlight = false;
           rerange(id, entry);
@@ -130,11 +144,16 @@ export function useLivePineRuntime(options: {
       const current = latest.current.indicators.find(indicator => indicator.id === id);
       if (current?.runtimeError) latest.current.onRuntimeState?.(id, null);
     };
+    const started = (id: string, entry: Entry, session: PineLiveRuntimeSession, result: PineExecutionResult, bars: Candle[], viewport: PineViewport | null | undefined) => {
+      if (!ownsStudy(id, entry) || entry.failed || entry.session !== session || feed.getSnapshot().epoch !== entry.owner.epoch || feed.getSnapshot().error) return;
+      entry.alert?.setReady();
+      publish(id, entry, result, bars, viewport);
+    };
     const accept = (snapshot: PineFeedSnapshot) => {
       if (!ownsContext()) return;
       if (snapshot.epoch !== epoch) {
         epoch = snapshot.epoch;
-        for (const entry of entries.values()) { entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
+        for (const entry of entries.values()) { entry.alert?.dispose(); entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
         entries.clear();
         setStudies({});
       }
@@ -142,6 +161,7 @@ export function useLivePineRuntime(options: {
       for (const [id, entry] of entries) {
         const candidate = candidates.find(indicator => indicator.id === id);
         if (!candidate || signature(candidate) !== entry.key) {
+          entry.alert?.dispose();
           entry.session?.cancel();
           entry.markets?.cancel();
           entry.preparation?.cancel();
@@ -154,6 +174,7 @@ export function useLivePineRuntime(options: {
         let recovering = false;
         if (entry?.failed) {
           if (entry.usesVisibleRange !== true || sameViewport(entry.failedViewport, latest.current.viewport ?? null)) continue;
+          entry.alert?.dispose();
           entry.session?.cancel();
           entry.markets?.cancel();
           entry.preparation?.cancel();
@@ -164,8 +185,10 @@ export function useLivePineRuntime(options: {
           const key = signature(indicator);
           const prepared = sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!)
             ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!);
-          entry = { key, owner: { feed, epoch, timeframe: options.timeframe, symbol: options.symbol, userId: options.userId, token: options.token, key, metadataKey: options.metadataKey }, sequence: -1, bars: [], failed: false, viewport: latest.current.viewport ?? null, usesVisibleRange: recovering ? true : prepared?.usesVisibleRange };
+          entry = { key, owner: { feed, epoch, timeframe: options.timeframe, symbol: options.symbol, userId: options.userId, token: options.token, key, metadataKey: options.metadataKey, alertStore: options.alerts?.store, alertGeneration: options.alerts?.generation }, sequence: -1, bars: [], failed: false, viewport: latest.current.viewport ?? null, usesVisibleRange: recovering ? true : prepared?.usesVisibleRange };
           entries.set(indicator.id, entry);
+          entry.alertName = prepared?.name ?? indicator.customScriptName ?? "Pine indicator";
+          entry.alert = registerAlert(indicator.id, entry);
         }
         if (entry.failed) continue;
         rerange(indicator.id, entry);
@@ -204,7 +227,7 @@ export function useLivePineRuntime(options: {
                   if (!session) return;
                   currentEntry.session = session; currentEntry.bars = input.bars; currentEntry.sourceOwned = input.sourceSnapshot !== undefined;
                   const initialBars = currentEntry.bars, viewport = currentEntry.viewport;
-                  void session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, viewport))
+                  void session.promise.then(result => started(indicator.id, currentEntry, session, result, initialBars, viewport))
                     .catch(error => report(indicator.id, currentEntry, error, viewport, session));
                   const received = currentEntry.startupMain ?? []; currentEntry.startupMain = undefined;
                   for (const item of received) accept(item);
@@ -225,7 +248,7 @@ export function useLivePineRuntime(options: {
             } else entry.session = createPineLiveRuntimeSession(input);
             const session = entry.session;
             const currentEntry = entry, initialBars = entry.bars, initialViewport = entry.viewport;
-            void session.promise.then(result => publish(indicator.id, currentEntry, result, initialBars, initialViewport))
+            void session.promise.then(result => started(indicator.id, currentEntry, session, result, initialBars, initialViewport))
               .catch(error => report(indicator.id, currentEntry, error, initialViewport, session));
           }
           entry.sequence = snapshot.event.sequence;
@@ -235,7 +258,12 @@ export function useLivePineRuntime(options: {
           entry.bars = entry.bars.at(-1)?.time === chart.bar.time ? [...entry.bars.slice(0, -1), chart.bar] : [...entry.bars, chart.bar];
           const currentEntry = entry, bars = entry.bars, viewport = entry.viewport;
           const session = entry.session;
-          void session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined).then(result => publish(indicator.id, currentEntry, result, bars, viewport))
+          const nonce = entry.alert?.capture(snapshot.epoch, snapshot.event.sequence);
+          void session.update(chart.bar, chart.confirmed, entry.sourceOwned ? { bar: snapshot.event.bar, confirmed: snapshot.event.confirmed } : undefined, nonce !== undefined ? true : undefined).then(result => {
+            if (nonce !== undefined && ownsStudy(indicator.id, currentEntry) && !currentEntry.failed && currentEntry.session === session
+              && feed.getSnapshot().epoch === snapshot.epoch && !feed.getSnapshot().error) currentEntry.alert?.receive(nonce, result.alertEvents);
+            publish(indicator.id, currentEntry, result, bars, viewport);
+          })
             .catch(error => report(indicator.id, currentEntry, error, viewport, session));
         } catch (error) { report(indicator.id, entry, error, entry.viewport); }
       }
@@ -246,10 +274,10 @@ export function useLivePineRuntime(options: {
       active = false;
       reconcile.current = null;
       unsubscribe();
-      for (const entry of entries.values()) { entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
+      for (const entry of entries.values()) { entry.alert?.dispose(); entry.session?.cancel(); entry.markets?.cancel(); entry.preparation?.cancel(); }
       entries.clear();
     };
-  }, [options.feed, options.timeframe, options.symbol, options.userId, options.token, options.metadataKey, options.contextLoading, options.contextError]);
+  }, [options.feed, options.timeframe, options.symbol, options.userId, options.token, options.metadataKey, options.contextLoading, options.contextError, options.alerts?.store, options.alerts?.generation]);
   useEffect(() => { reconcile.current?.(); }, [options.indicators, options.viewport?.from, options.viewport?.to, options.viewport === null]);
   const currentAuth = getStoredAuthSession(), currentEpoch = options.feed?.getSnapshot().epoch;
   return useMemo(() => {
@@ -258,10 +286,12 @@ export function useLivePineRuntime(options: {
       return (study.usesVisibleRange !== true || sameViewport(study.viewport, options.viewport ?? null))
         && owner.feed === options.feed && owner.epoch === currentEpoch
         && owner.timeframe === options.timeframe && owner.symbol === options.symbol && owner.metadataKey === options.metadataKey
+        && owner.alertStore === options.alerts?.store && owner.alertGeneration === options.alerts?.generation
+        && (!options.alerts || options.alerts.store.getGeneration() === options.alerts.generation)
         && owner.userId === options.userId && owner.token === options.token
         && currentAuth?.user.id === owner.userId && currentAuth?.token === owner.token
         && options.indicators.some(indicator => indicator.id === study.sourceId && indicator.visible !== false
           && isPersistentPineIndicator(indicator) && signature(indicator) === owner.key);
     });
-  }, [studies, options.feed, currentEpoch, options.timeframe, options.symbol, options.userId, options.token, options.indicators, options.metadataKey, currentAuth?.user.id, currentAuth?.token, options.viewport?.from, options.viewport?.to, options.viewport === null]);
+  }, [studies, options.feed, currentEpoch, options.timeframe, options.symbol, options.userId, options.token, options.indicators, options.metadataKey, currentAuth?.user.id, currentAuth?.token, options.viewport?.from, options.viewport?.to, options.viewport === null, options.alerts?.store, options.alerts?.generation]);
 }

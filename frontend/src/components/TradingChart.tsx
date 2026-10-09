@@ -200,6 +200,7 @@ import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import { useLivePineRuntime } from "./chart/useLivePineRuntime";
+import { usePineChartAlerts } from "./chart/PineChartAlerts";
 import { PineStrategyResults } from "./PineStrategyResults";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
@@ -770,10 +771,11 @@ export function TradingChart({
     !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
   const snapshotStrategyMarkers = useMemo(() => Object.fromEntries(Object.entries(ownedSnapshot.markers).filter(([id]) =>
     !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))), [ownedSnapshot, pineViewport]);
+  const pineChartAlerts = usePineChartAlerts();
   const livePine = useLivePineRuntime({ feed: persistentPineFeed, context: pineInstrument.context,
     contextLoading: pineInstrument.loading, contextError: pineInstrument.error, metadataKey: pineInstrument.key,
     timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token, viewport: pineViewport,
-    onRuntimeState: onIndicatorRuntimeState });
+    onRuntimeState: onIndicatorRuntimeState, alerts: pineChartAlerts });
   const livePineAdaptationRef = useRef(new WeakMap<PineExecutionResult, { bars: Candle[]; adapted: ReturnType<typeof adaptPineChartResult> }>());
   const livePineAdapted = useMemo(() => livePine.flatMap(study => {
     const indicator = indicatorInstances.find(item => item.id === study.sourceId && item.visible !== false);

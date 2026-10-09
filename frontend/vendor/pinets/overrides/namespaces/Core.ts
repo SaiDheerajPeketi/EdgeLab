@@ -166,6 +166,9 @@ export class AlertHelper {
         if (f !== ALERT_FREQ.freq_all && f !== ALERT_FREQ.freq_once_per_bar && f !== ALERT_FREQ.freq_once_per_bar_close) {
             throw new TypeError('alert() frequency must be alert.freq_all, alert.freq_once_per_bar or alert.freq_once_per_bar_close.');
         }
+        // The host may disarm this exact context without consuming once gates.
+        // Direct native callers retain the default behavior when this is unset.
+        if (this.context._alertsEnabled === false) return;
 
         // Extract callsite ID: from transpiler-injected __callsiteId, or fallback counter
         let callsiteId: string;

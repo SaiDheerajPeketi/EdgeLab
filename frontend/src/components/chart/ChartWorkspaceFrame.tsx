@@ -8,6 +8,7 @@ import { JournalPanelManager, type JournalPanelSlots } from "../journal/JournalP
 import { JournalReviewDrawer, type JournalChartFocusRequest } from "../journal/JournalReviewDrawer";
 import { useJournalData } from "../journal/useJournalData";
 import { CriticalStateSurface } from "../ui/CriticalStateSurface";
+import { PineChartAlertsProvider, PineChartAlertToast } from "./PineChartAlerts";
 
 export function ChartWorkspaceFrame({ children, symbol, onChartFocus, slots = {} }: { children: ReactNode; symbol: string; onChartFocus?: (request: JournalChartFocusRequest) => void; slots?: JournalPanelSlots }) {
   const journal = useJournalData();
@@ -19,10 +20,11 @@ export function ChartWorkspaceFrame({ children, symbol, onChartFocus, slots = {}
     alerts: <AlertsPanel symbol={symbol} />,
     ...slots,
   };
-  return <div className="ui-operating-surface" data-ui-surface="chart-live" data-active-symbol={symbol || undefined}>
+  return <PineChartAlertsProvider><div className="ui-operating-surface relative" data-ui-surface="chart-live" data-active-symbol={symbol || undefined}>
     <JournalPanelManager label="Chart tools" slots={panelSlots} startCollapsed>{children}</JournalPanelManager>
     <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={`${symbol || "Chart"} workspace`} onClose={() => setSelectedTradeId(null)} onSave={journal.updateReview} onCreateTag={journal.addTag} onShowOnChart={onChartFocus} />
-  </div>;
+    <PineChartAlertToast />
+  </div></PineChartAlertsProvider>;
 }
 
 function DockedJournalPanel({ journal, symbol, onOpenTrade }: { journal: ReturnType<typeof useJournalData>; symbol: string; onOpenTrade: (trade: CanonicalTrade) => void }) {

@@ -38,7 +38,7 @@ export function createPineRuntimeJob(input: Omit<PineRequest, "id">, options: { 
 export type PineLiveRuntimeSession = {
   id: string;
   promise: Promise<PineExecutionResult>;
-  update(bar: Candle, confirmed: boolean, source?: PineLiveSourceEvent): Promise<PineExecutionResult>;
+  update(bar: Candle, confirmed: boolean, source?: PineLiveSourceEvent, collectAlerts?: boolean): Promise<PineExecutionResult>;
   setViewport(viewport: PineViewport | null): Promise<PineExecutionResult>;
   updateMarkets(events: PineLiveMarketEvent[]): Promise<PineLiveMarketReceipt>;
   cancel(): void;
@@ -82,7 +82,7 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         return run(owned);
       }).catch((error) => { cancel(); throw error; }).finally(() => { pending--; });
     };
-    return { id: preparation.id, promise, cancel, update: (bar, confirmed, source) => enqueue(owned => owned.update(bar, confirmed, source)),
+    return { id: preparation.id, promise, cancel, update: (bar, confirmed, source, collectAlerts) => enqueue(owned => owned.update(bar, confirmed, source, collectAlerts)),
       setViewport: viewport => enqueue(owned => owned.setViewport(viewport)), updateMarkets: events => {
         try { const ownedEvents = validatePineLiveMarketEvents(events); return enqueue(owned => owned.updateMarkets(ownedEvents)); }
         catch (error) { cancel(); return Promise.reject(error); }
@@ -155,10 +155,10 @@ export function createPineLiveRuntimeSession(input: Omit<PineRequest, "id" | "ac
         }).catch(error => { cancel(); throw error; }).finally(() => { expected.delete(next.sequence); expectedMarkets.delete(next.sequence); });
       } catch (error) { cancel(); return Promise.reject(error); }
     },
-    update: (bar, confirmed, source) => {
+    update: (bar, confirmed, source, collectAlerts) => {
       if (halted) return Promise.reject(new PineProtocolError("LIVE_SESSION_HALTED", "This live Pine session has stopped. Reapply the indicator to restart."));
       try {
-        const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "update", bar, confirmed, ...(source ? { source } : {}) });
+        const next = validatePineLiveRequest({ protocol: PINE_LIVE_PROTOCOL, sessionId: id, sequence: ++sequence, action: "update", bar, confirmed, ...(source ? { source } : {}), ...(collectAlerts !== undefined ? { collectAlerts } : {}) });
         if (next.action !== "update") throw new PineProtocolError("INVALID_LIVE_MESSAGE", "Expected an update event.");
         const nextSource = advancePineLiveSource(sourceSnapshot, sourceConfirmed, next, request.context!.timeframe);
         const last = bars.at(-1)!;
