@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { NumericDraftInput } from "./NumericDraftInput";
+import { PineDateTimeInput } from "./PineDateTimeInput";
 import { ThemedSelect } from "./ThemedSelect";
 import { pineInputActive } from "../lib/pineInputActivation";
 import type { PineInputDefinition, PineInputValue } from "../lib/pineProtocol";
@@ -31,6 +32,8 @@ export function PineInputControl({ definition, definitions = [definition], input
             label: definition.enumVersion === 1 ? definition.enumMembers?.find((member) => member.id === option)?.label ?? String(option) : String(option) }))}
           onChange={(index) => { const chosen = options[Number(index)]; if (chosen !== undefined && chosen !== null) onChange(chosen); }}
           value={selectedIndex < 0 ? "" : String(selectedIndex)} />
+      : definition.type === "time" ? <PineDateTimeInput label={label} disabled={disabled} value={current} onChange={onChange}
+          min={definition.minval} max={definition.maxval} resetKey={JSON.stringify([scopeKey, definition])} />
       : numeric ? <NumericDraftInput label={label} disabled={disabled} value={current} onChange={onChange}
           integer={["int", "time"].includes(definition.type)} min={definition.minval} max={definition.maxval}
           className="input-control min-h-11 w-full min-w-0 text-xs" step={definition.step ?? (["int", "time"].includes(definition.type) ? 1 : "any")} resetKey={JSON.stringify([scopeKey, definition])} />

@@ -20,6 +20,8 @@ Native Pine signal shapes include crosses, diamonds and flags alongside circles,
 
 Native Pine tables render their latest cells at nine fixed pane positions, including separate panes and `force_overlay`. Custom inputs, automatic or percentage sizing, merged cells, colors, text formatting and tooltips are supported. Tables own no time or price data and do not alter chart scaling. Active scripts are limited to nine tables and 4,096 allocated cells; individual text/tooltip strings are limited to 4,096 characters, with a shared 1 MB metadata limit. Browser font/padding metrics, merge-only automatic sizing and table layering use local policies; TradingView pixel equivalence and its bottom-panel table view are not provided.
 
+Native Pine price and time inputs have draggable chart handles. One price/time pair sharing a unique inline row and group moves together; changes apply on release. Confirmed inputs are reviewed before adding a script, and cancelled chart selections leave the saved script unchanged. Date/time fields display explicit UTC with millisecond precision. Chart time picks use loaded candles; a separate-pane price is entered numerically before its first add, then moved on that pane's actual scale.
+
 ## What is here
 
 - Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.

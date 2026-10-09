@@ -1,6 +1,9 @@
 import { colorWithOpacity } from "../lib/colorTokens";
 import { NumericDraftInput } from "./NumericDraftInput";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
+import { PineInputAnchors } from "./PineInputAnchors";
+import { PineChartInputPicker } from "./PineChartInputPicker";
+import { pineInputPickerOwner } from "../lib/pineChartInputPicker";
 import {
   useEffect,
   useLayoutEffect,
@@ -183,7 +186,8 @@ import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } f
 import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
-import type { PineExecutionResult } from "../lib/pineProtocol";
+import type { PineExecutionResult, PineInputValue } from "../lib/pineProtocol";
+import { pineAnchorActive, pineInputAnchors } from "../lib/pineInteractiveInputs";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { PineInputControl } from "./PineInputControl";
 import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
@@ -588,6 +592,9 @@ export function TradingChart({
   const chartContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
+  const [inputAnchorPick, setInputAnchorPick] = useState<{ indicatorId: string; inputId: string } | null>(null);
+  const [pineInputHosts, setPineInputHosts] = useState<Record<string, PineInputHost>>({});
+  const inputFocusReturnRef = useRef<{ indicatorId: string; inputId: string; contextKey: string; source?: string } | null>(null);
   const indicatorToolbarReturnFocusRef = useRef<HTMLElement | null>(null);
   const indicatorToolbarFocusFrameRef = useRef<number | null>(null);
   useEffect(() => () => {
@@ -696,6 +703,10 @@ export function TradingChart({
   const runtimeOwner: ChartRuntimeOwner = { bars: displayBars, sourceBars: sessionBars, sourceTimeframe: datasetTimeframe, indicators: indicatorInstances,
     mode: indicatorRuntimeMode, symbol, timeframe, contextKey: runtimeContextKey, metadataKey: pineInstrument.key, feed: pineLiveFeed,
     feedEpoch: pineLiveFeed?.getSnapshot().epoch, userId: authSession?.user.id, token: authSession?.token };
+  // Expose an opaque lifetime key to the overlay, never an auth token or source text.
+  const inputOverlayContext = useMemo(() => `pine-input-${Math.random().toString(36).slice(2)}`,
+    [authSession?.user.id, authSession?.token, paneId, runtimeContextKey, symbol, timeframe,
+      runtimeOwner.feedEpoch, replaySeekVersion, primarySeriesKind, chartSettings.tradingHoursMode, sessionTemplate.id]);
   // Filter during render: an effect cleanup is too late to prevent old values
   // and notices from being attributed to the newly selected chart/account.
   const ownedSnapshot = chartRuntimeOwnerMatches(snapshotRuntimeResults.owner, runtimeOwner)
@@ -1252,6 +1263,18 @@ export function TradingChart({
         : null,
     [indicatorInstances, selectedIndicatorId],
   );
+  useEffect(() => { setInputAnchorPick(null); }, [selectedIndicatorId, selectedIndicator?.customScriptSource, selectedIndicator?.visible, inputOverlayContext, drawingControlsActive, captureMode]);
+  useEffect(() => { restoreInputPickFocus(); }, [inputAnchorPick, pineInputHosts, selectedIndicatorId, selectedIndicator?.customScriptSource,
+    selectedIndicator?.visible, indicatorToolbarPosition, inputOverlayContext, drawingControlsActive, captureMode]);
+  useEffect(() => {
+    const cancel = () => { inputFocusReturnRef.current = null; };
+    document.addEventListener("pointerdown", cancel, true);
+    document.addEventListener("keydown", cancel, true);
+    return () => { document.removeEventListener("pointerdown", cancel, true); document.removeEventListener("keydown", cancel, true); };
+  }, []);
+  useEffect(() => {
+    if (inputAnchorPick && selectedIndicator?.customPinePrepared?.overlay === false && !pinePaneGroups.has(selectedIndicator.id)) endInputAnchorPick();
+  }, [inputAnchorPick, selectedIndicator, pinePaneGroups]);
   const activePosition = isOpenPosition(position) ? position : null;
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
@@ -2904,6 +2927,51 @@ export function TradingChart({
     setDrawingToolbarOpen(false);
   }
 
+  function moveIndicatorInputsOnChart(inputId: string) {
+    const visibleHandle = stageRef.current?.querySelector<HTMLButtonElement>("[data-pine-input-anchor]");
+    if (!visibleHandle && selectedIndicator) {
+      setInputAnchorPick({ indicatorId: selectedIndicator.id, inputId });
+      return;
+    }
+    setIndicatorToolbarPosition(null);
+    if (indicatorToolbarFocusFrameRef.current !== null) window.cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+    indicatorToolbarFocusFrameRef.current = window.requestAnimationFrame(() => {
+      indicatorToolbarFocusFrameRef.current = null;
+      const handle = stageRef.current?.querySelector<HTMLButtonElement>("[data-pine-input-anchor]");
+      (handle ?? stageRef.current)?.focus({ preventScroll: true });
+      handle?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }
+
+  function endInputAnchorPick() {
+    const ending = inputAnchorPick;
+    inputFocusReturnRef.current = ending ? { ...ending, contextKey: inputOverlayContext, source: selectedIndicator?.customScriptSource } : null;
+    setInputAnchorPick(null);
+    if (indicatorToolbarFocusFrameRef.current !== null) window.cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+    indicatorToolbarFocusFrameRef.current = window.requestAnimationFrame(() => {
+      indicatorToolbarFocusFrameRef.current = null;
+      restoreInputPickFocus();
+    });
+  }
+
+  function restoreInputPickFocus() {
+    const pending = inputFocusReturnRef.current;
+    if (!pending || inputAnchorPick) return;
+    if (pending.indicatorId !== selectedIndicatorId || pending.contextKey !== inputOverlayContext || pending.source !== selectedIndicator?.customScriptSource
+      || selectedIndicator?.visible === false || !drawingControlsActive || captureMode) {
+      inputFocusReturnRef.current = null; return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement && active !== stageRef.current && active.isConnected) {
+      inputFocusReturnRef.current = null; return;
+    }
+    const button = Array.from(stageRef.current?.querySelectorAll<HTMLButtonElement>(".indicator-floating-toolbar [data-pine-pick-input]") ?? [])
+      .find(element => element.dataset.pinePickInput === pending.inputId && !element.disabled && element.getClientRects().length);
+    if (!button) return; // A native pane reports its replacement scale after the worker returns.
+    inputFocusReturnRef.current = null;
+    button.focus({ preventScroll: true });
+  }
+
   function closeIndicatorToolbar() {
     const closingIndicatorId = selectedIndicatorId;
     const closingToolbar = stageRef.current?.querySelector<HTMLElement>(".indicator-floating-toolbar");
@@ -3407,6 +3475,16 @@ export function TradingChart({
               className="chart-container-surface"
               style={{ backgroundColor: chartSettings.backgroundColor }}
             />
+            <PineChartInputPicker symbol={symbol} timeframe={timeframe} owner={pineInputPickerOwner()}
+              contextKey={inputOverlayContext} enabled={drawingControlsActive && !captureMode}
+              target={chartRef.current && primarySeriesRef.current ? { chart: chartRef.current, series: primarySeriesRef.current, bars: displayBars } : null} />
+            {!captureMode && drawingControlsActive && selectedIndicator && chartRef.current && primarySeriesRef.current && (
+              <PineStudyInputAnchors indicator={selectedIndicator} chart={chartRef.current} series={primarySeriesRef.current}
+                bars={displayBars} contextKey={inputOverlayContext} placement="main"
+                pickInputId={inputAnchorPick?.indicatorId === selectedIndicator.id ? inputAnchorPick.inputId : undefined}
+                onEndPick={endInputAnchorPick}
+                onChange={settings => onUpdateIndicatorSettings(selectedIndicator.id, settings)} />
+            )}
             {chartSettings.tradingHoursMode === "extended" && sessionShadeElements.length > 0 ? (
               <svg
                 aria-label={`${sessionTemplate.label} background sessions. Pre-market, post-market, and closed periods use distinct labeled shading.`}
@@ -3815,12 +3893,25 @@ export function TradingChart({
           ))}
           {[...pinePaneGroups].map(([sourceId, plots]) => {
             const indicator = indicatorInstances.find((item) => item.id === sourceId && item.visible !== false);
-            return indicator ? <NativePineStudyPanel key={indicator.id} label={indicator.customScriptName ?? "Pine script"} plots={plots} priceChart={chartRef.current} onOpenSettings={(event) => openIndicatorToolbar(indicator.id, event)} selected={renderedSelectedIndicatorId === indicator.id} /> : null;
+            return indicator ? <NativePineStudyPanel key={indicator.id} label={indicator.customScriptName ?? "Pine script"} plots={plots} priceChart={chartRef.current} onOpenSettings={(event) => openIndicatorToolbar(indicator.id, event)} selected={!captureMode && drawingControlsActive && renderedSelectedIndicatorId === indicator.id}
+              indicator={indicator} bars={displayBars} contextKey={inputOverlayContext}
+              pickInputId={inputAnchorPick?.indicatorId === indicator.id ? inputAnchorPick.inputId : undefined}
+              onEndPick={endInputAnchorPick}
+              onInputHost={(host, disposed) => setPineInputHosts(current => {
+                const previous = current[indicator.id];
+                if (disposed) {
+                  if (previous?.plots !== host.plots || previous.contextKey !== host.contextKey) return current;
+                  const next = { ...current }; delete next[indicator.id]; return next;
+                }
+                if (previous?.plots === host.plots && previous.contextKey === host.contextKey && previous.price === host.price && previous.time === host.time) return current;
+                return { ...current, [indicator.id]: host };
+              })}
+              onChange={settings => onUpdateIndicatorSettings(indicator.id, settings)} /> : null;
           })}
         </div>
       </div>
 
-      {!captureMode && selectedIndicator && indicatorToolbarPosition && (
+      {!captureMode && selectedIndicator && indicatorToolbarPosition && !inputAnchorPick && (
         <FloatingIndicatorToolbar
           key={selectedIndicator.id}
           indicator={selectedIndicator}
@@ -3838,6 +3929,11 @@ export function TradingChart({
             if (selectedIndicator.visible !== false) closeIndicatorToolbar();
           }}
           position={indicatorToolbarPosition}
+          onPickInput={inputId => setInputAnchorPick({ indicatorId: selectedIndicator.id, inputId })}
+          onMoveInputs={moveIndicatorInputsOnChart}
+          pineInputHost={pineInputHosts[selectedIndicator.id]?.plots === pinePaneGroups.get(selectedIndicator.id)
+            && pineInputHosts[selectedIndicator.id]?.contextKey === inputOverlayContext ? pineInputHosts[selectedIndicator.id] : undefined}
+          chartInputsEnabled={drawingControlsActive && !captureMode}
         />
       )}
 
@@ -5553,12 +5649,66 @@ function StudyLinePanel({
   );
 }
 
-function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected }: {
+function PineStudyInputAnchors({ indicator, chart, series, bars, contextKey, placement, onChange, pickInputId, onEndPick }: {
+  indicator: ChartIndicatorInstance; chart: IChartApi;
+  series: Pick<ISeriesApi<"Line">, "priceToCoordinate" | "coordinateToPrice">;
+  bars: readonly Candle[]; contextKey: string; placement: "main" | "pane";
+  onChange: (settings: Partial<IndicatorSettings>) => void; pickInputId?: string; onEndPick: () => void;
+}) {
+  const native = indicator.kind === "custom" && !!indicator.customScriptSource && isPineScriptSource(indicator.customScriptSource);
+  const saved = native ? sanitizePinePrepared(indicator.settings.pineInputPrepared, indicator.customScriptSource!)
+    ?? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+  const prepared = usePineInputMetadata(native ? indicator.customScriptSource : undefined, saved);
+  const effective = usePineInputMigration(saved, prepared, indicator.settings.customInputs, indicator.settings.pineInputRecovery,
+    migration => onChange({ customInputs: migration.inputs, pineInputPrepared: migration.prepared, pineInputRecovery: migration.recovery }));
+  const current = useRef({ indicator, contextKey, prepared });
+  current.current = { indicator, contextKey, prepared };
+  const owner = pineInputPickerOwner();
+  const anchorContext = useMemo(() => `${contextKey}:${indicator.id}:${Math.random().toString(36).slice(2)}`,
+    [contextKey, indicator.id, indicator.customScriptSource]);
+  const anchors = pineInputAnchors(prepared?.inputDefinitions ?? []);
+  const pick = pickInputId ? anchors.find(anchor => anchor.priceId === pickInputId || anchor.timeId === pickInputId) : undefined;
+  useEffect(() => {
+    if (pickInputId && (!prepared || !pick || !pineAnchorActive(pick, prepared.inputDefinitions, effective.inputs))) onEndPick();
+  }, [pickInputId, prepared, pick, effective.inputs, onEndPick]);
+  if (!prepared || indicator.visible === false || (placement === "main") !== prepared.overlay) return null;
+  const commit = (patch: Record<string, PineInputValue>) => {
+    if (current.current.indicator !== indicator || current.current.contextKey !== contextKey
+      || current.current.prepared !== prepared || owner !== pineInputPickerOwner()) return;
+    onChange({ customInputs: { ...effective.inputs, ...patch }, pineInputPrepared: prepared,
+      pineInputRecovery: Object.fromEntries(Object.entries(effective.recovery).filter(([id]) => !(id in patch))) });
+  };
+  return <PineInputAnchors chart={chart} series={series} bars={bars} contextKey={anchorContext}
+    definitions={prepared.inputDefinitions} inputs={effective.inputs} onCommit={commit}
+    picking={pick ? { anchorId: pick.id, onPick: patch => { commit(patch); onEndPick(); }, onCancel: onEndPick } : undefined} />;
+}
+
+type PineInputHost = { plots: PineChartPlot[]; contextKey: string; price: boolean; time: boolean };
+
+function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected, indicator, bars, contextKey, onChange, pickInputId, onEndPick, onInputHost }: {
   label: string; plots: PineChartPlot[]; priceChart: IChartApi | null;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
+  indicator: ChartIndicatorInstance; bars: readonly Candle[]; contextKey: string;
+  onChange: (settings: Partial<IndicatorSettings>) => void; pickInputId?: string; onEndPick: () => void;
+  onInputHost: (host: PineInputHost, disposed?: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const [inputTarget, setInputTarget] = useState<{ chart: IChartApi; series: ISeriesApi<"Line">; plots: PineChartPlot[] } | null>(null);
   const tableOnly = plots.every(plot => plot.kind === "table");
+  const hostCallback = useRef(onInputHost); hostCallback.current = onInputHost;
+  useLayoutEffect(() => {
+    if (!inputTarget || inputTarget.plots !== plots) return;
+    const host: PineInputHost = { plots, contextKey, price: false, time: false };
+    const frame = requestAnimationFrame(() => {
+      try {
+        const price = inputTarget.series.coordinateToPrice(inputTarget.chart.paneSize().height / 2);
+        host.price = price !== null && Number.isFinite(price);
+        host.time = bars.some(bar => inputTarget.chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp) !== null);
+      } catch { /* A replaced pane has no usable input scale. */ }
+      hostCallback.current(host);
+    });
+    return () => { cancelAnimationFrame(frame); hostCallback.current(host, true); };
+  }, [inputTarget, plots, contextKey, bars]);
   useLayoutEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
@@ -5569,6 +5719,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       handleScroll: false, handleScale: false,
     });
     const installed = installPineChartPlots(chart, plots);
+    if (installed.series[0]) setInputTarget({ chart, series: installed.series[0] as ISeriesApi<"Line">, plots });
     const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
     const syncRange = () => {
       if (tableOnly) return;
@@ -5594,6 +5745,9 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       </details>}
     </div>
     <div ref={container} className={`${tableOnly ? "h-48" : "h-32"} w-full`} />
+    {selected && inputTarget?.plots === plots && <PineStudyInputAnchors indicator={indicator} chart={inputTarget.chart}
+      series={inputTarget.series} bars={bars} contextKey={contextKey} placement="pane" onChange={onChange}
+      pickInputId={pickInputId} onEndPick={onEndPick} />}
     <p className="sr-only">{plots.map((plot) => plot.kind === "table" ? `${plot.name}: ${plot.table?.tables.length ?? 0} current tables` : `${plot.name}: ${latestPineChartPoint(plot)?.value ?? "No numeric value"}`).join(". ")}</p>
   </section>;
 }
@@ -5661,6 +5815,10 @@ function FloatingIndicatorToolbar({
   onPositionChange,
   onToggleVisibility,
   position,
+  onPickInput,
+  onMoveInputs,
+  pineInputHost,
+  chartInputsEnabled,
 }: {
   indicator: ChartIndicatorInstance;
   onChange: (settings: Partial<IndicatorSettings>) => void;
@@ -5669,6 +5827,10 @@ function FloatingIndicatorToolbar({
   onPositionChange: (position: { x: number; y: number }) => void;
   onToggleVisibility: () => void;
   position: { x: number; y: number };
+  onPickInput: (inputId: string) => void;
+  onMoveInputs: (inputId: string) => void;
+  pineInputHost?: PineInputHost;
+  chartInputsEnabled: boolean;
 }) {
   const { toolbarRef, fittedPosition, availableHeight } = useFloatingToolbarPlacement(position, onPositionChange);
   const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
@@ -5689,6 +5851,9 @@ function FloatingIndicatorToolbar({
   const hasDeviation =
     indicator.kind === "bb" || indicator.kind === "keltner" || indicator.kind === "supertrend";
   const isVisible = indicator.visible !== false;
+  const inputAnchors = pineInputAnchors(pineInputs);
+  const movableAnchors = inputAnchors.filter(anchor => chartInputsEnabled && isVisible && pineAnchorActive(anchor, pineInputs, effectivePineInputs.inputs)
+    && (pinePrepared?.overlay || pineInputHost && (!anchor.priceId || pineInputHost.price) && (!anchor.timeId || pineInputHost.time)));
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
@@ -5814,7 +5979,21 @@ function FloatingIndicatorToolbar({
       ) : null}
 
       {nativePine ? <div className="flex max-w-lg flex-wrap gap-3">
-        {pineInputs.map((definition) => <PineInputControl scopeKey={`${indicator.id}:${indicator.customScriptSource}`} key={definition.id} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />)}
+        {movableAnchors.length > 0
+          && <button type="button" className="min-h-11 w-full rounded border border-[var(--ui-border-subtle)] px-3 text-xs text-[var(--text-primary)] hover:bg-[var(--ui-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]"
+            onClick={() => onMoveInputs((movableAnchors[0].priceId ?? movableAnchors[0].timeId)!)}>Move inputs on chart</button>}
+        {pineInputs.map((definition) => {
+          const anchor = inputAnchors.find(item => item.priceId === definition.id || item.timeId === definition.id);
+          const canPick = anchor && movableAnchors.some(item => item.id === anchor.id);
+          return <div key={definition.id} className="grid gap-2">
+          <PineInputControl scopeKey={`${indicator.id}:${indicator.customScriptSource}`} definitions={pineInputs} inputs={effectivePineInputs.inputs} definition={definition} value={effectivePineInputs.inputs[definition.id]} recoveryLabel={effectivePineInputs.recovery[definition.id]} onChange={(value) => onChange({ customInputs: { ...effectivePineInputs.inputs, [definition.id]: value }, pineInputPrepared: pinePrepared, pineInputRecovery: Object.fromEntries(Object.entries(effectivePineInputs.recovery).filter(([id]) => id !== definition.id)) })} />
+          {anchor && <button type="button" data-pine-pick-input={definition.id} disabled={!canPick}
+            className="min-h-11 rounded border border-[var(--ui-border-subtle)] px-3 text-xs text-[var(--text-primary)] hover:bg-[var(--ui-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] disabled:opacity-50"
+            onClick={() => onPickInput(definition.id)}>Pick {definition.title || definition.name} on chart</button>}
+        </div>;
+        })}
+        {pineInputs.some(definition => ["price", "time"].includes(definition.type)) && !pinePrepared?.overlay && (!pineInputHost?.price || !pineInputHost.time)
+          && <p className="text-xs leading-5 text-[var(--text-secondary)]">Inputs without a loaded chart scale can be edited here.</p>}
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
       {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}

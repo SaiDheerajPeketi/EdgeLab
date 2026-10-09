@@ -43,6 +43,9 @@ import {
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult, type PineSourceSnapshot } from "../lib/pineProtocol";
+import { pineAnchorActive, pineInputAnchors } from "../lib/pineInteractiveInputs";
+import { pineInputActive } from "../lib/pineInputActivation";
+import { pickPineChartInputs } from "../lib/pineChartInputPicker";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { loadPineCatalogOriginal, pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
@@ -110,6 +113,14 @@ export function IndicatorEditorPanel({
   const [inputRecovery, setInputRecovery] = useState<Record<string, string>>({});
   const inputStateRef = useRef({ prepared, inputs, recovery: inputRecovery });
   const [execution, setExecution] = useState<PineExecutionResult | null>(null);
+  const [confirmation, setConfirmation] = useState<{ scope: object; values: Record<string, EdgeIndicatorInputValue>; error: string | null } | null>(null);
+  const confirmationRef = useRef(confirmation);
+  confirmationRef.current = confirmation;
+  const [chartPicking, setChartPicking] = useState(false);
+  const pickerAbortRef = useRef<AbortController | null>(null);
+  const confirmationFieldsRef = useRef<HTMLDivElement>(null);
+  const addPendingRef = useRef(false);
+  const [addingToChart, setAddingToChart] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightRef = useRef<HTMLPreElement | null>(null);
   const runtimeCancelRef = useRef<(() => void) | null>(null);
@@ -142,6 +153,21 @@ export function IndicatorEditorPanel({
   }, [catalogDraftIdentity]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = usePineInputMetadata(pine ? source : undefined, prepared?.source === source ? prepared : undefined);
+  const confirmationScope = useMemo(() => ({}), [source, selectedId, request.nonce, symbol, timeframe, pineInstrument.key,
+    pineLiveFeed, pineLiveFeed?.getSnapshot().epoch, currentPrepared, inputs, strategySettings]);
+  const confirmationScopeRef = useRef(confirmationScope);
+  confirmationScopeRef.current = confirmationScope;
+  function cancelConfirmation() {
+    pickerAbortRef.current?.abort();
+    pickerAbortRef.current = null;
+    confirmationRef.current = null;
+    setConfirmation(null);
+    setChartPicking(false);
+  }
+  useEffect(() => {
+    if (confirmationRef.current && confirmationRef.current.scope !== confirmationScope) cancelConfirmation();
+  }, [confirmationScope]);
+  useEffect(() => () => { pickerAbortRef.current?.abort(); confirmationRef.current = null; }, []);
   const effectivePineInputs = usePineInputMigration(prepared?.source === source ? prepared : undefined, currentPrepared, inputs, inputRecovery, (migration) => {
     if (!currentOwner() || migration.prepared.source !== source) return;
     invalidateExecution();
@@ -274,7 +300,7 @@ export function IndicatorEditorPanel({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
-  async function save(clearIncompatibleQuantSemantics = false) {
+  async function save(clearIncompatibleQuantSemantics = false, selectedInputs?: Record<string, EdgeIndicatorInputValue>) {
     if (!currentOwner()) return null;
     if (invalidEnumInput) { setRunState({ detail: "Choose valid Pine input options before saving.", status: "error" }); return null; }
     const attempt = attemptRef.current;
@@ -283,7 +309,7 @@ export function IndicatorEditorPanel({
       color: selectedScript?.color ?? parsed.program?.plots[0]?.color ?? "#32d3ee",
       description: selectedScript?.description ?? (pine ? "Native Pine script." : "Custom EdgeLab DSL indicator."),
       id: selectedScript?.origin === "user" ? selectedScript.id : "",
-      inputs: pine ? effectivePineInputs.inputs : inputs,
+      inputs: selectedInputs ?? (pine ? effectivePineInputs.inputs : inputs),
       strategySettings: pine ? strategySettings : undefined,
       name: currentPrepared?.name ?? parsed.program?.name ?? "Custom indicator",
       preview: selectedScript?.preview ?? ((currentPrepared?.overlay ?? parsed.program?.overlay) ? "trend" : "oscillator"),
@@ -437,11 +463,85 @@ export function IndicatorEditorPanel({
   }
 
   async function addToChart() {
-    if (!currentOwner()) return;
-    const saved = selectedScript?.origin === "user" && matchesSelected ? selectedScript : await save();
-    if (!saved || !canSave) return;
-    const appliedInputs = pine ? effectivePineInputs.inputs : inputs;
-    onAddToChart({ ...saved, inputs: appliedInputs }, appliedInputs);
+    if (!currentOwner() || !canSave || addPendingRef.current) return;
+    if (pine && currentPrepared?.inputDefinitions.some(definition => definition.confirm
+      && pineInputActive(definition, currentPrepared.inputDefinitions, effectivePineInputs.inputs))) {
+      const next = { scope: confirmationScope, values: { ...effectivePineInputs.inputs }, error: null };
+      confirmationRef.current = next;
+      setConfirmation(next);
+      return;
+    }
+    await applyToChart(pine ? effectivePineInputs.inputs : inputs);
+  }
+
+  async function applyToChart(appliedInputs: Record<string, EdgeIndicatorInputValue>) {
+    if (!currentOwner() || !canSave || addPendingRef.current) return;
+    addPendingRef.current = true;
+    setAddingToChart(true);
+    const attempt = attemptRef.current;
+    try {
+      const saved = selectedScript?.origin === "user" && matchesSelected
+        && JSON.stringify(selectedScript.inputs) === JSON.stringify(appliedInputs) ? selectedScript : await save(false, appliedInputs);
+      if (!saved || attempt !== attemptRef.current || !currentOwner()) return;
+      onAddToChart({ ...saved, inputs: appliedInputs }, appliedInputs);
+    } finally {
+      addPendingRef.current = false;
+      if (currentOwner()) setAddingToChart(false);
+    }
+  }
+
+  function confirmationValid() {
+    const draft = confirmationRef.current;
+    if (!draft || draft.scope !== confirmationScopeRef.current || !currentOwner()) return false;
+    const invalid = confirmationFieldsRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]:not([disabled])');
+    if (invalid) {
+      invalid.focus();
+      const next = { ...draft, error: "Finish the highlighted input before continuing." };
+      confirmationRef.current = next;
+      setConfirmation(next);
+      return false;
+    }
+    return true;
+  }
+
+  async function pickConfirmedInputs() {
+    if (!confirmationValid() || !currentPrepared) return;
+    const draft = confirmationRef.current!;
+    const definitions = currentPrepared.inputDefinitions;
+    const anchorIds = pineInputAnchors(definitions).filter(anchor => pineAnchorActive(anchor, definitions, draft.values)
+      && definitions.some(definition => definition.confirm && (definition.id === anchor.priceId || definition.id === anchor.timeId))
+      && (currentPrepared.overlay || anchor.kind === "time")).map(anchor => anchor.id);
+    if (!anchorIds.length) return;
+    pickerAbortRef.current?.abort();
+    const controller = new AbortController();
+    pickerAbortRef.current = controller;
+    setChartPicking(true);
+    try {
+      const picked = await pickPineChartInputs({ symbol, timeframe, definitions, inputs: draft.values, anchorIds }, controller.signal);
+      if (controller.signal.aborted || confirmationRef.current !== draft || draft.scope !== confirmationScopeRef.current || !currentOwner()) return;
+      const next = { ...draft, values: picked ?? draft.values, error: picked ? null : "Selection cancelled. Your original inputs are still here." };
+      confirmationRef.current = next;
+      setConfirmation(next);
+    } catch (cause) {
+      if (controller.signal.aborted || confirmationRef.current !== draft || draft.scope !== confirmationScopeRef.current || !currentOwner()) return;
+      const next = { ...draft, error: cause instanceof Error ? cause.message : "Chart picking is unavailable. You can enter inputs here." };
+      confirmationRef.current = next;
+      setConfirmation(next);
+    } finally {
+      if (pickerAbortRef.current === controller) {
+        pickerAbortRef.current = null;
+        setChartPicking(false);
+      }
+    }
+  }
+
+  async function addConfirmedInputs() {
+    if (!confirmationValid()) return;
+    const values = confirmationRef.current!.values;
+    cancelConfirmation();
+    invalidateExecution();
+    setInputs(values);
+    await applyToChart(values);
   }
 
   function insertCompletion(value: string) {
@@ -486,7 +586,8 @@ export function IndicatorEditorPanel({
     : [];
 
   return (
-    <Dialog open label="EdgeLab indicator editor" onClose={onClose} className="flex h-[min(860px,calc(100dvh-24px))] !max-w-[1180px] flex-col overflow-hidden bg-[var(--ui-modal)]">
+    <>
+    <Dialog open={!confirmation && !chartPicking} label="EdgeLab indicator editor" onClose={onClose} className="flex h-[min(860px,calc(100dvh-24px))] !max-w-[1180px] flex-col overflow-hidden bg-[var(--ui-modal)]">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-base font-semibold text-white"><Code2 size={17} /> EdgeLab indicator editor</h2>
@@ -501,7 +602,7 @@ export function IndicatorEditorPanel({
             <button className="studio-tool-button" disabled={!canSave} onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
             <button className="studio-tool-button" disabled={!canSave || runState.status === "running"} onClick={() => save()} type="button"><Save size={13} /> Save</button>
-            <button className="studio-tool-button studio-tool-button-active" disabled={!canSave || runState.status === "running"} onClick={addToChart} type="button"><Plus size={13} /> Add to chart</button>
+            <button className="studio-tool-button studio-tool-button-active" disabled={!canSave || addingToChart || runState.status === "running"} onClick={addToChart} type="button"><Plus size={13} /> {addingToChart ? "Adding…" : "Add to chart"}</button>
             <IconButton icon={X} label="Close indicator editor" onClick={onClose} />
           </div>
         </header>
@@ -594,6 +695,35 @@ export function IndicatorEditorPanel({
           </aside>
         </div>
     </Dialog>
+    <Dialog open={Boolean(confirmation) && !chartPicking} label="Confirm indicator inputs" onClose={cancelConfirmation} className="!max-w-xl p-5">
+      <h2 className="text-xl font-semibold text-[var(--text-primary)]">Set up {currentPrepared?.name ?? "your indicator"}</h2>
+      <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Review these inputs before adding the script. Chart selections stay a draft until you add it.</p>
+      <div ref={confirmationFieldsRef} className="my-5 grid gap-4">
+        {currentPrepared?.inputDefinitions.filter(definition => definition.confirm || pineInputAnchors(currentPrepared.inputDefinitions).some(anchor =>
+          (anchor.priceId === definition.id || anchor.timeId === definition.id) && currentPrepared.inputDefinitions.some(member => member.confirm
+            && (member.id === anchor.priceId || member.id === anchor.timeId)))).map(definition => <PineInputControl key={definition.id}
+              definition={definition} definitions={currentPrepared.inputDefinitions} inputs={confirmation?.values ?? {}} value={confirmation?.values[definition.id]}
+              scopeKey={`${selectedId}:${source}:confirm`} onChange={value => {
+                const draft = confirmationRef.current;
+                if (!draft || draft.scope !== confirmationScopeRef.current || !currentOwner()) return;
+                const next = { ...draft, values: { ...draft.values, [definition.id]: value }, error: null };
+                confirmationRef.current = next;
+                setConfirmation(next);
+              }} />)}
+      </div>
+      {currentPrepared?.overlay === false && currentPrepared.inputDefinitions.some(definition => definition.type === "price" && definition.confirm)
+        && <p className="mb-4 text-xs leading-5 text-[var(--text-secondary)]">Enter the price here first. After adding, move its marker in the indicator pane.</p>}
+      {confirmation?.error && <p role="alert" className="mb-4 text-sm text-[var(--loss-text)]">{confirmation.error}</p>}
+      <div className="flex flex-wrap gap-2">
+        {currentPrepared && pineInputAnchors(currentPrepared.inputDefinitions).some(anchor => pineAnchorActive(anchor, currentPrepared.inputDefinitions, confirmation?.values ?? {})
+          && (currentPrepared.overlay || anchor.kind === "time") && currentPrepared.inputDefinitions.some(definition => definition.confirm
+            && (definition.id === anchor.priceId || definition.id === anchor.timeId)))
+          && <button className="studio-tool-button min-h-11" onClick={() => void pickConfirmedInputs()} type="button">Pick on chart</button>}
+        <button className="studio-tool-button studio-tool-button-active min-h-11" onClick={() => void addConfirmedInputs()} type="button">Add with these inputs</button>
+        <button className="studio-tool-button min-h-11" onClick={cancelConfirmation} type="button">Cancel</button>
+      </div>
+    </Dialog>
+    </>
   );
 }
 
