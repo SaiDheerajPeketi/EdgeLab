@@ -29,7 +29,7 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)] lg:items-end lg:gap-16">
           <div>
-            <h2 className="max-w-4xl text-balance text-[clamp(2.6rem,6vw,5.6rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary">
+            <h2 className="max-w-4xl landing-section-title text-edgelab-text-primary">
               Every decision leaves a record.
             </h2>
             <p className="mt-6 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8">

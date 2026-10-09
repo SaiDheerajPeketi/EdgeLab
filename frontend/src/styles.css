@@ -373,6 +373,25 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 }
 
 /* EdgeLab typography utilities — used across landing + app retheme. */
+.marketing-shell {
+  font-family: var(--font-body);
+  --font-data: var(--font-body);
+}
+
+.marketing-shell :is(.font-data, .font-mono) {
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-section-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4.75rem);
+  font-weight: 500;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
 .text-display {
   font-family: var(--font-display);
   font-weight: 700;

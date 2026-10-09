@@ -11,7 +11,7 @@ test("landing demo exposes the full, honestly labelled workflow", () => {
   const source = read("frontend/src/components/marketing/HeroDemo.tsx");
   assert.match(source, /Explore the trading workspace\./);
   assert.match(source, /Illustrative market data/);
-  assert.match(source, /Chart \+ replay/);
+  assert.match(source, /id: "replay",\s*label: "Replay"/);
   assert.match(source, /Journal \+ review/);
   assert.match(source, /aria-current=\{item\.id === selectedScenarioId \? "step"/);
 });

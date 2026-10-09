@@ -85,9 +85,9 @@ test("a missing or expired Google session cannot create checkout",()=>harness(as
   module.setStoredAuthSession({...owner(),expiresAt:new Date(Date.now()-1).toISOString()});
   await assert.rejects(module.createBillingCheckout("annual"));assert.equal(calls.some(c=>c.method==="POST"),false);
 }));
-test("explicit beta PricingSection keeps the free approval branch",()=>harness(async({module,calls})=>{
+test("beta pricing presentation preserves production access and checkout rules",()=>harness(async({module,calls})=>{
   const html=module.betaPricingMarkup();assert.ok(html.includes("Test the core workflow free."));assert.ok(html.includes("Temporary beta workspace"));
-  assert.ok(html.includes("Join beta"));assert.ok(!html.includes("Continue to checkout"));assert.equal(calls.length,0);
+  assert.ok(html.includes("View plans"));assert.ok(!html.includes("Join beta"));assert.ok(!html.includes("Continue to checkout"));assert.equal(calls.length,0);
 }));
 
 test("checkout destination retains original workspace only for its owner, without durable share leakage",()=>harness(async({module,values,transient})=>{

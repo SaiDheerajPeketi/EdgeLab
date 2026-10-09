@@ -10,9 +10,9 @@ type SceneControl = { chapter(value: Chapter): void; view(yaw: number, pitch: nu
 const ORBIT_KEYS: Record<string, [number, number]> = { ArrowLeft: [-0.08, 0], ArrowRight: [0.08, 0], ArrowUp: [0, -0.06], ArrowDown: [0, 0.06] };
 
 const CHAPTERS: { id: Chapter; label: string; title: string; detail: string }[] = [
-  { id: "price", label: "Price", title: "96 moments. One market context.", detail: "A fixed example session, from first candle to last. Up and down bodies preserve the same OHLC path in every view." },
-  { id: "decisions", label: "Decisions", title: "Attach the reason to the moment.", detail: "Example: mark the pullback at candle 44, define a stop, then record the exit at candle 82. The price path stays unchanged." },
-  { id: "review", label: "Review", title: "Return to the decision with evidence.", detail: "Example review: entry 44 → exit 82. Note: waited for the pullback. Next session: test the same entry rule again." },
+  { id: "price", label: "Price", title: "See the whole market move.", detail: "Follow the swings, pullbacks, and turning points that shape a trading session." },
+  { id: "decisions", label: "Decisions", title: "Keep the decision in view.", detail: "See an example entry, stop, and exit beside the price action that shaped them." },
+  { id: "review", label: "Review", title: "Return to the reason.", detail: "Review the entry and exit together, then carry your notes into the next session." },
 ];
 
 export function MarketSculpture({ className = "" }: { className?: string }) {
@@ -254,7 +254,6 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
   }, [reducedMotion]);
 
   return <section className={`min-w-0 ${className}`} ref={hostRef} data-market-sculpture data-scene-status={status} data-chapter={chapter} data-candle-count={CANDLES.length} data-camera={`${view.yaw.toFixed(2)},${view.pitch.toFixed(2)}`} aria-label="Explore a market session in three dimensions">
-    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400"><span className="font-data">96 candles / one example session</span><span>Synthetic data · 3D study</span></div>
     <div className="relative mt-1 h-[360px] sm:h-[460px] lg:h-[500px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" tabIndex={0} role="group" aria-label="Rotate the market scene" aria-describedby="market-sculpture-instructions" onKeyDown={(event) => {
       const delta = ORBIT_KEYS[event.key];
       if (delta) { event.preventDefault(); orbit(delta[0], delta[1]); }
@@ -276,13 +275,12 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
       <div className="absolute inset-0 cursor-grab active:cursor-grabbing" ref={canvasRef}>
         {status !== "ready" ? <MarketSculptureProjection chapter={chapter} yaw={view.yaw + (reducedMotion ? 0 : projectionScroll) * 0.13} pitch={view.pitch + (reducedMotion ? 0 : projectionScroll) * 0.15} width={size.width} height={size.height} /> : null}
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-between px-3 font-data text-[10px] text-slate-400"><span>FIRST CANDLE</span><span>LAST CANDLE</span></div>
     </div>
     <div className="flex flex-wrap items-center justify-between gap-2 border-y border-white/10">
       <div className="flex min-w-0" role="group" aria-label="Market scene chapters">{CHAPTERS.map((item) => <button className={`relative min-h-11 px-3 text-sm transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-200 ${item.id === chapter ? "text-cyan-100" : "text-slate-400"}`} aria-pressed={item.id === chapter} key={item.id} onClick={() => setChapter(item.id)} type="button">{item.label}{item.id === chapter ? <span className="absolute inset-x-3 bottom-0 h-px bg-cyan-200" aria-hidden="true" /> : null}</button>)}</div>
       <div className="flex"><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene left" onClick={() => orbit(-0.08, 0)}><ArrowLeft size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Reset scene view" onClick={reset}><RotateCcw size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene right" onClick={() => orbit(0.08, 0)}><ArrowRight size={15} /></button></div>
     </div>
     <div className="pt-4" aria-live="polite"><h2 className="text-xl font-medium tracking-tight text-white">{content.title}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">{content.detail}</p></div>
-    <p className="mt-2 text-xs leading-5 text-slate-400" id="market-sculpture-instructions">Drag with a mouse or use the rotation controls. Arrow keys rotate; Home resets. Prices stay fixed.</p>
+    <p className="sr-only" id="market-sculpture-instructions">Illustrative market data. Drag with a mouse or use the rotation controls. Arrow keys rotate; Home resets.</p>
   </section>;
 }

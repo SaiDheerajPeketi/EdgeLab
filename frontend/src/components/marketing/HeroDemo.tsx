@@ -1,4 +1,4 @@
-import { CandlestickChart, ShieldCheck } from "lucide-react";
+import { CandlestickChart } from "lucide-react";
 import {
   ColorType,
   CrosshairMode,
@@ -786,10 +786,6 @@ function MarketingCandleSurface({
     firstBar != null && displayBar != null
       ? ((displayBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
       : 0;
-  const replayProgress = Math.max(
-    12,
-    ((clampedIndex + 1) / Math.max(scenario.bars.length, 1)) * 100,
-  );
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -974,22 +970,10 @@ function MarketingCandleSurface({
         </span>
       </div>
 
-      <div className="mt-3 h-px overflow-hidden bg-white/10" aria-hidden="true">
-        <div
-          className="h-full origin-left bg-cyan-200"
-          style={{ transform: `scaleX(${replayProgress / 100})` }}
-        />
-      </div>
-
       <div className="mt-3 overflow-hidden bg-[#0b1017]">
         <div ref={containerRef} className="h-[264px] w-full sm:h-[336px] lg:h-[376px]" />
       </div>
-      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-xs leading-5 text-slate-400">
-        <p>{scenario.markerNote}</p>
-        <p className="font-data tabular-nums" data-visible-candles={visibleBars.length} data-visible-first-time={firstBar?.time} data-visible-last-time={lastBar?.time}>
-          {visibleBars.length} bars shown · {firstIndex + scenario.bars.length} generated
-        </p>
-      </div>
+      <span hidden data-visible-candles={visibleBars.length} data-visible-first-time={firstBar?.time} data-visible-last-time={lastBar?.time} />
     </section>
   );
 }
@@ -1287,7 +1271,7 @@ export function HeroDemo({
       ...base,
       bars: replay.bars as DemoBar[],
       markers: [],
-      timeframe: "5m simulation",
+      timeframe: "5m",
       markerNote: "Continuously generated synthetic prices. No trades or performance results are attached to this stream.",
     } : base;
   }, [visibleScenarioId, replay.bars]);
@@ -1516,7 +1500,6 @@ export function HeroDemo({
             </div>
           </div>
           <div className="inline-flex items-center gap-2 text-xs font-medium text-amber-100">
-            <ShieldCheck size={14} />
             <span className="hidden sm:inline">Illustrative market data</span>
             <span className="sm:hidden">Illustrative data</span>
           </div>
@@ -1536,8 +1519,7 @@ export function HeroDemo({
               onClick={() => selectScenario(item.id)}
               type="button"
             >
-              <span className="block text-[10px] tabular-nums text-slate-500">{item.id === "replay" ? "01 · Chart + replay" : item.id === "review" ? "02 · Journal" : "03 · Patterns"}</span>
-              <span className="mt-1 block"><span className="hidden sm:inline">{item.label}</span><span className="sm:hidden">{item.id === "review" ? "Journal" : item.label}</span></span>
+              <span className="block"><span className="hidden sm:inline">{item.label}</span><span className="sm:hidden">{item.id === "review" ? "Journal" : item.label}</span></span>
               {item.id === selectedScenarioId ? <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 bg-cyan-200" /> : null}
             </button>
           ))}
@@ -1548,21 +1530,11 @@ export function HeroDemo({
         {scenario.id === "replay" ? (
           <div>
             <MarketingCandleSurface currentBarIndex={currentBarIndex} firstIndex={replay.firstIndex} scenario={scenario} />
-            <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center" aria-label="Replay controls" role="group">
-              <div className="flex flex-wrap gap-2">
-                <button aria-label={autoplayActive ? "Pause replay" : "Play replay"} className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-medium text-cyan-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-400" disabled={reducedMotion} onClick={() => { if (!autoplayActive) setCurrentBarIndex(replay.firstIndex + replay.bars.length - 1); setAutoplayActive((active) => !active); }} type="button">{reducedMotion ? "Autoplay off" : autoplayActive ? "Pause" : "Play"}</button>
-                <button aria-label="Previous candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex <= replay.firstIndex} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.max(replay.firstIndex, index - 1)); }} type="button">Previous</button>
-                <button aria-label="Next candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" onClick={() => { setAutoplayActive(false); setReplay((previous) => previous.cursor < previous.firstIndex + previous.bars.length - 1 ? { ...previous, cursor: previous.cursor + 1 } : appendDemoReplay(previous)); }} type="button">Next</button>
-              </div>
-              <label className="flex min-h-11 min-w-0 items-center"><span className="sr-only">Replay position</span><input className="h-11 w-full accent-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" max={replay.firstIndex + replay.bars.length - 1} min={replay.firstIndex} onChange={(event) => { setAutoplayActive(false); setCurrentBarIndex(Number(event.target.value)); }} step={1} type="range" value={currentBarIndex} /></label>
-              <span className="font-data text-xs tabular-nums text-slate-300">Candle {currentBarIndex + 1} · {autoplayActive && !reducedMotion ? "Following simulation" : "Paused for review"}</span>
-            </div>
           </div>
         ) : null}
 
         {scenario.id !== "replay" ? (
           <div>
-            <p className="mb-3 text-sm leading-6 text-amber-100">Journal and Results use separate fixed illustrative examples, independent of the generated market.</p>
             <MetricsBar compact metrics={scenario.metrics} />
           </div>
         ) : null}

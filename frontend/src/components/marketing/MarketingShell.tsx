@@ -1,4 +1,4 @@
-import { ArrowRight, Menu, Pause, Play, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -11,7 +11,7 @@ import {
 import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { StudioAttribution } from "../brand/StudioAttribution";
-import { isBetaMode } from "../../lib/deploymentMode";
+import { deploymentMode, isBetaMode, type DeploymentMode } from "../../lib/deploymentMode";
 import { loadGsap } from "../../lib/gsap";
 import { buildMarketingCta } from "../../lib/marketingCta";
 import { prefersMarketingReducedMotion, setMarketingMotionChoice, useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
@@ -27,6 +27,7 @@ type MarketingShellProps = {
   navItems: NavItem[];
   pageDescription: string;
   pageTitle: string;
+  presentationMode?: DeploymentMode;
 };
 
 const MARKETING_EXPLICIT_OWNER_SELECTOR = "[data-marketing-reveal], [data-marketing-flow], [data-flow-row]";
@@ -104,10 +105,10 @@ export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean 
   return <EdgeLabBrandWordmark markFrame="bare" showTagline={showTagline} size="md" />;
 }
 
-function BetaBanner() {
+function BetaBanner({ mode }: { mode: DeploymentMode }) {
   const { error, loading, program } = useBetaProgramStatus();
 
-  if (!isBetaMode()) {
+  if (!isBetaMode(mode)) {
     return null;
   }
 
@@ -138,6 +139,7 @@ export function MarketingShell({
   navItems,
   pageDescription,
   pageTitle,
+  presentationMode = deploymentMode,
 }: MarketingShellProps) {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -348,7 +350,7 @@ export function MarketingShell({
           }, shell);
 
           const registerFlow = (node: HTMLElement) => {
-            const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 64 : 44;
+            const offsetY = node.matches("[data-marketing-flow], [data-flow-row], [data-scene-content]") ? 32 : 22;
             const authoredDelay = Number(node.dataset.revealDelay ?? 0);
             const delay = Number.isFinite(authoredDelay) ? Math.min(0.4, Math.max(0, authoredDelay)) : 0;
             let animation: { kill(): void } | null = null;
@@ -362,8 +364,8 @@ export function MarketingShell({
               const translation = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
               const rect = node.getBoundingClientRect();
               return {
-                start: rect.top + window.scrollY - translation - window.innerHeight * 0.88,
-                end: rect.bottom + window.scrollY - translation - window.innerHeight * 0.28,
+                start: rect.top + window.scrollY - translation - window.innerHeight - 48,
+                end: rect.bottom + window.scrollY - translation + 48,
               };
             };
             const showFocus = () => {
@@ -376,14 +378,14 @@ export function MarketingShell({
               if (pointerId !== null) return;
               if (node.contains(document.activeElement)) { showFocus(); return; }
               if (Number(getComputedStyle(node).opacity) < 0.01) gsap.set(node, { y: direction * offsetY });
-              animation = gsap.to(node, { opacity: 1, y: 0, delay, duration: 0.8, ease: revealEase, overwrite: "auto" });
+              animation = gsap.to(node, { opacity: 1, y: 0, delay, duration: 1, ease: revealEase, overwrite: "auto" });
             };
             const leave = (direction: 1 | -1) => {
               phase = direction === 1 ? "after" : "before";
               animation?.kill();
               if (pointerId !== null) return;
               if (node.contains(document.activeElement)) { showFocus(); return; }
-              animation = gsap.to(node, { opacity: 0, y: -direction * Math.min(offsetY, 44), duration: 0.5, ease: "power2.inOut", overwrite: "auto" });
+              animation = gsap.to(node, { opacity: 0, y: -direction * 20, duration: 0.72, ease: "power2.inOut", overwrite: "auto" });
             };
             const synchronize = () => {
               const range = bounds();
@@ -619,7 +621,7 @@ export function MarketingShell({
 
   return (
     <div
-      className="relative min-h-screen max-w-[100vw] overflow-x-clip bg-edgelab-base text-edgelab-text-primary"
+      className="marketing-shell relative min-h-screen max-w-[100vw] overflow-x-clip bg-edgelab-base text-edgelab-text-primary"
       data-marketing-motion={reducedMotion ? "reduced" : "full"}
       ref={shellRef}
     >
@@ -634,7 +636,7 @@ export function MarketingShell({
         >
           Skip to content
         </a>
-        <BetaBanner />
+        <BetaBanner mode={presentationMode} />
         <header className={headerClassName} ref={headerRef}>
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
             <Link aria-label="EdgeLab home" data-shell-motion="wordmark" to="/">
@@ -661,17 +663,6 @@ export function MarketingShell({
                 />
               ))}
             </nav>
-
-            <button
-              aria-label={reducedMotion ? "Enable animations" : "Pause animations"}
-              title={reducedMotion ? "Enable page animations for this tab" : "Pause page animations for this tab"}
-              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-el-md px-2 text-xs text-edgelab-text-secondary hover:text-edgelab-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-              onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
-              type="button"
-            >
-              {reducedMotion ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
-              <span className="hidden xl:inline">{reducedMotion ? "Enable animations" : "Pause animations"}</span>
-            </button>
 
             <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
               <Link
@@ -773,6 +764,10 @@ export function MarketingShell({
                   Source code
                 </a>
               </div>
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 sm:justify-end">
+                <input className="h-4 w-4 accent-cyan-200" type="checkbox" checked={reducedMotion} onChange={(event) => setMarketingMotionChoice(event.target.checked ? "reduced" : "full")} />
+                Reduce motion
+              </label>
             </nav>
           </div>
         </footer>

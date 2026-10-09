@@ -12,6 +12,11 @@ const ATTRIBUTION_KEYS = [
 const INVALID_ATTRIBUTION_VALUE = /[\u0000-\u001f\u007f]/;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 160;
 
+// A marketing preview never changes authentication or paid-access deployment mode.
+export function marketingPresentationFromSearch(search: string): DeploymentMode {
+  return new URLSearchParams(search).get("variant") === "beta" ? "beta" : "production";
+}
+
 type MarketingCtaOptions = {
   mode?: DeploymentMode;
   forceWaitlist?: boolean;

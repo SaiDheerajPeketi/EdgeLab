@@ -1,5 +1,7 @@
 # EdgeLab frontend
 
+The landing page uses launch content by default. Open `/?variant=beta` to preview the retained beta presentation; any other variant uses launch content. This selects marketing copy, pricing sections, and FAQs only. Sign-in, checkout, workspace access, and export eligibility continue to use the configured deployment mode and server checks. The footer's **Reduce motion** preference also stops the continuous illustrative chart and scene animation.
+
 Stripe credentials and provider price IDs stay on the FastAPI server. Public pricing reads the validated server catalog and offers monthly/yearly hosted checkout for verified accounts. Unconfigured, test-mode and provider-error states remain explicit. Choosing a cadence or returning from checkout never grants access or starts another purchase automatically; paid status is checked on the server. The optional beta workspace remains separate, and data exports still require an active paid subscription.
 
 Beta checkout requires current approved workspace access within the seat cap. The server checks eligibility before provider work and again after persisting the checkout attempt. Verified production buyers can start their first subscription, and billing status and account management remain available after workspace access is lost.

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Pause, Play } from "lucide-react";
+import { ArrowDown, ArrowRight } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
@@ -8,15 +8,14 @@ import {
   buildMarketingNavItems,
   MarketingShell,
 } from "../components/marketing/MarketingShell";
-import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
-import { buildMarketingCta } from "../lib/marketingCta";
-import { useMarketingReducedMotionPreference } from "../lib/marketingMotion";
+import { isBetaMode } from "../lib/deploymentMode";
+import { buildMarketingCta, marketingPresentationFromSearch } from "../lib/marketingCta";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 const HeroDemo = lazy(() => import("../components/marketing/HeroDemo").then((module) => ({ default: module.HeroDemo })));
 const PricingSection = lazy(() => import("../components/marketing/PricingSection").then((module) => ({ default: module.PricingSection })));
 const PricingFaq = lazy(() => import("../components/marketing/PricingSection").then((module) => ({
-  default: () => <module.FaqAccordion items={module.pricingFaqItems} />,
+  default: ({ mode }: { mode: "beta" | "production" }) => <module.FaqAccordion items={module.getPricingFaqItems(mode)} />,
 })));
 
 function DeferredMount({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
@@ -43,13 +42,6 @@ type WorkflowStep = {
   step: string;
   title: string;
   action?: string;
-};
-
-type MarketPulse = {
-  change: string;
-  symbol: string;
-  tone: "down" | "up";
-  value: string;
 };
 
 const WORKFLOW_STEPS: WorkflowStep[] = [
@@ -82,129 +74,6 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
   },
 ];
 
-const MARKET_PULSE: MarketPulse[] = [
-  { symbol: "NQ", value: "4301.30", change: "+0.64%", tone: "up" },
-  { symbol: "ES", value: "5988.75", change: "+0.28%", tone: "up" },
-  { symbol: "CL", value: "79.42", change: "-0.31%", tone: "down" },
-  { symbol: "EURUSD", value: "1.0887", change: "+0.12%", tone: "up" },
-  { symbol: "AAPL", value: "188.10", change: "-0.44%", tone: "down" },
-  { symbol: "BTC", value: "104,221", change: "+1.18%", tone: "up" },
-];
-
-function parseMarketValue(value: string) {
-  return Number(value.replace(/,/g, ""));
-}
-
-function formatMarketValue(symbol: string, value: number) {
-  if (symbol === "BTC") {
-    return Math.round(value).toLocaleString("en-US");
-  }
-  if (symbol === "EURUSD") {
-    return value.toFixed(4);
-  }
-  return value.toFixed(2);
-}
-
-function formatMarketChange(value: number) {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function MarketTape() {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [items, setItems] = useState(MARKET_PULSE);
-  const [isActive, setIsActive] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
-  const reducedMotion = useMarketingReducedMotionPreference();
-  const isRunning = isActive && !isPaused && !reducedMotion;
-
-  useEffect(() => {
-    if (!isRunning) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setItems((current) =>
-        current.map((item, index) => {
-          const baseValue = parseMarketValue(MARKET_PULSE[index]?.value ?? item.value);
-          const nextValue = parseMarketValue(item.value) * Math.exp((Math.random() - 0.5) * 0.0018);
-          const nextChange = Number((MARKET_PULSE[index]?.change ?? "0").replace("%", "")) + (nextValue / baseValue - 1) * 100;
-
-          return {
-            ...item,
-            value: formatMarketValue(item.symbol, nextValue),
-            change: formatMarketChange(nextChange),
-            tone: nextChange >= 0 ? "up" : "down",
-          };
-        }),
-      );
-    }, 1600);
-
-    return () => window.clearInterval(timer);
-  }, [isRunning]);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root || !("IntersectionObserver" in window)) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsActive(entry?.isIntersecting ?? true),
-      { rootMargin: "120px 0px" },
-    );
-    observer.observe(root);
-    return () => observer.disconnect();
-  }, []);
-
-  const loopItems = [...items, ...items];
-
-  return (
-    <div
-      aria-label="Illustrative market feed"
-      className="relative grid h-[58px] w-full max-w-full grid-cols-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl bg-[#080d12] shadow-panel ring-1 ring-inset ring-white/10"
-      ref={rootRef}
-      role="region"
-    >
-      <div className="relative z-10 flex items-center border-r border-white/10 bg-[#080d12] px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 sm:px-4">
-        Demo feed
-      </div>
-      <div className="relative min-w-0 overflow-hidden">
-        <div
-          className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center ${
-            isRunning ? "edgelab-marquee-active" : "edgelab-marquee-paused"
-          }`}
-        >
-          {loopItems.map((item, index) => (
-            <div
-              aria-hidden={index >= items.length ? "true" : undefined}
-              className="inline-grid h-full grid-cols-[auto_auto_auto] items-center gap-3 border-r border-white/[0.07] px-5 text-xs"
-              key={`${item.symbol}-${index}`}
-            >
-              <span className="font-semibold text-slate-200">{item.symbol}</span>
-              <span className="font-data text-slate-100">{item.value}</span>
-              <span className={item.tone === "up" ? "text-emerald-300" : "text-rose-300"}>
-                {item.change}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-      {!reducedMotion && (
-        <button
-          aria-label={isPaused ? "Resume demo feed" : "Pause demo feed"}
-          className="relative z-10 mx-1 my-auto inline-flex h-11 min-w-11 items-center justify-center gap-2 rounded-lg bg-[#080d12] px-3 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-          onClick={() => setIsPaused((current) => !current)}
-          type="button"
-        >
-          {isPaused ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />}
-          <span className="hidden sm:inline">{isPaused ? "Resume" : "Pause"}</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
 function SectionHeading({
   description,
   title,
@@ -215,7 +84,7 @@ function SectionHeading({
   return (
     <div className="max-w-4xl">
       <h2
-        className="text-balance text-[clamp(2.6rem,6vw,5.6rem)] font-medium leading-[0.92] tracking-[-0.04em] text-white"
+        className="landing-section-title text-white"
         data-marketing-reveal={`${title}-title`}
         data-split-text="lines"
       >
@@ -233,7 +102,8 @@ function SectionHeading({
 
 export function LandingPage() {
   const location = useLocation();
-  const betaMode = isBetaMode(deploymentMode);
+  const presentationMode = marketingPresentationFromSearch(location.search);
+  const betaMode = isBetaMode(presentationMode);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
@@ -250,8 +120,9 @@ export function LandingPage() {
       navItems={buildMarketingNavItems("home")}
       pageDescription="Replay price action, record the decision, and review the evidence in one focused trading workspace."
       pageTitle="Trading replay and journal"
+      presentationMode={presentationMode}
     >
-      <div className="landing-story">
+      <div className="landing-story" data-marketing-variant={presentationMode}>
         <section
           className="relative px-3 pb-20 pt-6 sm:px-6 sm:pb-28 sm:pt-12 lg:px-8 lg:pt-14"
           data-landing-hero
@@ -262,7 +133,7 @@ export function LandingPage() {
             <div className="grid gap-8 sm:gap-12 lg:min-h-[650px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-16">
               <div className="order-1 min-w-0">
                 <h1
-                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[0.95] tracking-[-0.04em] text-white"
+                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[1.02] tracking-[-0.03em] text-white"
                   data-marketing-reveal="title"
                   data-motion="reveal"
                   data-reveal-delay="0.03"
@@ -317,7 +188,7 @@ export function LandingPage() {
                 <div className="landing-motion-content" data-scene-content>
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
                   <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
-                    Interactive product preview using illustrative market data.
+                    Product demo · Illustrative market data.
                     {betaMode ? <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span> : null}
                   </p>
                 </div>
@@ -327,9 +198,6 @@ export function LandingPage() {
               </div>
             </div>
 
-            <div className="mt-7" data-marketing-flow>
-              <MarketTape />
-            </div>
           </div>
         </section>
 
@@ -363,7 +231,6 @@ export function LandingPage() {
                     </p>
                   </div>
                   <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-cyan-100" data-marketing-flow>
-                    <span className="font-data">{step.step} / {step.phase}</span>
                     <a className="inline-flex min-h-11 items-center gap-2 text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="#live-preview">Explore the working example <ArrowRight size={15} aria-hidden="true" /></a>
                   </div>
                 </article>
@@ -390,7 +257,7 @@ export function LandingPage() {
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
               <SectionHeading
                 description={
-                  isBetaMode(deploymentMode)
+                  betaMode
                     ? "Approved users can test the current replay, Journal, analytics, and playbook workflow free during private beta. The queue opens automatically when seats fill."
                     : "The chart, replay, and journal you need to build a repeatable review process. Choose monthly or yearly billing."
                 }
@@ -398,10 +265,10 @@ export function LandingPage() {
               />
               <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0" data-marketing-flow>
                 <div className="text-xl font-medium text-white">
-                  {isBetaMode(deploymentMode) ? "Private beta" : "EdgeLab Pro"}
+                  {betaMode ? "Private beta" : "EdgeLab Pro"}
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
-                  {isBetaMode(deploymentMode)
+                  {betaMode
                     ? "The approved beta workspace is free. Pro subscriptions enable paid data exports."
                     : "One Pro plan. Two billing choices. Provider data and model access remain separate."}
                 </p>
@@ -410,7 +277,7 @@ export function LandingPage() {
 
             <div className="mt-14" data-marketing-reveal="pricing-cards" data-reveal-delay="0.08">
               <DeferredMount fallback={<div aria-hidden="true" className="min-h-96 border-y border-edgelab-border" />}>
-                <Suspense fallback={<div aria-hidden="true" className="min-h-96 border-y border-edgelab-border" />}><PricingSection mode={deploymentMode} showComparison /></Suspense>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-96 border-y border-edgelab-border" />}><PricingSection mode={presentationMode} showComparison={false} /></Suspense>
               </DeferredMount>
             </div>
           </div>
@@ -424,7 +291,7 @@ export function LandingPage() {
             />
             <div data-marketing-reveal="faq-list" data-reveal-delay="0.06">
               <DeferredMount fallback={<div aria-hidden="true" className="min-h-80 border-y border-edgelab-border" />}>
-                <Suspense fallback={<div aria-hidden="true" className="min-h-80 border-y border-edgelab-border" />}><PricingFaq /></Suspense>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-80 border-y border-edgelab-border" />}><PricingFaq mode={presentationMode} /></Suspense>
               </DeferredMount>
             </div>
           </div>
@@ -433,7 +300,7 @@ export function LandingPage() {
         <section className="px-3 pb-28 pt-8 sm:px-6 sm:pb-32 lg:px-8" data-scroll-scene>
           <div className="landing-motion-content mx-auto grid max-w-7xl gap-8 border-y border-edgelab-border py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end" data-scene-content>
             <div>
-              <h2 className="max-w-4xl text-balance text-[clamp(2.5rem,6vw,5rem)] font-medium leading-[0.94] tracking-[-0.04em] text-edgelab-text-primary">
+              <h2 className="landing-section-title max-w-4xl text-edgelab-text-primary">
                 Make every replay leave evidence.
               </h2>
               <p className="mt-5 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg">

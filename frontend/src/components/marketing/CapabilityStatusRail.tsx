@@ -41,7 +41,7 @@ export function CapabilityStatusRail() {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
           <div>
             <h2
-              className="max-w-3xl text-balance text-[clamp(2.5rem,6vw,5.25rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary"
+              className="max-w-3xl landing-section-title text-edgelab-text-primary"
               data-marketing-reveal="capability-title"
               data-split-text="lines"
               id="capability-status-title"

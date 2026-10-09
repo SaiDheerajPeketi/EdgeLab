@@ -16,7 +16,7 @@ declare global {
 
 test("a live reduced-motion preference stops repeated landing work", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "The motion preference contract is viewport-independent.");
-  await installDeterminism(page, { motionLock: false });
+  await installDeterminism(page, { motionLock: false, freezeTime: false });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.addInitScript(() => {
     const nativeSetInterval = window.setInterval.bind(window);
@@ -53,9 +53,14 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await gotoStable(page, "/");
 
   const intervalCounts = () => page.evaluate(() => ({ ...window.__edgelabMotionIntervalCounts }));
+  const hero = page.locator("[data-market-following]");
+  await hero.scrollIntoViewIfNeeded();
+  await expect(hero).toHaveAttribute("data-market-following", "true");
   await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(0);
-  await page.getByLabel("Illustrative market feed").scrollIntoViewIfNeeded();
-  await expect.poll(async () => (await intervalCounts())["1600"] ?? 0).toBeGreaterThan(0);
+  const firstMarketTime = Number(await hero.getAttribute("data-market-last-time"));
+  expect(Number.isFinite(firstMarketTime)).toBe(true);
+  expect(firstMarketTime).toBeGreaterThan(0);
+  await expect.poll(async () => Number(await hero.getAttribute("data-market-last-time"))).toBeGreaterThan(firstMarketTime);
 
   const repeatedAnimationViolations = await page.evaluate(() => {
     const metadataKeys = new Set(["composite", "computedOffset", "easing", "offset"]);
@@ -74,20 +79,19 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   expect(repeatedAnimationViolations).toEqual([]);
 
   await page.evaluate(() => window.scrollTo({ behavior: "instant", top: document.documentElement.scrollHeight }));
-  const marquee = page.locator(".edgelab-marquee");
-  await expect(marquee).toHaveCSS("animation-play-state", "paused");
+  await expect(hero).toHaveAttribute("data-market-following", "false");
   await page.waitForTimeout(150);
   const offscreenCounts = await intervalCounts();
   const pausedMotionCounts = {
     heroAutoplay: offscreenCounts["280"] ?? 0,
-    marketTicker: offscreenCounts["1600"] ?? 0,
   };
+  const pausedMarketTime = await hero.getAttribute("data-market-last-time");
   await page.waitForTimeout(1_900);
   const afterOffscreenWait = await intervalCounts();
   expect({
     heroAutoplay: afterOffscreenWait["280"] ?? 0,
-    marketTicker: afterOffscreenWait["1600"] ?? 0,
   }).toEqual(pausedMotionCounts);
+  expect(await hero.getAttribute("data-market-last-time")).toBe(pausedMarketTime);
 
   await page.evaluate(() => {
     const probe = document.createElement("span");
@@ -113,16 +117,16 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   expect(Number.isFinite(layoutCountBefore)).toBe(true);
   expect(layoutCountAfter - layoutCountBefore).toBe(0);
   await performanceSession.detach();
-  await probe.evaluate((element) => element.remove());
 
-  await marquee.scrollIntoViewIfNeeded();
-  await expect(marquee).toHaveCSS("animation-play-state", "running");
+  await hero.scrollIntoViewIfNeeded();
+  await expect(hero).toHaveAttribute("data-market-following", "true");
   await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(pausedMotionCounts.heroAutoplay);
-  await expect.poll(async () => (await intervalCounts())["1600"] ?? 0).toBeGreaterThan(pausedMotionCounts.marketTicker);
+  await expect.poll(async () => Number(await hero.getAttribute("data-market-last-time"))).toBeGreaterThan(Number(pausedMarketTime));
 
   const workflow = page.getByLabel("Trading workspace examples");
-  const reviewStep = workflow.locator('[data-scenario-pill="true"]').filter({ hasText: "02 · Journal" });
-  const resultsStep = workflow.locator('[data-scenario-pill="true"]').filter({ hasText: "03 · Patterns" });
+  const reviewStep = workflow.getByRole("button", { name: "Journal + review", exact: true });
+  const resultsStep = workflow.getByRole("button", { name: "Results", exact: true });
+  const replayStep = workflow.getByRole("button", { name: "Replay", exact: true });
   await reviewStep.click();
   await resultsStep.click();
   await reviewStep.click();
@@ -130,38 +134,62 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await expect(resultsStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Results that still trace back to the session" })).toBeVisible();
   const stage = workflow.locator("xpath=../following-sibling::div[1]");
+  await expect.poll(() => stage.evaluate((element) => `${(element as HTMLElement).style.opacity}|${(element as HTMLElement).style.transform}`)).toBe("|");
   const stableStageStyle = await stage.getAttribute("style");
   await page.waitForTimeout(250);
   expect(await stage.getAttribute("style")).toBe(stableStageStyle);
 
+  await replayStep.click();
+  await expect(replayStep).toHaveAttribute("aria-current", "step");
+  await expect(hero).toHaveAttribute("data-market-following", "true");
+  const runningCounts = await intervalCounts();
+  await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(runningCounts["280"] ?? 0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect.poll(() => page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
-  await expect(marquee).toHaveCSS("animation-name", "none");
+  await expect(page.locator("[data-marketing-motion]")).toHaveAttribute("data-marketing-motion", "reduced");
+  await expect(hero).toHaveAttribute("data-market-following", "false");
+  await expect(probe).toHaveCSS("animation-name", "none");
+  await probe.evaluate((element) => element.remove());
   await page.waitForTimeout(150);
   const stoppedCounts = await intervalCounts();
   const stoppedMotionCounts = {
     heroAutoplay: stoppedCounts["280"] ?? 0,
-    marketTicker: stoppedCounts["1600"] ?? 0,
   };
+  const stoppedMarketTime = await hero.getAttribute("data-market-last-time");
   await page.waitForTimeout(1_900);
   const finalCounts = await intervalCounts();
   expect({
     heroAutoplay: finalCounts["280"] ?? 0,
-    marketTicker: finalCounts["1600"] ?? 0,
   }).toEqual(stoppedMotionCounts);
+  expect(await hero.getAttribute("data-market-last-time")).toBe(stoppedMarketTime);
   expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
 
   await expect(page.getByRole("heading", { name: "Replay the market. Preserve the decision." })).toBeVisible();
-  const journalStep = page.locator('[data-scenario-pill="true"]').filter({ hasText: "02 · Journal" });
+  const journalStep = workflow.getByRole("button", { name: "Journal + review", exact: true });
   await journalStep.click();
   await expect(journalStep).toHaveAttribute("aria-current", "step");
+
+  const motionPreference = page.getByRole("checkbox", { name: "Reduce motion", exact: true });
+  await motionPreference.scrollIntoViewIfNeeded();
+  await expect(motionPreference).toBeChecked();
+  await motionPreference.uncheck();
+  await expect(page.locator("[data-marketing-motion]")).toHaveAttribute("data-marketing-motion", "full");
+  await hero.scrollIntoViewIfNeeded();
+  await replayStep.click();
+  await expect(hero).toHaveAttribute("data-market-following", "true");
+  await expect.poll(async () => (await intervalCounts())["280"] ?? 0).toBeGreaterThan(stoppedMotionCounts.heroAutoplay);
+  await expect.poll(async () => Number(await hero.getAttribute("data-market-last-time"))).toBeGreaterThan(Number(stoppedMarketTime));
+  const disconnectsBeforeNavigation = await page.evaluate(() => window.__edgelabIntersectionDisconnects ?? 0);
 
   await page.evaluate(() => {
     history.pushState({}, "", "/pricing");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
   await expect(page).toHaveURL(/\/pricing$/);
-  await expect.poll(() => page.evaluate(() => window.__edgelabIntersectionDisconnects ?? 0)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__edgelabIntersectionDisconnects ?? 0)).toBeGreaterThan(disconnectsBeforeNavigation);
+  const stoppedAfterNavigation = (await intervalCounts())["280"] ?? 0;
+  await page.waitForTimeout(600);
+  expect((await intervalCounts())["280"] ?? 0).toBe(stoppedAfterNavigation);
 });
 
 test("the reduced-motion circular toolbox remains keyboard-usable and restores focus", async ({ page }, testInfo) => {

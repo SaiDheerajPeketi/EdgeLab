@@ -146,7 +146,6 @@ function BetaPricingSection({ showComparison }: { showComparison: boolean }) {
   const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
   const capacityKnown = !loading && seatsRemaining != null;
   const betaCta = buildMarketingCta({
-    mode: "beta",
     search: location.search,
     seatsRemaining: capacityKnown ? seatsRemaining : null,
   });
