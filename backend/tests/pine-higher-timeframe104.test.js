@@ -209,7 +209,7 @@ test("higher context strategy quantities preserve actual source and independentl
 
 test("derived higher data never expands exchange session or chart-type identity authority", async () => {
   for (const version of [5, 6]) for (const symbol of ['"OTHER:TEST"', '"TEST"',
-    'ticker.new("CHART","TEST",session.extended)', 'ticker.heikinashi(syminfo.tickerid)',
+    'ticker.new("CHART","TEST",session.extended)',
     'ticker.renko(syminfo.tickerid,"ATR",10)']) {
     const body = plot('request.security(' + symbol + ',"3",close)', "Foreign");
     await assert.rejects(run(body, { version }), failUnavailable);

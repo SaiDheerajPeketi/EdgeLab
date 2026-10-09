@@ -94,7 +94,7 @@ test("missing evaluated secondary context emits a canonical demand while unused 
 });
 
 test("unsupported exchanges modifiers and disabled aliases remain unavailable", async () => {
-  for (const options of [{}, { marketData: null }]) for (const symbol of ["OTHER:ETHUSDT", "BINANCE:ETHUSDT;heikinashi", ...(options.marketData === null ? ["ETHUSDT"] : [])]) {
+  for (const options of [{}, { marketData: null }]) for (const symbol of ["OTHER:ETHUSDT", "BINANCE:ETHUSDT;renko", ...(options.marketData === null ? ["ETHUSDT", "BINANCE:ETHUSDT;heikinashi"] : [])]) {
     await assert.rejects(run(plot(`request.security("${symbol}","1",close)`), options), cause => cause.code === "UNAVAILABLE_DATA");
   }
 });

@@ -118,9 +118,9 @@ test("standard ticker constructors preserve full exchange identity", async () =>
   }
 });
 
-test("nonstandard chart and encoded session/adjustment requests never substitute ordinary candles", async () => {
+test("unsupported chart transforms and encoded session/adjustment requests never substitute ordinary candles", async () => {
   for (const version of [5, 6]) for (const symbol of [
-    'ticker.heikinashi(syminfo.tickerid)', 'ticker.renko(syminfo.tickerid,"ATR",10)',
+    'ticker.renko(syminfo.tickerid,"ATR",10)',
     'ticker.kagi(syminfo.tickerid,1)', 'ticker.linebreak(syminfo.tickerid,3)',
     'ticker.pointfigure(syminfo.tickerid,"close","Traditional",1,3)',
     'ticker.new("CHART","TEST",session.extended)',

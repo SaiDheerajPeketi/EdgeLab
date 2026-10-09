@@ -3,6 +3,7 @@ import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../li
 import { aggregatePineCalculationBars, pineCalculationCanAggregate, pineCalculationEnd } from "../lib/pineCalculationTimeframe";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
 import { pineMarketChartTimeframe, pineMarketSymbol } from "../lib/pineMarketProtocol";
+import { pineHeikinAshiBase, pineHeikinAshiBars } from "../lib/pineHeikinAshi";
 import { bucketTime } from "../lib/charting";
 import { pineFeedNextSourceTime } from "../lib/pineLiveFeed";
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
@@ -145,6 +146,15 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       && (tf === mainTimeframe || !pineCalculationCanAggregate(source?.timeframe ?? timeframe, tf)) ? market : undefined;
   };
   const dataFor = (tf: string, requestedSymbol = symbol, calcBarsCount?: number, ignoreInvalidSymbol = false): Kline[] => {
+    const baseSymbol = pineHeikinAshiBase(requestedSymbol);
+    if (baseSymbol !== requestedSymbol) {
+      const key = `${requestedSymbol}:${tf}`;
+      const existing = snapshots.get(key);
+      if (existing) return existing;
+      const data = pineHeikinAshiBars(dataFor(tf, baseSymbol, calcBarsCount, ignoreInvalidSymbol));
+      snapshots.set(key, data);
+      return data;
+    }
     if (!sameSymbol(requestedSymbol)) {
       const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
       if (!qualified) { reject(requestedSymbol, tf); throw failure!; }
@@ -252,6 +262,7 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       return result.map((bar) => ({ ...bar }));
     },
     async getSymbolInfo(requestedSymbol) {
+      requestedSymbol = pineHeikinAshiBase(requestedSymbol);
       if (sameSymbol(requestedSymbol)) return { ...info };
       const qualified = request.marketData ? marketSymbol(requestedSymbol) : undefined;
       const snapshot = qualified && [...marketSnapshots.values()].find(item => item.context.symbol === qualified);
@@ -271,7 +282,8 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
   const liveState = (tf: string, parent: RequestContext, requestedSymbol = symbol) => {
     const data = dataFor(tf, requestedSymbol), tail = data.at(-1);
     const parentRealtime = ((parent.fullContext ?? parent) as RequestContext)._explicitBarstate?.isrealtime === true;
-    const ownedMarket = sameSymbol(requestedSymbol) ? calculationMarket(tf) : liveMarket(requestedSymbol, tf);
+    const baseSymbol = pineHeikinAshiBase(requestedSymbol);
+    const ownedMarket = sameSymbol(baseSymbol) ? calculationMarket(tf) : liveMarket(baseSymbol, tf);
     if (ownedMarket) {
       const market = ownedMarket;
       const latest = market.bars.at(-1);
@@ -318,8 +330,9 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
     if (depth > 8) error("REQUEST_LIMIT", "Pine requests exceed eight nested contexts.");
     const prepared = { fn: slice } as PreparedScript;
     const childSymbol = (engine as unknown as { tickerId?: string }).tickerId;
-    const childMetadata = childSymbol && !sameSymbol(childSymbol)
-      ? [...marketSnapshots.values()].find(item => item.context.symbol === marketSymbol(childSymbol))?.context : context;
+    const childBase = childSymbol && pineHeikinAshiBase(childSymbol);
+    const childMetadata = childBase && !sameSymbol(childBase)
+      ? [...marketSnapshots.values()].find(item => item.context.symbol === marketSymbol(childBase))?.context : context;
     bindClosedSnapshot(prepared, !!parent.strategy, encounteredAlerts, liveTimeframe !== undefined, childMetadata?.quantityStep, undefined, mainTimeframe);
     const bound = prepared.fn;
     const fn = (child: Context) => {
@@ -362,11 +375,13 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       const rawTimeframe = String(requestedTimeframe ?? "");
       let tf: string | undefined;
       try { tf = canonicalPineTimeframe(rawTimeframe); } catch { /* Invalid requested context. */ }
-      const qualified = typeof requested === "string" && request.marketData ? marketSymbol(requested) : undefined;
-      const ownedSymbol = typeof requested === "string" && sameSymbol(requested) ? symbol : qualified;
-      if (!ownedSymbol) {
+      const baseSymbol = typeof requested === "string" ? pineHeikinAshiBase(requested) : undefined;
+      const qualified = baseSymbol !== undefined && request.marketData ? marketSymbol(baseSymbol) : undefined;
+      const ownedBase = baseSymbol !== undefined && sameSymbol(baseSymbol) ? symbol : qualified;
+      if (!ownedBase) {
         reject(String(requested), rawTimeframe); throw failure!;
       }
+      const ownedSymbol = baseSymbol !== requested ? `${ownedBase};heikinashi` : ownedBase;
       if (kind === "security_lower_tf" && invalidTimeframe && ignoreInvalidTimeframe) return { symbol: ownedSymbol, timeframe: tf, invalidTimeframe: true };
       if (!tf || kind === "security_lower_tf" && invalidTimeframe) {
         reject(String(requested), rawTimeframe); throw failure!;
@@ -374,7 +389,7 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       if (calcBarsCount !== undefined && (!Number.isSafeInteger(calcBarsCount) || calcBarsCount < 1 || calcBarsCount > PINE_LIMITS.sourceBars)) {
         error("REQUEST_LIMIT", "Requested calculation depth must be a positive integer within 200,000 candles.");
       }
-      if (ownedSymbol !== symbol && request.marketData?.invalidSymbols?.includes(ownedSymbol)) {
+      if (ownedBase !== symbol && request.marketData?.invalidSymbols?.includes(ownedBase)) {
         if (ignoreInvalidSymbol) return { symbol: ownedSymbol, timeframe: tf, ignoreInvalidSymbol: true };
         reject(ownedSymbol, tf); throw failure!;
       }
@@ -389,8 +404,8 @@ function chartProvider(request: PineRequest, realtime = false, encounteredAlerts
       }
       try {
         const data = dataFor(tf, ownedSymbol, calcBarsCount, ignoreInvalidSymbol);
-        if (ownedSymbol !== symbol && calcBarsCount !== undefined && data.length < calcBarsCount) {
-          error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: ownedSymbol, timeframe: tf, calcBarsCount,
+        if (ownedBase !== symbol && calcBarsCount !== undefined && data.length < calcBarsCount) {
+          error("MARKET_DATA_REQUIRED", JSON.stringify({ symbol: ownedBase, timeframe: tf, calcBarsCount,
             ...(ignoreInvalidSymbol ? { ignoreInvalidSymbol: true } : {}) }));
         }
       } catch (cause) { failure ??= cause as PineProtocolError; throw failure; }

@@ -210,7 +210,7 @@ test("foreign identity and modifiers cannot fake lower prices even with ignore o
     'request.security("OTHER:TEST","1",close,ignore_invalid_symbol=true)',
     'request.security_lower_tf("OTHER:TEST","1",close,ignore_invalid_symbol=true)',
     'request.security_lower_tf("TEST","1",close)',
-    'request.security(ticker.heikinashi("CHART:TEST"),"1",close)',
+    'request.security(ticker.heikinashi("OTHER:TEST"),"1",close)',
   ])for(const version of [5,6])await requireError('plot('+expression+',"Bad")',{version},"UNAVAILABLE_DATA");
   const good=await run('a=request.security_lower_tf("chart:test","1",close)\nplot(array.size(a),"Count")');
   assert.deepEqual(values(good,"Count"),chartBars.map(()=>5));
