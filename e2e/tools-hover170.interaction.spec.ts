@@ -29,6 +29,15 @@ async function chartState(page: Page) {
     return { width: chart.paneSize().width, height: stage.getBoundingClientRect().height, range: chart.timeScale().getVisibleLogicalRange(), count: series.data().length };
   });
 }
+async function stableChartState(page: Page) {
+  let previous = "", since = 0;
+  await expect.poll(async () => {
+    const current = await chartState(page), serialized = JSON.stringify(current);
+    if (current.count !== 600 || serialized !== previous) { previous = serialized; since = Date.now(); return false; }
+    return Date.now() - since >= 200;
+  }, { intervals: [50] }).toBe(true);
+  return chartState(page);
+}
 function unchanged(actual: Awaited<ReturnType<typeof chartState>>, before: Awaited<ReturnType<typeof chartState>>) {
   expect(actual.width).toBe(before.width);
   expect(actual.height).toBe(before.height);
@@ -41,7 +50,7 @@ async function leaveTools(page: Page) {
   await page.mouse.move(box!.x + 20, box!.y + Math.min(100, box!.height / 2), { steps: 8 });
 }
 async function capture(page: Page, info: TestInfo, name: string, data: unknown) {
-  const directory = path.resolve(".artifacts/tools-hover170", info.project.name);
+  const directory = path.resolve(".artifacts/tools-hover175", info.project.name);
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, name + ".json"), JSON.stringify({ data, errors: errors.get(page), distSeal: beforeSeal }, null, 2));
   await page.screenshot({ path: path.join(directory, name + ".png"), animations: "allow" });
@@ -57,7 +66,7 @@ test("desktop Tools hover overlays without chart resize; pointer continuity, pin
   await leaveTools(page);
   await page.locator("#workspace-content").focus();
   await expect(pane).toHaveCount(0);
-  const before = await chartState(page);
+  const before = await stableChartState(page);
   const savedBefore = JSON.stringify(fixture.storage.get("journal-panel-layout.v1") ?? null);
 
   await trigger.hover();
@@ -130,7 +139,7 @@ test("short desktop hover fits the viewport and keyboard focus holds the preview
   const pane = page.getByRole("complementary", { name: "Chart tools", exact: true });
   await leaveTools(page);
   await page.locator("#workspace-content").focus();
-  const before = await chartState(page);
+  const before = await stableChartState(page);
   await trigger.hover();
   await expect(pane).toBeVisible();
   const box = await pane.boundingBox();
@@ -150,10 +159,83 @@ test("short desktop hover fits the viewport and keyboard focus holds the preview
   await expect(pane).toHaveCount(0);
   await trigger.hover();
   await expect(pane).toBeVisible();
-  await page.setViewportSize({ width: 1279, height: 600 });
+  for (const width of [1279, 1024]) {
+    await page.setViewportSize({ width, height: 600 });
+    await leaveTools(page);
+    await page.locator("#workspace-content").focus();
+    await expect(pane).toHaveCount(0);
+    const resized = await stableChartState(page);
+    const savedBefore = JSON.stringify(fixture.storage.get("journal-panel-layout.v1") ?? null);
+    await trigger.hover();
+    await expect(pane).toBeVisible();
+    await expect(pane).toHaveAttribute("data-hover-preview", "true");
+    const previewBox = await pane.boundingBox();
+    expect(previewBox!.x).toBeGreaterThanOrEqual(0);
+    expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(width + .01);
+    expect(previewBox!.y).toBeGreaterThanOrEqual(0);
+    expect(previewBox!.y + previewBox!.height).toBeLessThanOrEqual(592.01);
+    expect(previewBox!.height).toBeGreaterThan(48);
+    expect(await pane.evaluate(node => getComputedStyle(node).minHeight)).toBe("0px");
+    const preview = await chartState(page); unchanged(preview, resized);
+    expect(JSON.stringify(fixture.storage.get("journal-panel-layout.v1") ?? null)).toBe(savedBefore);
+    await capture(page, info, `tools-breakpoint-${width}`, { before: resized, preview, box: previewBox, savedBefore });
+    await leaveTools(page);
+    await expect(pane).toHaveCount(0);
+    unchanged(await chartState(page), resized);
+  }
+  // Exercise the largest actual preference in the smallest hover-enabled
+  // viewport, with the real navigation pinned to its expanded width.
+  await page.mouse.move(30, 300);
+  await page.getByRole("button", { name: "Keep workspace navigation expanded", exact: true }).click();
+  const navigation = page.getByRole("complementary", { name: "Workspace navigation", exact: true });
+  await expect.poll(() => navigation.evaluate(node => node.getBoundingClientRect().width)).toBe(252);
+  await page.locator("#workspace-content").focus();
+  await trigger.hover();
+  await expect(pane).toBeVisible();
+  await pane.getByRole("button", { name: "Expand workspace panel", exact: true }).click();
+  const resize = pane.getByRole("separator", { name: "Resize Chart tools", exact: true });
+  await resize.focus();
+  for (let step = 0; Number(await resize.getAttribute("aria-valuenow")) < 720 && step < 20; step++) await resize.press("ArrowLeft");
+  await expect(resize).toHaveAttribute("aria-valuenow", "720");
+  for (const dock of ["right", "left"]) {
+    if (dock === "left") {
+      await trigger.hover();
+      await expect(pane).toBeVisible();
+      await pane.getByRole("button", { name: "Dock workspace panel to left", exact: true }).click();
+      await expect(pane).toHaveAttribute("data-dock", "left");
+    }
+    await page.mouse.move(1, 1);
+    await page.locator("#workspace-content").focus();
+    await expect(pane).toHaveCount(0);
+    const expandedBefore = await stableChartState(page);
+    await trigger.hover();
+    await expect(pane).toHaveAttribute("data-hover-preview", "true");
+    await expect(pane).toHaveAttribute("data-dock", dock);
+    await expect(pane).toHaveAttribute("data-mode", "expanded");
+    const expandedBox = await pane.boundingBox();
+    expect(expandedBox!.width).toBe(720);
+    expect(expandedBox!.x).toBeGreaterThanOrEqual(0);
+    expect(expandedBox!.x + expandedBox!.width).toBeLessThanOrEqual(1024.01);
+    expect(expandedBox!.y).toBeGreaterThanOrEqual(0);
+    expect(expandedBox!.y + expandedBox!.height).toBeLessThanOrEqual(592.01);
+    const expandedPreview = await chartState(page); unchanged(expandedPreview, expandedBefore);
+    expect(await navigation.evaluate(node => node.getBoundingClientRect().width)).toBe(252);
+    await expect.poll(() => fixture.storage.get("journal-panel-layout.v1")?.collapsed).toBe(true);
+    await capture(page, info, `tools-1024-expanded-${dock}`, { before: expandedBefore, preview: expandedPreview, box: expandedBox, sidebarWidth: 252, width: 720, dock });
+    await page.mouse.move(1, 1);
+    await page.locator("#workspace-content").focus();
+    await expect(pane).toHaveCount(0);
+    unchanged(await chartState(page), expandedBefore);
+  }
+  await page.setViewportSize({ width: 1023, height: 600 });
   await expect(pane).toHaveCount(0);
+  await leaveTools(page);
+  await page.locator("#workspace-content").focus();
+  const narrow = await stableChartState(page);
   await trigger.hover();
   await expect(pane).toHaveCount(0);
+  unchanged(await chartState(page), narrow);
+  await capture(page, info, "tools-below-breakpoint-1023", { before: narrow, final: await chartState(page) });
   expect(fixture.events).toEqual([]);
 });
 
