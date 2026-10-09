@@ -1,4 +1,4 @@
-import { ArrowRight, Menu, X } from "lucide-react";
+import { ArrowRight, Menu, Waves, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -649,7 +649,7 @@ export function MarketingShell({
 
             <nav
               aria-label="Primary navigation"
-              className="hidden items-center gap-5 text-sm text-edgelab-text-secondary md:flex"
+              className="hidden items-center gap-5 text-sm text-edgelab-text-secondary lg:flex"
               data-shell-motion="nav"
             >
               {navItems.map((item) => (
@@ -668,34 +668,43 @@ export function MarketingShell({
               ))}
             </nav>
 
-            <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3" data-shell-motion="cta">
+              <button
+                aria-label="Page animations"
+                aria-pressed={!reducedMotion}
+                className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-el-md px-2 text-sm transition-colors hover:text-edgelab-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${reducedMotion ? "text-edgelab-text-secondary" : "text-cyan-100"}`}
+                onClick={() => setMarketingMotionChoice(reducedMotion ? "full" : "reduced")}
+                title={reducedMotion ? "Enable page animations" : "Reduce page animations"}
+                type="button"
+              >
+                <Waves aria-hidden="true" size={18} />
+                <span className="hidden lg:inline">Animations</span>
+              </button>
               <Link
-                className="inline-flex min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
+                className="hidden min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none md:inline-flex"
                 to={primaryCta.href}
               >
                 {primaryCta.label}
                 <ArrowRight aria-hidden="true" size={15} />
               </Link>
+              <button
+                aria-expanded={menuOpen}
+                aria-controls="marketing-mobile-menu"
+                aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-el-md border border-edgelab-border bg-edgelab-surface text-edgelab-text-primary transition-colors hover:border-cyan-300/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 lg:hidden"
+                onClick={() => setMenuOpen((current) => !current)}
+                ref={menuButtonRef}
+                type="button"
+              >
+                {menuOpen ? <X size={18} /> : <Menu size={18} />}
+              </button>
             </div>
-
-            <button
-              aria-expanded={menuOpen}
-              aria-controls="marketing-mobile-menu"
-              aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-el-md border border-edgelab-border bg-edgelab-surface text-edgelab-text-primary transition-colors hover:border-cyan-300/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 md:hidden"
-              data-shell-motion="menu"
-              onClick={() => setMenuOpen((current) => !current)}
-              ref={menuButtonRef}
-              type="button"
-            >
-              {menuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>
           </div>
 
           {menuOpen ? (
             <nav
               aria-label="Mobile navigation"
-              className="border-t border-edgelab-border bg-edgelab-base px-3 py-4 md:hidden"
+              className="border-t border-edgelab-border bg-edgelab-base px-3 py-4 lg:hidden"
               id="marketing-mobile-menu"
               ref={mobileMenuRef}
             >
