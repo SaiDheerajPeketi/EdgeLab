@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { NumericDraftInput } from "./NumericDraftInput";
+import { ThemedSelect } from "./ThemedSelect";
 import { pineInputActive } from "../lib/pineInputActivation";
 import type { PineInputDefinition, PineInputValue } from "../lib/pineProtocol";
 
@@ -14,21 +15,28 @@ export function PineInputControl({ definition, definitions = [definition], input
   const options = definition.options ?? (definition.type === "source"
     ? ["open", "high", "low", "close", "hl2", "hlc3", "ohlc4", "hlcc4"] : undefined);
   const disabled = !pineInputActive(definition, definitions, inputs);
-  const unknownOption = options && !options.some((option) => option === current);
+  const selectedIndex = options?.findIndex((option) => option !== null && option === current) ?? -1;
+  const unknownOption = Boolean(options && selectedIndex < 0);
   const showRecovery = unknownOption && typeof recoveryLabel === "string";
-  return <label className="grid min-w-0 gap-1.5 text-xs text-slate-300" title={definition.tooltip}>
-    <span>{definition.title || definition.name}{definition.group ? <span className="ml-2 text-slate-400">{definition.group}</span> : null}</span>
-    {definition.type === "bool" ? <input checked={current === true} className="h-4 w-4 accent-cyan-300" disabled={disabled} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
-      : options ? <select aria-label={definition.title || definition.name} aria-invalid={Boolean(unknownOption)} aria-describedby={showRecovery ? recoveryId : undefined} className="input-control h-9 min-w-0 text-xs" disabled={disabled} onChange={(event) => {
-        const chosen = options.find((option) => String(option) === event.target.value);
-        if (chosen !== undefined && chosen !== null) onChange(chosen);
-      }} value={String(current ?? "")}>{unknownOption ? <option disabled value={String(current ?? "")}>Choose a valid option</option> : null}{options.map((option, index) => <option key={index} value={String(option)}>{definition.enumVersion === 1 ? definition.enumMembers?.find((member) => member.id === option)?.label ?? String(option) : String(option)}</option>)}</select>
-      : numeric ? <NumericDraftInput label={definition.title || definition.name} disabled={disabled} value={current} onChange={onChange}
+  const label = definition.title || definition.name;
+  return <div className="grid min-w-0 gap-1.5 text-xs text-[var(--text-secondary)]" title={definition.tooltip}>
+    <span>{label}{definition.group ? <span className="ml-2 text-[var(--text-muted)]">{definition.group}</span> : null}</span>
+    {definition.type === "bool" ? <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-3 ${disabled ? "cursor-not-allowed opacity-50" : "hover:bg-[var(--ui-hover)]"}`}>
+        <input aria-label={label} checked={current === true} className="h-5 w-5 shrink-0 accent-[var(--ui-focus)]" disabled={disabled} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+        <span aria-hidden="true" className="text-[var(--text-primary)]">{current === true ? "On" : "Off"}</span>
+      </label>
+      : options ? <ThemedSelect ariaLabel={label} ariaInvalid={unknownOption} ariaDescribedBy={showRecovery ? recoveryId : undefined}
+          className="min-h-11 w-full min-w-0" disabled={disabled} portal placeholder="Choose a valid option"
+          options={options.map((option, index) => ({ value: String(index), disabled: option === null,
+            label: definition.enumVersion === 1 ? definition.enumMembers?.find((member) => member.id === option)?.label ?? String(option) : String(option) }))}
+          onChange={(index) => { const chosen = options[Number(index)]; if (chosen !== undefined && chosen !== null) onChange(chosen); }}
+          value={selectedIndex < 0 ? "" : String(selectedIndex)} />
+      : numeric ? <NumericDraftInput label={label} disabled={disabled} value={current} onChange={onChange}
           integer={["int", "time"].includes(definition.type)} min={definition.minval} max={definition.maxval}
-          step={definition.step ?? (["int", "time"].includes(definition.type) ? 1 : "any")} resetKey={JSON.stringify([scopeKey, definition])} />
-      : <input className="input-control h-9 min-w-0 text-xs" disabled={disabled} onChange={(event) => onChange(event.target.value)} type="text" value={current === null ? "" : String(current)} />}
+          className="input-control min-h-11 w-full min-w-0 text-xs" step={definition.step ?? (["int", "time"].includes(definition.type) ? 1 : "any")} resetKey={JSON.stringify([scopeKey, definition])} />
+      : <input aria-label={label} className="input-control min-h-11 w-full min-w-0 text-xs" disabled={disabled} onChange={(event) => onChange(event.target.value)} type="text" value={current === null ? "" : String(current)} />}
 
     {showRecovery ? <span id={recoveryId} role="alert" className="break-words text-[11px] leading-4 text-[var(--loss-text)]">Saved choice “{recoveryLabel}” needs reselection. Choose a valid option.</span> : null}
-    {definition.tooltip ? <span className="text-[11px] leading-4 text-slate-400">{definition.tooltip}</span> : null}
-  </label>;
+    {definition.tooltip ? <span className="text-[11px] leading-4 text-[var(--text-muted)]">{definition.tooltip}</span> : null}
+  </div>;
 }

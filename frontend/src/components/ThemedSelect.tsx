@@ -18,6 +18,8 @@ export type ThemedSelectOption = {
 type Props = {
   align?: "left" | "right";
   ariaLabel?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
   className?: string;
   defaultValue?: string;
   disabled?: boolean;
@@ -35,6 +37,8 @@ const TYPEAHEAD_RESET_MS = 700;
 export function ThemedSelect({
   align = "left",
   ariaLabel,
+  ariaInvalid,
+  ariaDescribedBy,
   className = "h-10",
   defaultValue,
   disabled = false,
@@ -251,6 +255,8 @@ export function ThemedSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={accessibleLabel}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         className="themed-select-trigger touch-manipulation motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
         disabled={disabled}
         onBlur={handleTriggerBlur}

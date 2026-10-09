@@ -1,3 +1,4 @@
+import {pineChoose,pineLabel,pineOptions} from "./support/pine-select130";
 import {test as base,expect} from "@playwright/test";
 import {build} from "esbuild";
 import fs from "node:fs";
@@ -73,16 +74,16 @@ test("string choices numeric comparisons aliases and ternaries respond immediate
  const mode=page.getByRole("combobox",{name:"Mode",exact:true}),count=page.getByRole("spinbutton",{name:"Count",exact:true}),
   flag=page.getByRole("checkbox",{name:"Dependent flag",exact:true}),choice=page.getByRole("combobox",{name:"Dependent choice",exact:true});
  await expect(length(page)).toBeDisabled();await expect(flag).toBeDisabled();await expect(flag).toBeChecked();await expect(choice).toBeDisabled();
- await mode.selectOption("Advanced");await expect(flag).toBeEnabled();await expect(length(page)).toBeDisabled();
+ await pineChoose(mode,"Advanced");await expect(flag).toBeEnabled();await expect(length(page)).toBeDisabled();
  await count.fill("3");await expect(length(page)).toBeEnabled();await length(page).fill("8");await flag.uncheck();
- await enabled(page).check();await expect(flag).toBeDisabled();await expect(choice).toBeEnabled();await choice.selectOption("B");
+ await enabled(page).check();await expect(flag).toBeDisabled();await expect(choice).toBeEnabled();await pineChoose(choice,"B");
  await count.fill("8");await expect(flag).toBeEnabled();
  const quotient=page.getByRole("spinbutton",{name:"Quotient",exact:true});await expect(quotient).toBeEnabled();await quotient.fill("9");
  await page.getByRole("spinbutton",{name:"Divisor",exact:true}).fill("0");await expect(quotient).toBeDisabled();await expect(quotient).toHaveValue("9");await expect(flag).not.toBeChecked();
- await enabled(page).uncheck();await expect(choice).toBeDisabled();await expect(choice).toHaveValue("B");
- await mode.selectOption("Basic");await expect(length(page)).toBeDisabled();await expect(length(page)).toHaveValue("8");
+ await enabled(page).uncheck();await expect(choice).toBeDisabled();await pineLabel(choice,"B");
+ await pineChoose(mode,"Basic");await expect(length(page)).toBeDisabled();await expect(length(page)).toHaveValue("8");
  await expect(flag).toBeDisabled();await expect(flag).not.toBeChecked();
- await page.evaluate(()=>window.pineInputActiveFixture.remount());await expect(choice).toHaveValue("B");await expect(length(page)).toHaveValue("8");
+ await page.evaluate(()=>window.pineInputActiveFixture.remount());await pineLabel(choice,"B");await expect(length(page)).toHaveValue("8");
  expect(harness.workerRequests).toHaveLength(requests);expect((await current(page)).result).toBeNull();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:path.join(root,".artifacts/pine-input-active89-"+info.project.name+".png"),fullPage:true,animations:"disabled"});

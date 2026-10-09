@@ -1,3 +1,4 @@
+import {pineChoose,pineLabel,pineOptions} from "./support/pine-select130";
 import fs from "node:fs";
 import path from "node:path";
 import {createHash} from "node:crypto";
@@ -67,7 +68,10 @@ async function fixture(page: Page) {
   return { storage, writes, storageReads, identity,workerReceipts };
 }
 
+async function openStudies(page:Page){const dialog=page.getByRole("dialog",{name:"Studies controls",exact:true});if(!await dialog.isVisible())await page.locator(".chart-studio-toolbar").getByRole("button",{name:"Studies",exact:true}).click();await expect(dialog).toBeVisible();return dialog;}
+async function closeStudies(page:Page){const dialog=page.getByRole("dialog",{name:"Studies controls",exact:true});if(await dialog.isVisible())await dialog.getByRole("button",{name:"Close studies controls",exact:true}).click();}
 async function openEditor(page: Page) {
+  await closeStudies(page);
   const trigger = page.getByRole("button", { name: "Editor", exact: true });
   if (!await trigger.isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   await trigger.click();
@@ -105,7 +109,7 @@ async function chartBitmap(page:Page){
  // Hash only the base canvases; observing them must not mutate genuine touch/hover state.
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  return page.locator(".chart-stage").first().evaluate(async (stage,times)=>{
-  const nodes=[...stage.querySelectorAll<HTMLCanvasElement>("canvas")],main=nodes.filter(c=>c.getBoundingClientRect().height>80).sort((a,b)=>b.width-a.width)[0];
+  const price=stage.querySelector(".chart-container-surface");if(!price)throw new Error("Owned primary price chart host unavailable");const nodes=[...price.querySelectorAll<HTMLCanvasElement>("canvas")],main=nodes.filter(c=>c.getBoundingClientRect().height>80).sort((a,b)=>b.width-a.width)[0];
   const axis=nodes.find(c=>{const r=c.getBoundingClientRect();return r.width>100&&r.height>10&&r.height<80;});
   if(!main||!axis)throw new Error("Real primary/time-axis canvas unavailable");
   const hash=async(c:HTMLCanvasElement)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",c.getContext("2d")!.getImageData(0,0,c.width,c.height).data))).map(v=>v.toString(16).padStart(2,"0")).join("");
@@ -125,7 +129,7 @@ async function chartBitmap(page:Page){
 async function action(control:Locator,touch:boolean){if(touch)await control.tap();else await control.click();}
 async function settled(page:Page){
  const history:any[]=[];let last="",same=0;
- await expect.poll(async()=>{await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);const value=await chartBitmap(page);history.push(value);const identity=JSON.stringify([value.width,value.height,value.axis,value.chartAudit]);same=identity===last?same+1:0;last=identity;return same;},{intervals:[100],message:"Genuine jobs, chart geometry and public time scale settle"}).toBeGreaterThanOrEqual(3);
+ await expect.poll(async()=>{await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);const value=await chartBitmap(page);history.push(value);const identity=JSON.stringify([value.width,value.height,value.primary,value.axis,value.chartAudit]);same=identity===last?same+1:0;last=identity;return same;},{intervals:[100],message:"Genuine jobs, chart geometry and public time scale settle"}).toBeGreaterThanOrEqual(3);
  expect(history.at(-1).chartAudit,"Actual public IChartApi observation").not.toBeNull();
  return{value:history.at(-1),history};
 }
@@ -138,7 +142,7 @@ async function addNative(page:Page,context:any,source:string){
  const editor=await openEditor(page);await editor.getByLabel("New script template",{exact:true}).selectOption("pine-indicator");await fillSource(editor,source);await check(editor);await run(editor);
  const result=await nativeRun(page,source);expect(result.source).toBe(source);expect(result.audit.engineVersion).toBe("0.11.0");
  await editor.getByRole("button",{name:"Save",exact:true}).click();await expect.poll(()=>((context.storage.get("custom-indicator-scripts.v1") as any[])??[]).some(s=>s.source===source)).toBe(true);
- await editor.getByRole("button",{name:"Add to chart",exact:true}).click();await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();await settled(page);return result;
+ const before=await page.evaluate(source=>(window as any).__nativeEditorResults.filter((p:any)=>p.status==="completed"&&p.result.kind==="run"&&p.result.source===source).length,source);await editor.getByRole("button",{name:"Add to chart",exact:true}).click();await expect.poll(()=>page.evaluate(source=>(window as any).__nativeEditorResults.filter((p:any)=>p.status==="completed"&&p.result.kind==="run"&&p.result.source===source).length,source)).toBeGreaterThan(before);await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();await settled(page);await openStudies(page);return result;
 }
 async function clickOwned(page:Page,control:Locator,touch:boolean){
  await control.evaluate(e=>e.scrollIntoView({block:"center",inline:"nearest"}));const proof=await control.evaluate(b=>{const r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{width:r.width,height:r.height,inside:r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,owns:!!hit&&b.contains(hit)};});
@@ -161,25 +165,25 @@ test("native v5 and v6 Active Studies inputs drive genuine results and match Obj
  for(const version of [5,6]){
   const name="Native v"+version+" inputs",source='//@version='+version+'\nindicator("'+name+'",overlay=false)\nlength=input.int(5,"Length",minval=1,maxval=100)\nshade=input.color(#ff0000,"Shade")\nenabled=input.bool(true,"Enabled")\nmode=input.string("Fast","Mode",options=["Fast","Slow"])\nplot(ta.sma(close,mode=="Fast"?length:length*2),title="Mean",color=shade)\nbarcolor(enabled?shade:na,title="Body")';
   const defaults=await addNative(page,context,source),saved=structuredClone(context.storage.get("custom-indicator-scripts.v1"));
-  const strip=page.locator(".study-manager-strip"),row=strip.locator(".native-study-chip").filter({hasText:name}).first();await expect(row).toBeVisible();await noGeneric(row);
+  const strip=page.getByRole("dialog",{name:"Studies controls",exact:true}),row=strip.locator(".native-study-chip").filter({hasText:name}).first();await expect(row).toBeVisible();await noGeneric(row);
   const builtin=strip.locator(".study-chip").filter({hasText:"EMA 20"}).first();await expect(builtin.getByRole("spinbutton",{name:"Len",exact:true})).toHaveValue("20");await expect(builtin.getByRole("button",{name:"Study color palette",exact:true})).toBeVisible();
   const visibleIdentity=await identity(row,name,version);await record(page,"native-identity-v"+version,info.project.name,{visibleIdentity,defaults});
   const trigger=row.getByRole("button",{name:"Inputs for "+name,exact:true}),group=row.getByRole("group",{name:"Pine inputs for "+name,exact:true});
-  await clickOwned(page,trigger,touch);await expect(trigger).toHaveAttribute("aria-expanded","true");await expect(group.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("5");await expect(group.getByRole("textbox",{name:"Shade",exact:true})).toHaveValue(String(defaults.inputDefinitions.find(d=>d.title==="Shade")!.defval));await expect(group.getByRole("checkbox",{name:"Enabled",exact:true})).toBeChecked();await expect(group.getByRole("combobox",{name:"Mode",exact:true})).toHaveValue("Fast");
+  await clickOwned(page,trigger,touch);await expect(trigger).toHaveAttribute("aria-expanded","true");await expect(group.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("5");await expect(group.getByRole("textbox",{name:"Shade",exact:true})).toHaveValue(String(defaults.inputDefinitions.find(d=>d.title==="Shade")!.defval));await expect(group.getByRole("checkbox",{name:"Enabled",exact:true})).toBeChecked();await pineLabel(group.getByRole("combobox",{name:"Mode",exact:true}),"Fast");
   const baseline=await settled(page);expect(baseline.value.red).toBeGreaterThan(0);
   await group.getByRole("spinbutton",{name:"Length",exact:true}).fill("8");await matching(page,source,{in_0:8});
   await group.getByRole("textbox",{name:"Shade",exact:true}).fill("#0000ff");await matching(page,source,{in_0:8,in_1:"#0000ff"});
-  await group.getByRole("checkbox",{name:"Enabled",exact:true}).uncheck();await matching(page,source,{in_2:false});const disabled=await settled(page);expect(disabled.value.blue).toBe(0);expect(disabled.value.red).toBe(0);
+  await group.getByRole("checkbox",{name:"Enabled",exact:true}).uncheck();await matching(page,source,{in_2:false});const disabled=await settled(page);await record(page,"native-disabled-v"+version,info.project.name,{disabled,result:await nativeRun(page,source)});expect(disabled.value.blue).toBe(0);expect(disabled.value.red).toBe(0);
   await group.getByRole("checkbox",{name:"Enabled",exact:true}).check();await matching(page,source,{in_2:true});
-  await group.getByRole("combobox",{name:"Mode",exact:true}).selectOption("Slow");const result=await matching(page,source,{in_0:8,in_1:"#0000ff",in_2:true,in_3:"Slow"}),edited=await settled(page);expect(edited.value.blue).toBeGreaterThan(0);expect(edited.value.red).toBe(0);await record(page,"native-input-diagnostic-v"+version,info.project.name,{baseline,edited,source,result});expect(edited.value.axis).toBe(baseline.value.axis);
+  await pineChoose(group.getByRole("combobox",{name:"Mode",exact:true}),"Slow");const result=await matching(page,source,{in_0:8,in_1:"#0000ff",in_2:true,in_3:"Slow"}),edited=await settled(page);expect(edited.value.blue).toBeGreaterThan(0);expect(edited.value.red).toBe(0);await record(page,"native-input-diagnostic-v"+version,info.project.name,{baseline,edited,source,result});expect(edited.value.axis).toBe(baseline.value.axis);
   const mean=result.plots.find((p:any)=>p.name==="Mean").points.at(-1);const expected=productBars.slice(81,97).reduce((sum,b)=>sum+b.close,0)/16;expect(mean.time).toBe(productBars[96].time);expect(Math.abs(mean.value-expected),"Independent16-bar SMA after Length+Mode inputs").toBeLessThan(1e-8);
   await record(page,"native-edited-v"+version,info.project.name,{result,baseline,edited,visibleIdentity,source});
   const close=row.getByRole("button",{name:"Close inputs for "+name,exact:true});await clickOwned(page,close,touch);await expect(group).toBeHidden();await expect(trigger).toBeFocused();
   await trigger.press("Enter");await expect(group).toBeVisible();await close.focus();await page.keyboard.press("Escape");await expect(group).toBeHidden();await expect(trigger).toBeFocused();
   const playback=page.locator('[data-ui-panel="replay-transport"]').getByRole("button",{name:/^(Play|Pause)$/,includeHidden:true}),state=(await playback.textContent())!.trim();await trigger.press("Space");await expect(group).toBeVisible();await expect(playback).toHaveText(state);await clickOwned(page,close,touch);
-  await action(page.getByRole("button",{name:"Objects",exact:true}).first(),touch);const object=page.locator(".indicator-object-row").filter({hasText:name}).first();await action(object.getByRole("button",{name:"Settings for "+name,exact:true}),touch);
-  const objectSettings=object.getByRole("group",{name:"Settings for "+name,exact:true});await expect(objectSettings.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("8");await expect(objectSettings.getByRole("textbox",{name:"Shade",exact:true})).toHaveValue("#0000ff");await expect(objectSettings.getByRole("checkbox",{name:"Enabled",exact:true})).toBeChecked();await expect(objectSettings.getByRole("combobox",{name:"Mode",exact:true})).toHaveValue("Slow");
-  await objectSettings.getByRole("spinbutton",{name:"Length",exact:true}).fill("9");await matching(page,source,{in_0:9});await action(page.getByRole("button",{name:"Collapse chart objects",exact:true}),touch);
+  await closeStudies(page);await action(page.getByRole("button",{name:"Objects",exact:true}).first(),touch);const object=page.locator(".indicator-object-row").filter({hasText:name}).first();await action(object.getByRole("button",{name:"Settings for "+name,exact:true}),touch);
+  const objectSettings=object.getByRole("group",{name:"Settings for "+name,exact:true});await expect(objectSettings.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("8");await expect(objectSettings.getByRole("textbox",{name:"Shade",exact:true})).toHaveValue("#0000ff");await expect(objectSettings.getByRole("checkbox",{name:"Enabled",exact:true})).toBeChecked();await pineLabel(objectSettings.getByRole("combobox",{name:"Mode",exact:true}),"Slow");
+  await objectSettings.getByRole("spinbutton",{name:"Length",exact:true}).fill("9");await matching(page,source,{in_0:9});await action(page.getByRole("button",{name:"Collapse chart objects",exact:true}),touch);await openStudies(page);
   await clickOwned(page,trigger,touch);await expect(group.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("9");await clickOwned(page,close,touch);
   expect(context.storage.get("custom-indicator-scripts.v1")).toEqual(saved);await expect(builtin.getByRole("spinbutton",{name:"Len",exact:true})).toHaveValue("20");
   await clickOwned(page,row.getByRole("button",{name:"Remove "+name,exact:true}),touch);await expect(row).toHaveCount(0);await settled(page);await expect(strip.getByRole("button",{name:"Remove EMA 20",exact:true})).toBeFocused();
@@ -194,7 +198,7 @@ test("zero-input source is distinct from rejected prepared metadata and recovers
  await expect.poll(()=>context.storageReads.some(r=>r.key==="custom-indicator-scripts.v1"&&Array.isArray(r.value)&&r.value.some(s=>s.id==="rejected-missing")&&r.value.some(s=>s.id==="rejected-stale"))).toBe(true);
  const editor=await openEditor(page),library=editor.getByLabel("Script library",{exact:true});await expect(library.getByRole("option",{name:/Rejected missing prepare|Rejected stale prepare/})).toHaveCount(0);
  await library.selectOption(original.id);await expect(editor.getByLabel("EdgeLab indicator source",{exact:true})).toHaveValue(source);await check(editor);await run(editor);const result=await nativeRun(page,source);expect(result.inputDefinitions).toEqual([]);
- await editor.getByRole("button",{name:"Add to chart",exact:true}).click();await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();await settled(page);
+ await editor.getByRole("button",{name:"Add to chart",exact:true}).click();await editor.getByRole("button",{name:"Close indicator editor",exact:true}).click();await settled(page);await openStudies(page);
  const row=page.locator(".native-study-chip").filter({hasText:"Native no inputs"}).first();await noGeneric(row);const trigger=row.getByRole("button",{name:"Inputs for Native no inputs",exact:true});await clickOwned(page,trigger,touch);const group=row.getByRole("group",{name:"Pine inputs for Native no inputs",exact:true});await expect(group).toContainText("No configurable Pine inputs.");await expect(group).not.toContainText("Check and save");await expect(group.locator("input,select")).toHaveCount(0);await record(page,"native-no-inputs",info.project.name,{result,source,storageReads:context.storageReads});
  const recovered=["//@version=6","indicator(\"Recovered native\",overlay=false)","length=input.int(5,\"Length\")",...Array.from({length:7},(_,i)=>"span"+(i+1)+"=input.int(1,\"Span "+(i+1)+"\",minval=1,maxval=10)"),"plot(ta.sma(close,length+span1+span2+span3+span4+span5+span6+span7),title=\"Recovery mean\",color=color.blue)","barcolor(#0000ff,title=\"Body\")"].join("\n");const recovery=await addNative(page,context,recovered);expect(recovery.inputDefinitions.find(d=>d.title==="Length")!.defval).toBe(5);
  const recoveredRow=page.locator(".native-study-chip").filter({hasText:"Recovered native"}).first();await clickOwned(page,recoveredRow.getByRole("button",{name:"Inputs for Recovered native",exact:true}),touch);await expect(recoveredRow.getByRole("spinbutton",{name:"Length",exact:true})).toHaveValue("5");await noGeneric(recoveredRow);

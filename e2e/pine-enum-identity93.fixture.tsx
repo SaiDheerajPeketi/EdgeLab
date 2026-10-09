@@ -24,7 +24,7 @@ function Controls({bundle, update}: any) {
  const effective = usePineInputMigration(bundle.prepared, prepared, bundle.inputs, bundle.recovery, update);
  useLayoutEffect(() => {
   if (bundle.prepared?.inputDefinitions[0]?.enumVersion !== 1 && prepared?.inputDefinitions[0]?.enumVersion === 1)
-   fixture.renderProof.push({saved: structuredClone(bundle.inputs), effective: structuredClone(effective.inputs), selected: [...document.querySelectorAll("select")].map(select => select.value)});
+   fixture.renderProof.push({saved: structuredClone(bundle.inputs), effective: structuredClone(effective.inputs), ...(document.querySelector("select") ? {selected: [...document.querySelectorAll("select")].map(select => select.value)} : {selectedLabels: [...document.querySelectorAll('button[role="combobox"] .themed-select-value')].map(label => label.textContent)})});
  }, [prepared, bundle, effective]);
  return <div className="grid gap-4">{prepared?.inputDefinitions.map((definition: any) =>
   <PineInputControl key={definition.id} definition={definition} definitions={prepared.inputDefinitions} inputs={effective.inputs}
