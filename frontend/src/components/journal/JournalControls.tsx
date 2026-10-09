@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { JournalAccount, JournalTag } from "../../lib/journalApi";
 import { inferMarket, tagOptions, type JournalFilters } from "../../lib/journalAnalytics";
 import type { JournalAccountScope } from "../../lib/journalWorkspaceState";
+import { ThemedSelect } from "../ThemedSelect";
 import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
 export const journalFieldClass = "min-h-[var(--control-height)] w-full min-w-0 rounded-[var(--radius-sm)] border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 text-start text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interaction)] focus:ring-2 focus:ring-[var(--ui-selection)] disabled:cursor-not-allowed disabled:opacity-50";
@@ -10,15 +11,18 @@ export const journalFieldClass = "min-h-[var(--control-height)] w-full min-w-0 r
 export function JournalScopeControl({ accounts, scope, onChange }: { accounts: JournalAccount[]; scope: JournalAccountScope; onChange: (scope: JournalAccountScope) => void }) {
   const selectionValue = scope.mode === "all" ? "all" : scope.accountIds.length === 1 ? String(scope.accountIds[0]) : "selected";
   return <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
-    <label className="min-w-0 flex-1 text-xs font-medium text-slate-400">Account scope
-      <select className={`${journalFieldClass} mt-1`} value={selectionValue} onChange={(event) => {
-        const value = event.target.value;
+    <label className="min-w-0 flex-1 text-xs font-medium text-[var(--text-secondary)]">Account scope
+      <ThemedSelect ariaLabel="Account scope" portal className="mt-1 h-10 w-full [@media(pointer:coarse)]:h-11" value={selectionValue} onChange={(value) => {
         if (value === "all") onChange({ mode: "all", accountIds: [] });
         else if (value === "selected") onChange({ mode: "selected", accountIds: scope.accountIds.length ? scope.accountIds : accounts.slice(0, 2).map((account) => account.id) });
         else onChange({ mode: "selected", accountIds: [Number(value)] });
-      }}><option value="all">All accounts</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}{accounts.length > 1 ? <option value="selected">Selected accounts…</option> : null}</select>
+      }} options={[
+        { value: "all", label: "All accounts" },
+        ...accounts.map((account) => ({ value: String(account.id), label: `${account.name} · ${account.currency}` })),
+        ...(accounts.length > 1 ? [{ value: "selected", label: "Selected accounts…" }] : []),
+      ]} />
     </label>
-    {selectionValue === "selected" ? <fieldset className="min-w-0 flex-[1.2] rounded-md border border-white/10 p-2"><legend className="px-1 text-[11px] text-slate-500">Include accounts</legend><div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">{accounts.map((account) => { const checked = scope.accountIds.includes(account.id); return <label key={account.id} className={`relative inline-flex min-h-[var(--control-height)] min-w-11 cursor-pointer items-center gap-1.5 rounded px-2 text-xs outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-cyan-300 ${checked ? "bg-cyan-300/10 text-cyan-100" : "bg-white/[0.03] text-slate-400"}`}><input type="checkbox" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" checked={checked} onChange={() => { const accountIds = checked ? scope.accountIds.filter((id) => id !== account.id) : [...scope.accountIds, account.id]; onChange(accountIds.length ? { mode: "selected", accountIds } : { mode: "all", accountIds: [] }); }} />{checked ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : null}<span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color ?? "#71717a" }} />{account.name}</label>; })}</div></fieldset> : null}
+    {selectionValue === "selected" ? <fieldset className="min-w-0 flex-[1.2] rounded-md border border-[var(--ui-border-subtle)] p-2"><legend className="px-1 text-[11px] text-[var(--text-secondary)]">Include accounts</legend><div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">{accounts.map((account) => { const checked = scope.accountIds.includes(account.id); return <label key={account.id} className={`relative inline-flex min-h-[var(--control-height)] min-w-11 cursor-pointer items-center gap-1.5 rounded px-2 text-xs outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ui-focus)] ${checked ? "bg-[var(--ui-selection)] text-[var(--text-accent)]" : "bg-[var(--ui-inset)] text-[var(--text-secondary)]"}`}><input type="checkbox" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" checked={checked} onChange={() => { const accountIds = checked ? scope.accountIds.filter((id) => id !== account.id) : [...scope.accountIds, account.id]; onChange(accountIds.length ? { mode: "selected", accountIds } : { mode: "all", accountIds: [] }); }} />{checked ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : null}<span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color ?? "#71717a" }} />{account.name}</label>; })}</div></fieldset> : null}
   </div>;
 }
 
@@ -61,6 +65,6 @@ export function JournalEmpty({ title, detail, action }: { title: string; detail:
 }
 
 export function JournalButton({ children, onClick, disabled, tone = "secondary", type = "button" }: { children: ReactNode; onClick?: () => void; disabled?: boolean; tone?: "primary" | "secondary" | "danger"; type?: "button" | "submit" }) {
-  const toneClass = tone === "primary" ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200" : tone === "danger" ? "border border-rose-400/30 text-rose-200 hover:bg-rose-400/10" : "border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07]";
-  return <button type={type} onClick={onClick} disabled={disabled} data-motion="microfeedback" className={`inline-flex min-h-[var(--control-height)] min-w-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45 ${toneClass}`}>{children}</button>;
+  const toneClass = tone === "primary" ? "bg-[var(--interaction)] text-[var(--on-interaction)] hover:bg-[var(--interaction-hover)] active:bg-[var(--interaction-pressed)]" : tone === "danger" ? "border border-[var(--loss-text)] text-[var(--loss-text)] hover:bg-[var(--loss-soft)]" : "border border-[var(--ui-border-strong)] bg-[var(--ui-raised)] text-[var(--text-primary)] hover:bg-[var(--ui-hover)]";
+  return <button type={type} onClick={onClick} disabled={disabled} data-motion="microfeedback" className={`inline-flex min-h-[var(--control-height)] min-w-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-45 ${toneClass}`}>{children}</button>;
 }
