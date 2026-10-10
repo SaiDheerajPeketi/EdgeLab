@@ -1,0 +1,191 @@
+/* Legacy workspace utilities inherit the app theme; canvas palettes remain independent. */
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-white"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-50"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-300"] {
+  color: var(--text-primary);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-400"] {
+  color: var(--text-secondary);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-500"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-slate-600"] {
+  color: var(--text-muted);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-black/20"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-black/25"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-black/30"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-ink-950"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-slate-950/70"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#080c11]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#071018]"] {
+  background-color: var(--ui-inset);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/5"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/[0.025]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/[0.03]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/[0.05]"] {
+  background-color: var(--ui-raised);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/10"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/[0.06]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-white/[0.08]"] {
+  background-color: var(--ui-hover);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/10"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/15"] {
+  border-color: var(--ui-border-subtle);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/20"] {
+  border-color: var(--ui-border-strong);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-white"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-slate-200"]:hover {
+  color: var(--text-primary);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:bg-white/5"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:bg-white/10"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:bg-white/[0.03]"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:bg-white/[0.035]"]:hover {
+  background-color: var(--ui-hover);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:border-white/20"]:hover {
+  border-color: var(--ui-border-strong);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="placeholder:text-slate-600"]::placeholder { color: var(--text-muted); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-emerald-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-emerald-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-emerald-300"] { color: var(--profit-text); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-rose-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-rose-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-rose-300"] { color: var(--loss-text); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-rose-100"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-rose-200"]:hover { color: var(--loss-text); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-100/55"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-100/60"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-100/70"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-200/70"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-200/80"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-300"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-50"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-cyan-950"] { color: var(--text-accent); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-cyan-100"]:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="hover:text-cyan-200"]:hover { color: var(--text-accent); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-100/70"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-100/80"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-50"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-amber-950"] { color: var(--warning-text); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#05070a]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#05080c]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#050a10]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#061018]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#070b10]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#071018]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#080c11]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#090b0e]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#090b0f]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#090d12]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#0a0d11]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#0a0f15]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#0b1017]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#0b1118]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#0d1117]"] { background-color: var(--ui-inset); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/10"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/15"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/20"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/5"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/8"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/[0.055]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/[0.06]"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="border-white/[0.08]"] { border-color: var(--ui-border-subtle); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="divide-white/10"] > :not([hidden]) ~ :not([hidden]),
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="divide-white/8"] > :not([hidden]) ~ :not([hidden]) { border-color: var(--ui-border-subtle); }
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .status-pill,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .segmented,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .workspace-tab,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .session-mode-button {
+  color: var(--text-secondary);
+  background-color: var(--ui-raised);
+  border-color: var(--ui-border-subtle);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .segmented:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .workspace-tab:hover,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .session-mode-button:hover {
+  color: var(--text-primary);
+  background-color: var(--ui-hover);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .segmented-active,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .workspace-tab-active,
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .session-mode-button-active {
+  color: var(--text-accent);
+  background-color: var(--ui-selection);
+  border-color: var(--ui-focus);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .segmented-long {
+  color: var(--profit-text);
+  background-color: var(--profit-soft);
+  border-color: var(--profit);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .segmented-short {
+  color: var(--loss-text);
+  background-color: var(--loss-soft);
+  border-color: var(--loss);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-sky-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-sky-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-sky-300"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-violet-100"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-violet-200"],
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="text-violet-300"] {
+  color: var(--information);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) [class~="bg-[#070b10]/80"] {
+  background-color: var(--ui-inset);
+}
+
+/* Asset badges carry intentional white labels on their provider colors. */
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .rounded-full.font-black[class~="text-white"][style*="background-color"] {
+  color: #ffffff;
+}
+
+/* Chart chrome follows the app theme without overriding study colors. */
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) :is(.chart-ohlcv-item span, .chart-study-pill) {
+  color: var(--text-secondary);
+}
+
+html[data-workspace-theme="active"][data-app-theme="light"] :is([data-app-workspace], [data-modal-surface], [data-overlay-surface]) .chart-study-pill strong {
+  color: var(--text-primary);
+}

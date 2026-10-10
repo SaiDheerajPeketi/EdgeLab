@@ -311,7 +311,7 @@ export function ThemedSelect({
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{option.label}</span>
                 {option.sublabel && (
-                  <span className="mt-0.5 block truncate text-[11px] text-[var(--text-secondary)]">
+                  <span className={`mt-0.5 block truncate text-[11px] ${selected || active ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}>
                     {option.sublabel}
                   </span>
                 )}

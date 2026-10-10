@@ -352,6 +352,7 @@ class ChartPresetOperation(BaseModel):
 class SettingsPreferencesUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    appTheme: Literal["dark", "light", "system"] = "dark"
     density: Literal["comfortable", "compact"] = "comfortable"
     includeDiagnosticsByDefault: bool = Field(default=True, strict=True)
 

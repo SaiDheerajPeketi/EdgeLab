@@ -139,7 +139,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
                 <div className="mt-3 grid gap-6 sm:grid-cols-2">
                   {sections.map((section) => (
                     <section key={section.label}>
-                      <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                      <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
                         {section.label}
                       </h3>
                       <div className="grid gap-1">
@@ -161,7 +161,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
                               <Icon aria-hidden="true" className="shrink-0" size={18} />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-semibold">{item.label}</span>
-                                <span className="block truncate text-xs text-slate-500">{item.description}</span>
+                                <span className="block truncate text-xs text-[var(--text-primary)]">{item.description}</span>
                               </span>
                               {active ? <Check aria-hidden="true" className="shrink-0 text-cyan-200" size={17} /> : null}
                             </button>

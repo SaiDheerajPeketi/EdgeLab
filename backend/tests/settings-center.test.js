@@ -96,10 +96,12 @@ test("settings preferences sanitize unsupported persisted values", () => {
   const { preferences, cleanup } = loadSettingsModules();
   try {
     assert.deepEqual(preferences.sanitizeSettingsPreferences({ density: "microscopic", includeDiagnosticsByDefault: "yes" }), {
+      appTheme: "dark",
       density: "comfortable",
       includeDiagnosticsByDefault: true,
     });
     assert.deepEqual(preferences.sanitizeSettingsPreferences({ density: "compact", includeDiagnosticsByDefault: false }), {
+      appTheme: "dark",
       density: "compact",
       includeDiagnosticsByDefault: false,
     });

@@ -52,6 +52,8 @@ import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
 import { useSidePaneHover } from "./components/ui/useSidePaneHover";
 import { usePaneMarketData } from "./components/chart/usePaneMarketData";
 import { getStoredAuthSession, subscribeAuthSession } from "./lib/authSession";
+import { startWorkspaceTheme } from "./lib/workspaceTheme";
+import "./legacyWorkspaceTheme.css";
 import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
 import {
   getApiBearerToken,
@@ -258,17 +260,17 @@ function AppLoadingSpinner({ className = "", label = "Loading" }: { className?: 
       className={`grid min-h-32 place-items-center ${className}`}
       role="status"
     >
-      <EdgePulseLoader label={label} labelClassName="text-slate-400" showLabel size="lg" />
+      <EdgePulseLoader label={label} labelClassName="text-[var(--text-secondary)]" showLabel size="lg" />
     </div>
   );
 }
 
 function WorkspaceLoadingPanel() {
-  return <AppLoadingSpinner className="min-h-screen bg-[#05070a]" label="Opening workspace" />;
+  return <AppLoadingSpinner className="min-h-screen bg-[var(--ui-canvas)]" label="Opening workspace" />;
 }
 
 function BacktestLoadingPanel() {
-  return <AppLoadingSpinner className="mb-4 rounded-md bg-[#050b11]/70 py-10" label="Loading session" />;
+  return <AppLoadingSpinner className="mb-4 rounded-md bg-[var(--ui-surface)] py-10" label="Loading session" />;
 }
 
 function LazyPanelFallback({ className = "" }: { className?: string }) {
@@ -278,7 +280,7 @@ function LazyPanelFallback({ className = "" }: { className?: string }) {
 function ChartChunkFallback() {
   return (
     <div className="chart-studio-layout chart-studio-layout-focus">
-      <AppLoadingSpinner className="min-h-[520px] rounded-md bg-[#050b11]/70" label="Loading chart" />
+      <AppLoadingSpinner className="min-h-[520px] rounded-md bg-[var(--ui-surface)]" label="Loading chart" />
     </div>
   );
 }
@@ -338,6 +340,7 @@ const VALID_CHART_STYLES: ChartStyle[] = [
 ];
 
 export function WorkspaceApp() {
+  useEffect(() => startWorkspaceTheme(), []);
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -3112,7 +3115,7 @@ export function WorkspaceApp() {
   }
 
   if (sharedCopyResolving) {
-    return <AppLoadingSpinner className="min-h-screen bg-[#05070a]" label="Opening copied workspace" />;
+    return <AppLoadingSpinner className="min-h-screen bg-[var(--ui-canvas)]" label="Opening copied workspace" />;
   }
 
   if (activeSharedCopy) {
@@ -3126,7 +3129,7 @@ export function WorkspaceApp() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--ui-canvas)] text-[var(--text-primary)]" data-app-workspace="true">
       <a
         className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 shadow-panel outline-none transition focus:translate-y-0 focus:ring-2 focus:ring-white/70"
         href="#workspace-content"
@@ -3752,7 +3755,7 @@ export function WorkspaceApp() {
       />
 
       {indicatorEditorRequest ? (
-        <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[#071018]" />}>
+        <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[var(--ui-modal)]" />}>
           <IndicatorEditorPanel
             bars={customScriptBars}
             sourceSnapshot={customScriptSourceSnapshot}
@@ -3768,7 +3771,7 @@ export function WorkspaceApp() {
       ) : null}
 
       {quantOpen ? (
-        <Suspense fallback={<LazyPanelFallback className="fixed bottom-3 right-3 z-[80] h-72 w-96 rounded-xl bg-[#071018]" />}>
+        <Suspense fallback={<LazyPanelFallback className="fixed bottom-3 right-3 z-[80] h-72 w-96 rounded-xl bg-[var(--ui-floating)]" />}>
           <QuantPanel
             sourceSnapshot={customScriptSourceSnapshot}
             attachment={quantAttachment}

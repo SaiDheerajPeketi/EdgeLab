@@ -137,7 +137,7 @@ export function AccountSystemMenu({
           <BadgeCheck aria-hidden="true" className="shrink-0" size={16} />
           Beta access
         </span>
-        <span className="truncate text-slate-400">
+        <span className="truncate text-[var(--text-primary)]">
           {session.user.provider === "google" ? "Google account" : "Email account"}
         </span>
       </div>

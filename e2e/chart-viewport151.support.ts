@@ -19,6 +19,7 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
   type Receipt = { operation_id: string; method: string | null; path: string | null; status: "reserved" | "running" | "completed" | "canceled"; http_status: number | null; result: null; created_at: string; completed_at: string | null };
   const operations = new Map<string, Receipt>();
   let operationRevision = 0;
+  let preferenceFailures = 0;
   const receiptKey = (authorization: string | undefined, id: string) => `${authorization ?? ""}:${id}`;
   // A fallback response may fail, and a navigation may interrupt a running
   // request. Only an actual response proves completion, just as on the API.
@@ -89,6 +90,15 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
       if (!receipt || receipt.method !== request.method() || receipt.path !== endpoint || receipt.status !== "reserved") return route.fulfill({ status: 409, json: { detail: "Operation is unreserved, already started, or canceled. Verify its receipt before continuing." } });
       receipt.status = "running";
       operationRevision += 1;
+    }
+    if (endpoint === "/settings/preferences" && request.method() === "PATCH") {
+      if (preferenceFailures > 0) { preferenceFailures -= 1; return route.fulfill({ status: 503, json: { detail: "Preference service unavailable" } }); }
+      const changes = request.postDataJSON() as Record<string, unknown>;
+      const invalid = Object.entries(changes).some(([key, value]) => key === "appTheme" ? typeof value !== "string" || !["dark", "light", "system"].includes(value) : key === "density" ? typeof value !== "string" || !["comfortable", "compact"].includes(value) : key === "includeDiagnosticsByDefault" ? typeof value !== "boolean" : true);
+      if (invalid) return route.fulfill({ status: 422, json: { detail: "Invalid preference" } });
+      const value = { appTheme: "dark", density: "comfortable", includeDiagnosticsByDefault: true, ...(storage.get("settings-center.v1") ?? {}), ...changes };
+      storage.set("settings-center.v1", value);
+      return route.fulfill({ json: { namespace: "edgelab", key: "settings-center.v1", value, updated_at: new Date().toISOString() } });
     }
     if (endpoint === "/datasets") return route.fulfill({ json: catalog });
     const encoded = endpoint.match(/^\/app-storage\/edgelab\/(.+)$/)?.[1];
@@ -174,5 +184,5 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
       return Date.now() - idleSince >= 900;
     }, { timeout: 15_000, intervals: [100], message: "Account writes must be confirmed before a full page navigation" }).toBe(true);
   };
-  return { history, events, requests, storage, emit, emitNative, nativeReady, releaseHistory: release, releaseNormalized, unfinishedAccountOperations, waitForAccountWrites };
+  return { history, events, requests, storage, emit, emitNative, nativeReady, failNextPreferenceSave: () => { preferenceFailures += 1; }, releaseHistory: release, releaseNormalized, unfinishedAccountOperations, waitForAccountWrites };
 }

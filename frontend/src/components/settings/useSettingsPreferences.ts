@@ -5,11 +5,11 @@ import { appDataSessionKey } from "../../lib/appDataBarrier";
 import { rebaseQueuedPreferences } from "../../lib/chartSettingsDraft";
 import { useJournalDraft } from "../../lib/journalDrafts";
 import { confirmAppStorageOperations } from "../../lib/serverStorage";
-import { DEFAULT_SETTINGS_PREFERENCES, applySettingsPreferences, sanitizeSettingsPreferences, settingsPreferencesStorageKey, type SettingsPreferences } from "../../lib/settingsPreferences";
+import { DEFAULT_SETTINGS_PREFERENCES, applySettingsPreferences, cacheSettingsPreferences, sanitizeSettingsPreferences, settingsPreferencesStorageKey, type SettingsPreferences } from "../../lib/settingsPreferences";
 import type { SaveState } from "./SettingsPrimitives";
 
 type Field = keyof SettingsPreferences;
-const fields: Field[] = ["density", "includeDiagnosticsByDefault"];
+const fields: Field[] = ["appTheme", "density", "includeDiagnosticsByDefault"];
 const key = "settings-center.v1";
 type Snapshot = { ready: boolean; loading: boolean; error: boolean; defaults: SettingsPreferences; submitted: Partial<SettingsPreferences>; states: Partial<Record<Field, SaveState>>; attempts: Partial<SettingsPreferences>; revisions: Partial<Record<Field, number>>; undo: Partial<SettingsPreferences> | null; conflict: boolean; conflictRevision: number; editRevisions: Partial<Record<Field, number>>; replacementDraft?: SettingsPreferences };
 const snapshots = new Map<string, Snapshot>();
@@ -27,7 +27,7 @@ function snapshot(owner: string) {
   }
   return snapshots.get(owner)!;
 }
-function valid(field: Field, value: unknown) { return field === "density" ? value === "comfortable" || value === "compact" : typeof value === "boolean"; }
+function valid(field: Field, value: unknown) { return field === "appTheme" ? value === "dark" || value === "light" || value === "system" : field === "density" ? value === "comfortable" || value === "compact" : typeof value === "boolean"; }
 function validate(value: unknown, changes?: Partial<SettingsPreferences>) {
   if (value != null && (typeof value !== "object" || Array.isArray(value))) throw new Error("Preferences need recovery.");
   const raw = value as Partial<SettingsPreferences> | null;
@@ -57,7 +57,7 @@ async function load(owner: string) {
   return false;
 }
 
-/** Draft density previews immediately; feedback defaults and local mirrors follow acknowledgment. */
+/** Theme and density preview immediately; saved defaults and mirrors follow acknowledgment. */
 export function useSettingsPreferences() {
   const session = useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, () => null);
   const owner = String(session?.user.id ?? "anonymous");
@@ -68,14 +68,14 @@ export function useSettingsPreferences() {
   const dirty = fields.some((field) => draft[field] !== current.defaults[field]);
   const pending = fields.some((field) => current.states[field] === "saving") || Boolean(current.replacementDraft);
   useEffect(() => { void load(owner); }, [owner]);
-  useEffect(() => { applySettingsPreferences(draft); }, [owner, draft.density]);
+  useEffect(() => { applySettingsPreferences(draft); }, [owner, draft.appTheme, draft.density]);
   useEffect(() => {
     const handle = (event: StorageEvent) => {
       if (event.key !== settingsPreferencesStorageKey() || event.newValue == null) return;
       try { const remote = validate(JSON.parse(event.newValue)); if (fields.some((field) => remote[field] !== draft[field])) publish(owner, { conflict: true, conflictRevision: snapshot(owner).conflictRevision + 1 }); } catch { /* Malformed local messages cannot replace server values. */ }
     };
     window.addEventListener("storage", handle); return () => window.removeEventListener("storage", handle);
-  }, [owner, draft.density, draft.includeDiagnosticsByDefault]);
+  }, [owner, draft.appTheme, draft.density, draft.includeDiagnosticsByDefault]);
   async function saveField(field: Field, retry = false, force = false) {
     const latest = snapshot(owner), value = draftValue.current[field];
     if (owner !== ownerNow() || !latest.ready || latest.loading || latest.replacementDraft || fields.some((key) => latest.states[key] === "saving") || (!force && value === latest.defaults[field]) || !valid(field, value)) return;
@@ -86,6 +86,7 @@ export function useSettingsPreferences() {
     try {
       const [item] = await confirmAppStorageOperations([{ key, rebaseQueued: rebaseQueuedPreferences }], async () => { const result = await patchSettingsPreferences(changes); validate(result.value, changes); return [result]; });
       if (owner !== ownerNow()) { publish(owner, { ready: false }); return; }
+      try { cacheSettingsPreferences(validate(item.value)); } catch { /* Confirmed server settings remain durable if the local mirror is full. */ }
       clearDraft([field], submitted);
       publish(owner, { defaults: validate(item.value), states: { ...snapshot(owner).states, [field]: "saved" }, conflict: snapshot(owner).conflictRevision !== latest.conflictRevision && snapshot(owner).conflict });
       window.dispatchEvent(new CustomEvent("edgelab:settings-preferences", { detail: validate(item.value) }));
@@ -102,7 +103,7 @@ export function useSettingsPreferences() {
     if (!field) return;
     const timer = window.setTimeout(() => void saveField(field), 0);
     return () => window.clearTimeout(timer);
-  }, [owner, current, draft.density, draft.includeDiagnosticsByDefault]);
+  }, [owner, current, draft.appTheme, draft.density, draft.includeDiagnosticsByDefault]);
   function change(update: Partial<SettingsPreferences>, undoable = true) {
     if (!current.ready || owner !== ownerNow()) return;
     const latest = snapshot(owner);

@@ -131,7 +131,7 @@ def patch_settings_preferences(db: Session, owner: int, changes: dict):
         original = rows[PREFERENCES_KEY].value if PREFERENCES_KEY in rows else None
         if original is not None and not isinstance(original, dict):
             raise HTTPException(status_code=409, detail="Settings preferences need recovery before changing them.")
-        value = {**(original if original is not None else {"density": "comfortable", "includeDiagnosticsByDefault": True}), **changes}
+        value = {**(original if original is not None else {"appTheme": "dark", "density": "comfortable", "includeDiagnosticsByDefault": True}), **changes}
         saved = _commit_values(db, owner, rows, {PREFERENCES_KEY: value})
         if saved is not None:
             return saved[PREFERENCES_KEY]

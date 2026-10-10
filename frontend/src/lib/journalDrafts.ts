@@ -140,6 +140,7 @@ function validField(key: string, value: unknown, base: Draft) {
     if (key === "gridMode") return ["both", "horizontal", "vertical", "none"].includes(String(value));
     return typeof value === "string" && value.length <= 100;
   }
+  if (key === "appTheme") return value === "dark" || value === "light" || value === "system";
   if (key === "density") return value === "comfortable" || value === "compact";
   if ("sizingMode" in base) {
     if (key === "sizingMode") return value === "quantity" || value === "risk";

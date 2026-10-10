@@ -46,10 +46,10 @@ export function TradeLog({
   }, [onScrollTopRestored, restoreScrollTop, trades.length]);
 
   return (
-    <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 shadow-panel">
-      <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
-        <h2 className="text-sm font-semibold text-white">Trade Log</h2>
-        <span className="text-xs text-slate-400">{trades.length} entries</span>
+    <section className="min-w-0 rounded-md border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] shadow-panel">
+      <div className="flex h-12 items-center justify-between border-b border-[var(--ui-border-subtle)] px-4">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">Trade Log</h2>
+        <span className="text-xs text-[var(--text-secondary)]">{trades.length} entries</span>
       </div>
 
       <div
@@ -61,7 +61,7 @@ export function TradeLog({
         ref={scrollContainerRef}
       >
         <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="sticky top-0 bg-ink-850 text-xs uppercase tracking-[0.16em] text-slate-500">
+          <thead className="sticky top-0 bg-[var(--ui-surface)] text-xs uppercase tracking-[0.16em] text-[var(--text-secondary)]">
             <tr>
               <th className="px-4 py-3 font-medium">Instrument</th>
               <th className="px-4 py-3 font-medium">Entry</th>
@@ -80,30 +80,30 @@ export function TradeLog({
               const context = tradeContext?.(trade);
               const rowCurrency = context?.currency ?? currency;
               return (
-                <tr key={trade.id} className="border-t border-white/10 text-slate-300">
+                <tr key={trade.id} className="border-t border-[var(--ui-border-subtle)] text-[var(--text-primary)]">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-100">
+                    <div className="font-medium text-[var(--text-primary)]">
                       {context?.instrument ?? `Session #${trade.session_id}`}
                     </div>
                     {context?.instrumentDetail && (
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-[var(--text-secondary)]">
                         {context.instrumentDetail}
                       </div>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-100">
+                    <div className="font-medium text-[var(--text-primary)]">
                       {formatPrice(trade.entry_price)}
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-[var(--text-secondary)]">
                       {formatDateTime(trade.entry_time)}
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <div className="font-medium text-slate-100">
+                    <div className="font-medium text-[var(--text-primary)]">
                       {formatPrice(trade.exit_price)}
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-[var(--text-secondary)]">
                       {formatDateTime(trade.exit_time)}
                     </div>
                   </td>
@@ -111,31 +111,31 @@ export function TradeLog({
                     <span
                       className={`rounded px-2 py-1 text-xs font-semibold ${
                         trade.side === "LONG"
-                          ? "bg-emerald-300/10 text-emerald-200"
-                          : "bg-rose-300/10 text-rose-200"
+                          ? "bg-[var(--profit-soft)] text-[var(--profit-text)]"
+                          : "bg-[var(--loss-soft)] text-[var(--loss-text)]"
                       }`}
                     >
                       {trade.side}
                     </span>
-                    <div className="mt-1 text-xs text-slate-500">{trade.status}</div>
+                    <div className="mt-1 text-xs text-[var(--text-secondary)]">{trade.status}</div>
                   </td>
                   <td
                     className={`px-3 py-3 font-semibold ${
-                      (trade.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"
+                      (trade.realized_pnl ?? 0) >= 0 ? "text-[var(--profit-text)]" : "text-[var(--loss-text)]"
                     }`}
                   >
                     {trade.realized_pnl == null ? "—" : formatMoney(trade.realized_pnl, rowCurrency)}
                   </td>
-                  <td className="px-3 py-3 text-slate-300">
+                  <td className="px-3 py-3 text-[var(--text-primary)]">
                     {formatMoney(trade.commission_amount ?? 0, rowCurrency)}
                   </td>
-                  <td className="px-3 py-3 text-slate-300">
+                  <td className="px-3 py-3 text-[var(--text-primary)]">
                     {formatMoney(trade.fee_amount ?? 0, rowCurrency)}
                   </td>
-                  <td className="px-3 py-3 text-slate-200">
+                  <td className="px-3 py-3 text-[var(--text-primary)]">
                     {trade.r_multiple == null ? "—" : trade.r_multiple.toFixed(2)}
                   </td>
-                  <td className="px-3 py-3 text-slate-300">
+                  <td className="px-3 py-3 text-[var(--text-primary)]">
                     {context?.strategy ?? trade.strategy_name ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -155,7 +155,7 @@ export function TradeLog({
         </table>
 
         {trades.length === 0 && (
-          <div className="grid h-44 place-items-center text-sm text-slate-500">
+          <div className="grid h-44 place-items-center text-sm text-[var(--text-secondary)]">
             No trades yet
           </div>
         )}

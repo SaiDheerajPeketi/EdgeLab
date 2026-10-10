@@ -250,7 +250,7 @@ def test_stale_first_row_retries_against_latest_committed_state(api, monkeypatch
 def test_preferences_defaults_apply_only_on_creation_and_partial_patch_keeps_unknown_fields(api):
     status, created = api("PATCH", PREFERENCES_PATH, {"density": "compact"})
     assert status == 200
-    assert created["value"] == {"density": "compact", "includeDiagnosticsByDefault": True}
+    assert created["value"] == {"appTheme": "dark", "density": "compact", "includeDiagnosticsByDefault": True}
     original = {"density": "compact", "includeDiagnosticsByDefault": False, "future": {"keep": [1]}}
     assert api("PUT", PREFERENCES_STORAGE, {"value": original})[0] == 200
     status, saved = api("PATCH", PREFERENCES_PATH, {"density": "comfortable"})
@@ -319,3 +319,24 @@ def test_conflicting_initial_insert_does_not_leave_either_chart_row(api, monkeyp
     assert api("PATCH", CHART_PATH, {"textSize": 14})[0] == 409
     assert len(attempts) == 3
     assert_raw(api, None, None)
+
+
+@pytest.mark.parametrize("theme", ["dark", "light", "system"])
+def test_app_theme_saves_per_owner_and_preserves_other_preferences(api, theme):
+    original = {"density": "compact", "includeDiagnosticsByDefault": False, "future": {"keep": [1]}}
+    assert api("PUT", PREFERENCES_STORAGE, {"value": original})[0] == 200
+    status, result = api("PATCH", PREFERENCES_PATH, {"appTheme": theme})
+    assert status == 200
+    assert result["value"] == {**original, "appTheme": theme}
+    assert api("GET", PREFERENCES_STORAGE)[1]["value"] == result["value"]
+    assert api("GET", PREFERENCES_STORAGE, owner=1)[1]["value"] is None
+    assert api("PATCH", PREFERENCES_PATH, {"density": "comfortable"}, owner=1)[1]["value"]["appTheme"] == "dark"
+    assert api("GET", PREFERENCES_STORAGE)[1]["value"] == result["value"]
+
+
+@pytest.mark.parametrize("theme", ["auto", "LIGHT", "", None, 1, True, {"theme": "dark"}])
+def test_app_theme_rejects_invalid_values_without_changing_saved_preferences(api, theme):
+    original = {"appTheme": "system", "density": "compact", "includeDiagnosticsByDefault": False}
+    assert api("PUT", PREFERENCES_STORAGE, {"value": original})[0] == 200
+    assert api("PATCH", PREFERENCES_PATH, {"appTheme": theme})[0] == 422
+    assert api("GET", PREFERENCES_STORAGE)[1]["value"] == original

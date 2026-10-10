@@ -5,7 +5,7 @@ import { getLatestBacktest } from "../../lib/api";
 import { getStoredAuthSession, hasWorkspaceAccess } from "../../lib/authSession";
 import { listCanonicalTrades } from "../../lib/journalApi";
 import { loadAppStorageItem } from "../../lib/serverStorage";
-import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
+import { hydrateSettingsPreferences, saveSettingsPreferences, sanitizeSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
 import { buildAuthSignInHref, buildPricingHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
 const CompatibilityPublicRoutes = lazy(() => import("./CompatibilityPublicRoutes").then((module) => ({ default: module.CompatibilityPublicRoutes })));
@@ -107,6 +107,6 @@ function readSettingsDraft(): SettingsPreferences | null {
   try {
     const value = JSON.parse(sessionStorage.getItem("edgelab.compatibility.settings-draft.v1") ?? "null") as Partial<SettingsPreferences> | null;
     if (!value) return null;
-    return { density: value.density === "compact" ? "compact" : "comfortable", includeDiagnosticsByDefault: value.includeDiagnosticsByDefault !== false };
+    return sanitizeSettingsPreferences(value);
   } catch { return null; }
 }

@@ -4877,7 +4877,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
       {chartLayoutError ? <p role="alert" data-live-layout-save-error="true" className="border-b border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] px-4 py-3 text-sm text-[var(--warning-text)]">{chartLayoutError}</p> : null}
       <div data-live-chart-header="true" className="flex min-w-0 flex-col gap-2 border-b border-white/10 px-4 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-3">
-        <div data-live-chart-metadata="true" className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:thin] [&>*]:shrink-0 sm:flex-wrap sm:overflow-visible sm:whitespace-normal">
+        <div data-live-chart-metadata="true" tabIndex={0} role="region" aria-label="Market status" className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:thin] [&>*]:shrink-0 sm:flex-wrap sm:overflow-visible sm:whitespace-normal">
           <strong className="truncate text-[var(--text-primary)]">{editorSymbol}</strong>
           <span className="text-[var(--text-secondary)]">{editorRoute.focused ? "Trade review" : editorUsesNativeFeed ? "Binance" : editorRoute.primary ? selectedSourceLabel : "Market data"}</span>
           <span className="text-[var(--text-secondary)]" role="status">
@@ -18575,8 +18575,8 @@ function PageScaffold({
       <section className="command-header">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold text-white">{title}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-500">{description}</p>
+            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">{title}</h1>
+            <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">{description}</p>
           </div>
           {actions}
         </div>
