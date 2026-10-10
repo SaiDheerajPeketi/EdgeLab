@@ -2760,8 +2760,114 @@ button:disabled {
     @apply font-semibold tabular-nums;
   }
 
+  .chart-study-controls {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 4px;
+    min-width: 0;
+  }
+
   .chart-study-row {
-    @apply mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-400;
+    @apply flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-400;
+    flex: 1;
+    max-height: 88px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .chart-active-indicator-trigger {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    min-height: 24px;
+    border-radius: var(--radius-sm);
+    padding: 2px 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  .chart-active-indicator-menu {
+    z-index: var(--layer-popover);
+    border-radius: var(--radius-md);
+    background: var(--ui-floating);
+    color: var(--text-primary);
+    box-shadow: var(--elevation-floating);
+    padding: 8px;
+  }
+
+  .chart-active-indicator-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 8px;
+    font-size: 13px;
+  }
+
+  .chart-active-indicator-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .chart-active-indicator-list > li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-top: 1px solid var(--ui-border-subtle);
+    padding-block: 4px;
+  }
+
+  .chart-active-indicator-settings {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    align-items: center;
+    gap: 8px;
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    text-align: start;
+    font-size: 12px;
+  }
+
+  .chart-active-indicator-settings svg {
+    flex-shrink: 0;
+  }
+
+  .chart-active-indicator-settings span {
+    overflow-wrap: anywhere;
+  }
+
+  .chart-active-indicator-settings small {
+    display: block;
+    color: var(--text-secondary);
+  }
+
+  .chart-active-indicator-action {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+  }
+
+  .chart-active-indicator-remove {
+    color: var(--loss-text);
+  }
+
+  :is(.chart-active-indicator-trigger, .chart-active-indicator-settings, .chart-active-indicator-action):hover {
+    background: var(--ui-hover);
+  }
+
+  :is(.chart-active-indicator-trigger, .chart-active-indicator-settings, .chart-active-indicator-action):focus-visible {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: -2px;
   }
 
   .chart-study-pill {

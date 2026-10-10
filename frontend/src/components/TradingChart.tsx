@@ -22,6 +22,7 @@ import {
 import { flushSync } from "react-dom";
 import { chartRuntimeOwnerMatches, type ChartRuntimeOwner } from "../lib/chartRuntimeOwnership";
 import { PointOverlaySurface } from "./overlays/OverlaySurface";
+import { ActiveIndicatorMenu } from "./chart/ActiveIndicatorMenu";
 import {
   Activity,
   ArrowDownToLine,
@@ -98,6 +99,8 @@ import {
   drawingRequiredPoints,
   formatChartTimeframeLabel,
   fvgZoneVisibleSpan,
+  fvgZoneOnChartTimeline,
+  fvgLogicalToCoordinate,
   indicatorDisplayName,
   isFibDrawingTool,
   isRiskRewardTool,
@@ -1588,7 +1591,7 @@ export function TradingChart({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [draftDrawing, dragState, shouldWatchPriceScale]);
+  }, [displayBars, draftDrawing, dragState, shouldWatchPriceScale]);
 
   useEffect(() => {
     if (magnetMode === "off" || !effectiveCrosshairVisible || !isDrawingPlacementMode) {
@@ -3229,13 +3232,17 @@ export function TradingChart({
   ) {
     event.preventDefault();
     event.stopPropagation();
+    openIndicatorToolbarFromTrigger(indicatorId, event.currentTarget);
+  }
+
+  function openIndicatorToolbarFromTrigger(indicatorId: string, trigger: HTMLElement) {
     const stage = stageRef.current;
     if (!stage) {
       return;
     }
-    indicatorToolbarReturnFocusRef.current = event.currentTarget;
+    indicatorToolbarReturnFocusRef.current = trigger;
     const stageRect = stage.getBoundingClientRect();
-    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
     const x = triggerRect.left - stageRect.left;
     const y = triggerRect.bottom - stageRect.top + 8;
     openIndicatorToolbarAtStagePoint(indicatorId, x, y);
@@ -3623,9 +3630,19 @@ export function TradingChart({
                 pineGroups={pineReadoutGroups}
               />
             )}
+            <div className="chart-study-controls">
+              {!captureMode && <ActiveIndicatorMenu indicators={indicatorInstances}
+                onOpenSettings={(id, trigger) => {
+                  openIndicatorToolbarFromTrigger(id, trigger);
+                  if (indicatorToolbarFocusFrameRef.current !== null) cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+                  indicatorToolbarFocusFrameRef.current = requestAnimationFrame(() => {
+                    indicatorToolbarFocusFrameRef.current = null;
+                    stageRef.current?.querySelector<HTMLElement>(".indicator-floating-toolbar input, .indicator-floating-toolbar select, .indicator-floating-toolbar button")?.focus({ preventScroll: true });
+                  });
+                }} onToggleVisibility={onToggleIndicatorVisibility} onRemove={onRemoveIndicator} />}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
               <div aria-label="Indicator values" className="chart-study-row" role="region" tabIndex={0}>
-                {overlayIndicatorPills.slice(0, 5).map((indicator) => (
+                {overlayIndicatorPills.map((indicator) => (
                   <button
                     className={`chart-study-pill ${renderedSelectedIndicatorId === indicator.id ? "chart-study-pill-active" : ""}`}
                     key={indicator.id}
@@ -3775,6 +3792,7 @@ export function TradingChart({
                 ))}
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -5771,18 +5789,18 @@ function findNearestFvgZone({
 
   let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
     null;
-  for (const definition of definitions) {
+  for (const definition of fvgZonesOnChartTimeline(chart, definitions)) {
     const visibleSpan = fvgZoneVisibleSpan(definition, visibleRange);
     if (!visibleSpan) {
       continue;
     }
-    const startTop = pixelFromPoint(
-      { logical: visibleSpan.startLogical, price: definition.high, time: 0 },
+    const startTop = pixelFromFvgPoint(
+      { logical: visibleSpan.startLogical, price: definition.high },
       chart,
       series,
     );
-    const endBottom = pixelFromPoint(
-      { logical: visibleSpan.endLogical, price: definition.low, time: 0 },
+    const endBottom = pixelFromFvgPoint(
+      { logical: visibleSpan.endLogical, price: definition.low },
       chart,
       series,
     );
@@ -7226,6 +7244,30 @@ function nextFibLevelColor(levels: FibLevel[]) {
   );
 }
 
+function pixelFromFvgPoint(
+  point: { logical: number; price: number },
+  chart: IChartApi,
+  series: PrimaryChartSeries,
+): { x: number; y: number } | null {
+  const scale = chart.timeScale();
+  const x = fvgLogicalToCoordinate(point.logical, index => scale.logicalToCoordinate(index as Logical));
+  const y = series.priceToCoordinate(point.price);
+  return x === null || y === null ? null : { x, y };
+}
+
+function fvgZonesOnChartTimeline(chart: IChartApi, definitions: FvgZoneDefinition[]) {
+  const scale = chart.timeScale();
+  const logicalByTime = new Map<number, number | null>();
+  const logicalAtTime = (time: number) => {
+    if (!logicalByTime.has(time)) logicalByTime.set(time, chartCandleLogical(scale, time));
+    return logicalByTime.get(time)!;
+  };
+  return definitions.flatMap(definition => {
+    const mapped = fvgZoneOnChartTimeline(definition, logicalAtTime);
+    return mapped ? [mapped] : [];
+  });
+}
+
 function buildFvgZoneElements({
   chart,
   definitions,
@@ -7248,7 +7290,7 @@ function buildFvgZoneElements({
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
   const visibleRange = chartVisibleLogicalRange(chart, plotWidth);
-  return definitions.map((definition) =>
+  return fvgZonesOnChartTimeline(chart, definitions).map((definition) =>
     renderFvgZone({
       definition,
       onOpenSettings,
@@ -7257,7 +7299,7 @@ function buildFvgZoneElements({
       selected: definition.sourceId === selectedIndicatorId,
       visibleRange,
       toPixel: (logical, price) =>
-        pixelFromPoint({ logical, price, time: 0 }, chart, series),
+        pixelFromFvgPoint({ logical, price }, chart, series),
     }),
   );
 }

@@ -259,6 +259,8 @@ export type FvgZoneDefinition = {
   label: string;
   active: boolean;
   anchorLogical: number;
+  startTime: number;
+  endTime: number;
   color: string;
   fillOpacity: number;
   high: number;
@@ -1151,14 +1153,12 @@ export function buildFvgZoneDefinitions(
   indicatorInstances: ChartIndicatorInstance[],
 ): FvgZoneDefinition[] {
   const definitions: FvgZoneDefinition[] = [];
+  const gapInstances = indicatorInstances.filter(
+    instance => instance.visible !== false && (instance.kind === "fvg" || instance.kind === "ifvg"),
+  );
+  if (gapInstances.length === 0) return definitions;
   const seeds = detectGapSeeds(bars);
-  for (const instance of indicatorInstances) {
-    if (
-      instance.visible === false ||
-      (instance.kind !== "fvg" && instance.kind !== "ifvg")
-    ) {
-      continue;
-    }
+  for (const instance of gapInstances) {
     const settings = mergeIndicatorSettings(instance.kind, instance.settings);
     definitions.push(
       ...(instance.kind === "ifvg"
@@ -1167,6 +1167,34 @@ export function buildFvgZoneDefinitions(
     );
   }
   return definitions;
+}
+
+/** Resolve candle anchors against the chart's shared timeline, never local bar indices. */
+export function fvgZoneOnChartTimeline(
+  definition: FvgZoneDefinition,
+  logicalAtTime: (time: number) => number | null,
+): FvgZoneDefinition | null {
+  const start = logicalAtTime(definition.startTime);
+  const end = logicalAtTime(definition.endTime);
+  if (start === null || end === null || !Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  return { ...definition, anchorLogical: start, startLogical: start - 0.5, endLogical: end + 0.5 };
+}
+
+/** LWC accepts only integer logical indices; interpolate half-candle boundaries. */
+export function fvgLogicalToCoordinate(
+  logical: number,
+  coordinateAtInteger: (index: number) => number | null,
+): number | null {
+  if (!Number.isFinite(logical)) return null;
+  const floor = Math.floor(logical);
+  const first = coordinateAtInteger(floor);
+  if (first === null || !Number.isFinite(first)) return null;
+  if (logical === floor) return first;
+  const second = coordinateAtInteger(floor + 1);
+  if (second === null || !Number.isFinite(second)) return null;
+  return first + (second - first) * (logical - floor);
 }
 
 export function fvgZoneVisibleSpan(
@@ -1239,6 +1267,8 @@ function fvgZonesForInstance(
       label: seed.direction === "bullish" ? "Bullish FVG" : "Bearish FVG",
       active: seed.mitigationIndex == null,
       anchorLogical: seed.sourceIndex - 2,
+      startTime: bars[seed.sourceIndex - 2].time,
+      endTime: bars[seed.sourceIndex].time,
       color: seed.direction === "bullish" ? settings.color : bearishColor,
       fillOpacity,
       high: seed.high,
@@ -1291,6 +1321,8 @@ function ifvgZonesForInstance(
       label: inversionDirection === "bullish" ? "Bullish iFVG" : "Bearish iFVG",
       active: mitigationIndex == null,
       anchorLogical: seed.invalidationIndex,
+      startTime: bars[seed.invalidationIndex].time,
+      endTime: bars[mitigationIndex ?? lastCandleIndex].time,
       color: inversionDirection === "bullish" ? settings.color : bearishColor,
       fillOpacity,
       high: seed.high,

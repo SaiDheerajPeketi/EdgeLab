@@ -420,3 +420,115 @@ test("FVG visible spans preserve the three-candle pattern width", async () => {
     cleanup();
   }
 });
+
+
+test("FVG anchors use actual pattern times on a shared sparse study timeline", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const time = 1_700_001_000;
+    const bars = [
+      makeBar(time, 98, 100, 96, 99),
+      makeBar(time + 300, 102, 105, 99, 104),
+      makeBar(time + 600, 105, 108, 104, 106),
+    ];
+    const [zone] = charting.buildFvgZoneDefinitions(bars, [
+      { id: "fvg", kind: "fvg", settings: { period: 1 }, visible: true },
+    ]);
+    assert.equal(zone.startTime, bars[0].time);
+    assert.equal(zone.endTime, bars[2].time);
+    const timeline = [time - 1200, time - 600, time, time + 60, time + 300, time + 600, time + 900];
+    const mapped = charting.fvgZoneOnChartTimeline(zone, value => {
+      const index = timeline.indexOf(value);
+      return index === -1 ? null : index;
+    });
+    assert.equal(mapped.anchorLogical, 2);
+    assert.equal(mapped.startLogical, 1.5);
+    assert.equal(mapped.endLogical, 5.5);
+    assert.equal(mapped.low, 100);
+    assert.equal(mapped.high, 104);
+    assert.deepEqual(charting.fvgZoneVisibleSpan(mapped, { from: 1, to: 6 }), {
+      startLogical: 1.5, endLogical: 5.5,
+    });
+    // Removing the unrelated study changes indices, not the candle-owned zone.
+    const plain = charting.fvgZoneOnChartTimeline(zone, value => bars.findIndex(bar => bar.time === value));
+    assert.equal(plain.startLogical, -0.5);
+    assert.equal(plain.endLogical, 2.5);
+    assert.equal(charting.fvgZoneOnChartTimeline(zone, () => null), null);
+    assert.equal(charting.fvgZoneOnChartTimeline(zone, () => NaN), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test("iFVG retains the causal inversion and first later touch timestamps through replay", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const time = 1_700_001_000;
+    const bars = [
+      makeBar(time, 98, 100, 96, 99),
+      makeBar(time + 300, 102, 105, 99, 104),
+      makeBar(time + 600, 105, 108, 104, 106),
+      makeBar(time + 900, 105, 107, 101, 102),
+      makeBar(time + 1200, 99, 103, 97, 99),
+      makeBar(time + 1500, 97, 99, 95, 96),
+      makeBar(time + 1800, 99, 102, 98, 100),
+    ];
+    const instance = { id: "ifvg", kind: "ifvg", settings: { period: 1,
+      unmitigatedOnly: false, unmitigatedOnlyUserSet: true }, visible: true };
+    assert.equal(charting.buildFvgZoneDefinitions(bars.slice(0, 4), [instance]).length, 0);
+    const [forming] = charting.buildFvgZoneDefinitions(bars.slice(0, 5), [instance]);
+    assert.equal(forming.startTime, bars[4].time);
+    assert.equal(forming.endTime, bars[4].time);
+    assert.equal(forming.active, true);
+    const [extended] = charting.buildFvgZoneDefinitions(bars.slice(0, 6), [instance]);
+    assert.equal(extended.startTime, bars[4].time);
+    assert.equal(extended.endTime, bars[5].time);
+    assert.equal(extended.mitigated, false);
+    const [touched] = charting.buildFvgZoneDefinitions(bars, [instance]);
+    assert.equal(touched.startTime, bars[4].time);
+    assert.equal(touched.endTime, bars[6].time);
+    assert.equal(touched.mitigated, true);
+    const timeline = [...bars.map(bar => bar.time), time - 600, time - 300, time + 60, time + 1260]
+      .sort((a, b) => a - b);
+    const mapped = charting.fvgZoneOnChartTimeline(touched, value => timeline.indexOf(value));
+    assert.equal(mapped.startLogical, timeline.indexOf(bars[4].time) - 0.5);
+    assert.equal(mapped.endLogical, timeline.indexOf(bars[6].time) + 0.5);
+    assert.equal(mapped.label, "Bearish iFVG");
+    // Rewind recomputes from its own prefix: later inversion/mitigation cannot leak.
+    const [rewound] = charting.buildFvgZoneDefinitions(bars.slice(0, 5), [instance]);
+    assert.equal(rewound.mitigated, false);
+    assert.equal(rewound.endTime, bars[4].time);
+  } finally {
+    cleanup();
+  }
+});
+
+
+test("FVG half-candle coordinates interpolate integer-only chart scales through pan and zoom", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    for (const [spacing, translation] of [[6, 280], [18, -300], [2.5, 0]]) {
+      const calls = [];
+      const scale = index => {
+        calls.push(index);
+        // This is the installed LWC contract: fractional indices return zero.
+        return Number.isInteger(index) ? translation + index * spacing : 0;
+      };
+      assert.equal(scale(7.5), 0);
+      calls.length = 0;
+      const left = charting.fvgLogicalToCoordinate(7.5, scale);
+      const right = charting.fvgLogicalToCoordinate(11.5, scale);
+      assert.equal(left, translation + 7.5 * spacing);
+      assert.equal(right, translation + 11.5 * spacing);
+      assert.equal(right - left, 4 * spacing);
+      assert.deepEqual(calls, [7, 8, 11, 12]);
+      assert.equal(charting.fvgLogicalToCoordinate(-0.5, scale), translation - spacing / 2);
+    }
+    assert.equal(charting.fvgLogicalToCoordinate(0, () => 0), 0);
+    assert.equal(charting.fvgLogicalToCoordinate(1.5, index => index === 1 ? 12 : null), null);
+    assert.equal(charting.fvgLogicalToCoordinate(1.5, () => NaN), null);
+    assert.equal(charting.fvgLogicalToCoordinate(Infinity, () => assert.fail("invalid index queried")), null);
+  } finally {
+    cleanup();
+  }
+});

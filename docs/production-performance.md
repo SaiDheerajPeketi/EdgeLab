@@ -17,7 +17,7 @@ Memory read caching has a 256-entry LRU limit, expiry cleanup and locks retained
 
 SQL and CSV candles now use tuples instead of one pandas Series per bar, preserving timestamps, timezones, OHLCV and nullable indicator warmup. Metrics select eleven required fields instead of full ORM trade objects, notes, screenshots and order settings. Summary drawdown uses scalar accumulation without allocating an unused curve. User/session filters and complete chronological statistics remain intact, with full-result parity tests. Idle dataset status reads do not allocate refresh-history records; acquired refresh-lock behavior is preserved.
 
-FVG calculation is skipped without a visible gap study, and render/hit-test passes reuse timestamp coordinate lookups. Study readouts stay bounded while every installed study remains accessible.
+FVG calculation is skipped without a visible gap study, and render/hit-test passes reuse timestamp coordinate lookups. Half-candle boundaries interpolate real integer coordinates to preserve placement through pan/zoom. Study readouts stay bounded while every installed study remains accessible.
 
 ## Existing efficiencies verified
 
