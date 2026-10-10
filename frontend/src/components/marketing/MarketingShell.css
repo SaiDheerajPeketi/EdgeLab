@@ -1,0 +1,114 @@
+/* Public marketing composition; application layout and theme tokens stay owned by the app. */
+.marketing-shell .marketing-sign-in {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bg-border);
+  border-radius: 8px;
+  padding: 0 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+.marketing-shell .marketing-sign-in:hover {
+  background: var(--ui-inset);
+  border-color: var(--text-secondary);
+}
+.marketing-shell .marketing-sign-in:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+}
+.marketing-shell .landing-hero {
+  padding-top: 48px;
+  padding-bottom: 88px;
+}
+.marketing-shell .landing-hero-layout {
+  display: grid;
+  gap: 40px;
+}
+.marketing-shell .landing-hero-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr);
+  align-items: end;
+  gap: 48px;
+}
+.marketing-shell .landing-hero-title {
+  max-width: 900px;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 4.5vw, 76px);
+  font-weight: 500;
+  line-height: 1.04;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.marketing-shell .landing-hero-copy {
+  min-width: 0;
+  padding-bottom: 4px;
+}
+.marketing-shell .landing-live-stage {
+  position: relative;
+}
+.marketing-shell .landing-workflow-intro {
+  display: grid;
+  grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: 64px;
+}
+.marketing-shell .landing-workflow-scene [aria-label="Rotate the market scene"] {
+  height: 360px;
+}
+@media (max-width: 1023px) {
+  .marketing-shell .landing-hero-intro {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .marketing-shell .landing-hero-title {
+    max-width: 720px;
+    font-size: clamp(40px, 6.5vw, 64px);
+  }
+  .marketing-shell .landing-hero-copy {
+    max-width: 600px;
+  }
+  .marketing-shell .landing-workflow-intro {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+}
+@media (max-width: 639px) {
+  .marketing-shell .marketing-header-inner {
+    gap: 8px;
+  }
+  .marketing-shell .marketing-sign-in {
+    padding: 0 12px;
+  }
+  .marketing-shell .landing-hero {
+    padding-top: 28px;
+    padding-bottom: 64px;
+  }
+  .marketing-shell .landing-hero-layout {
+    gap: 28px;
+  }
+  .marketing-shell .landing-hero-intro {
+    gap: 20px;
+  }
+  .marketing-shell .landing-hero-title {
+    font-size: clamp(36px, 10.4vw, 48px);
+  }
+  .marketing-shell .landing-hero-copy {
+    padding-bottom: 0;
+  }
+  .marketing-shell .landing-hero-actions {
+    gap: 8px;
+  }
+  .marketing-shell .landing-workflow-scene [aria-label="Rotate the market scene"] {
+    height: 320px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marketing-shell .marketing-sign-in {
+    transition: none;
+  }
+}

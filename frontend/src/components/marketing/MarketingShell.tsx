@@ -16,6 +16,7 @@ import { loadGsap } from "../../lib/gsap";
 import { buildMarketingCta, marketingPresentationFromSearch, marketingPresentationHref } from "../../lib/marketingCta";
 import { prefersMarketingReducedMotion, setMarketingMotionChoice, useMarketingReducedMotionPreference } from "../../lib/marketingMotion";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
+import "./MarketingShell.css";
 
 type NavItem = {
   href: string;
@@ -633,10 +634,6 @@ export function MarketingShell({
       data-marketing-motion={reducedMotion ? "reduced" : "full"}
       ref={shellRef}
     >
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_8%,rgba(50,211,238,0.1),transparent_25%),linear-gradient(180deg,var(--bg-base)_0%,#07090d_100%)]" />
-      </div>
-
       <div className="relative z-10 max-w-[100vw] overflow-x-clip">
         <a
           className="fixed left-3 top-3 z-[100] -translate-y-24 rounded-el-md bg-edgelab-accent px-4 py-3 text-sm font-semibold text-ink-950 transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-cyan-100 motion-reduce:transition-none"
@@ -646,14 +643,14 @@ export function MarketingShell({
         </a>
         <BetaBanner mode={presentationMode} />
         <header className={headerClassName} ref={headerRef}>
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
+          <div className="marketing-header-inner mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-3 sm:px-6 lg:px-8">
             <Link aria-label="EdgeLab home" data-shell-motion="wordmark" to={marketingPresentationHref("/", presentationMode)}>
-              <EdgeLabWordmark />
+              <EdgeLabWordmark showTagline={false} />
             </Link>
 
             <nav
               aria-label="Primary navigation"
-              className="hidden items-center gap-5 text-sm text-edgelab-text-secondary lg:flex"
+              className="hidden items-center gap-4 text-sm text-edgelab-text-secondary lg:flex"
               data-shell-motion="nav"
             >
               {navItems.map((item) => (
@@ -672,7 +669,8 @@ export function MarketingShell({
               ))}
             </nav>
 
-            <div className="flex shrink-0 items-center gap-2 sm:gap-3" data-shell-motion="cta">
+            <div className="marketing-header-actions flex shrink-0 items-center gap-2 sm:gap-3" data-shell-motion="cta">
+              <Link className="marketing-sign-in" to="/auth/signin">Sign in</Link>
               <Link
                 className="hidden min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none md:inline-flex"
                 to={primaryCta.href}
@@ -759,7 +757,10 @@ export function MarketingShell({
                   />
                 ))}
               </div>
-              <div className="flex items-center gap-4 sm:justify-end">
+              <div className="flex flex-wrap items-center gap-4 sm:justify-end">
+                <Link className="inline-flex min-h-11 items-center transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" to="/auth/signin">
+                  Sign in
+                </Link>
                 <Link className="transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" to="/privacy">
                   Privacy
                 </Link>

@@ -161,7 +161,7 @@ test("stopped entry finishes and exits wait until only the final reading strip r
   for (const family of [typography.body, ...typography.headings, ...typography.data]) expect(family).toMatch(/^"?Instrument Sans/);
   expect(typography.data.length).toBeGreaterThan(0); expect(typography.sectionHeadings.length).toBeGreaterThanOrEqual(3);
   for (const heading of typography.sectionHeadings) { expect(heading.family).toBe(typography.body); expect(heading.weight).toBe("500"); expect(Number.parseFloat(heading.lineHeight) / Number.parseFloat(heading.fontSize)).toBeCloseTo(1.06, 2); }
-  const targets = [page.locator("#how-it-works h2"), page.locator('#how-it-works [data-marketing-reveal$="-body"]'),
+  const targets = [page.locator("#how-it-works .landing-section-title"), page.locator('#how-it-works [data-marketing-reveal$="-body"]'),
     page.locator("[data-flow-row]").first(), page.locator("#capabilities article").first()];
   for (const target of targets) {
     await position(target, "below"); await finished(target, false);
@@ -178,7 +178,7 @@ test("stopped entry finishes and exits wait until only the final reading strip r
 test("text and components visibly travel inside the viewport before finishing without more scroll", async ({ page }, info) => {
   await openLanding(page);
   const evidence = [];
-  for (const target of [page.locator("#how-it-works h2"), page.locator('#how-it-works [data-marketing-reveal$="-body"]'), page.locator("[data-flow-row]").first()]) {
+  for (const target of [page.locator("#how-it-works .landing-section-title"), page.locator('#how-it-works [data-marketing-reveal$="-body"]'), page.locator("[data-flow-row]").first()]) {
     await position(target, "below"); await finished(target, false);
     await target.evaluate(node => {
       const rect = node.getBoundingClientRect(), matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
@@ -233,7 +233,7 @@ test("launch is default and beta marketing CTA changes without mutating auth", a
 test("footer motion preference preserves the session choice while the header stays clean", async ({ page }, info) => {
   await openLanding(page, "/", "reduce");
   const shell = page.locator("[data-marketing-motion]");
-  const reduce = page.getByRole("button", { name: /^(Pause|Resume) page movement$/ }), heading = page.locator("#how-it-works h2");
+  const reduce = page.getByRole("button", { name: /^(Pause|Resume) page movement$/ }), heading = page.locator("#how-it-works .landing-section-title");
   const header = page.locator(".marketing-shell header");
   await expect(header.getByRole("button", { name: "Page animations", exact: true })).toHaveCount(0);
   await expect(header).not.toContainText("Animations");

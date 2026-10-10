@@ -115,72 +115,73 @@ export function LandingPage() {
     >
       <div className="landing-story" data-marketing-variant={presentationMode}>
         <section
-          className="relative px-3 pb-20 pt-6 sm:px-6 sm:pb-28 sm:pt-12 lg:px-8 lg:pt-14"
+          className="landing-hero relative px-3 sm:px-6 lg:px-8"
           data-landing-hero
           id="product"
           tabIndex={-1}
         >
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-8 sm:gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-10">
-              <div className="order-1 min-w-0">
-                <h1
-                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[1.02] tracking-[-0.03em] text-white"
-                  data-marketing-reveal="title"
-                  data-motion="reveal"
-                  data-reveal-delay="0.03"
-                  data-split-text="lines"
-                >
-                  Replay the market. Preserve the decision.
-                </h1>
-                <p
-                  className="mt-5 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8"
-                  data-marketing-reveal="lede"
-                  data-motion="reveal"
-                  data-reveal-delay="0.08"
-                >
-                  Keep price action, notes, and outcomes in one workspace.
-                </p>
-                <div
-                  className="mt-5 flex flex-wrap items-center gap-3 lg:justify-start"
-                  data-marketing-reveal="hero-actions"
-                  data-motion="reveal"
-                  data-reveal-delay="0.12"
-                >
-                  <Link
-                    className="inline-flex h-12 items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
-                    to={primaryCta.href}
+            <div className="landing-hero-layout">
+              <div className="landing-hero-intro">
+                <div className="min-w-0">
+                  <h1
+                    className="landing-hero-title text-edgelab-text-primary"
+                    data-marketing-reveal="title"
+                    data-motion="reveal"
+                    data-reveal-delay="0.03"
+                    data-split-text="lines"
                   >
-                    {primaryCta.label}
-                    <ArrowRight aria-hidden="true" size={16} />
-                  </Link>
-                  <a
-                    className="inline-flex h-12 items-center gap-2 px-3 text-sm font-medium text-edgelab-text-primary underline-offset-4 transition-colors hover:text-cyan-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                    href="#live-preview"
-                  >
-                    Explore the product
-                    <ArrowDown aria-hidden="true" size={16} />
-                  </a>
+                    Replay the market. Preserve the decision.
+                  </h1>
                 </div>
-                {betaMode ? <div className="mt-4 hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 sm:flex" role="status">
-                    <strong className="font-medium text-cyan-100">
-                      {loading ? "Checking beta access…" : accessLabel}
-                    </strong>
-                    {betaAvailable ? <span className="text-edgelab-text-secondary">
-                      {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
-                    </span> : null}
-                </div> : null}
-                {betaMode ? <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
-                  Private beta · temporary test workspaces
-                </p> : null}
+                <div className="landing-hero-copy">
+                  <p
+                    className="max-w-xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8"
+                    data-marketing-reveal="lede"
+                    data-motion="reveal"
+                    data-reveal-delay="0.08"
+                  >
+                    Practice the setup. Record what you saw. Review the result beside the chart.
+                  </p>
+                  <div
+                    className="landing-hero-actions mt-5 flex flex-wrap items-center gap-3"
+                    data-marketing-reveal="hero-actions"
+                    data-motion="reveal"
+                    data-reveal-delay="0.12"
+                  >
+                    <Link
+                      className="inline-flex h-12 items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
+                      to={primaryCta.href}
+                    >
+                      {primaryCta.label}
+                      <ArrowRight aria-hidden="true" size={16} />
+                    </Link>
+                    <a
+                      className="inline-flex h-12 items-center gap-2 px-3 text-sm font-medium text-edgelab-text-primary underline-offset-4 transition-colors hover:text-cyan-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                      href="#live-preview"
+                    >
+                      Explore the product
+                      <ArrowDown aria-hidden="true" size={16} />
+                    </a>
+                  </div>
+                  {betaMode ? <div className="mt-4 hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 sm:flex" role="status">
+                      <strong className="font-medium text-cyan-100">
+                        {loading ? "Checking beta access…" : accessLabel}
+                      </strong>
+                      {betaAvailable ? <span className="text-edgelab-text-secondary">
+                        {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
+                      </span> : null}
+                  </div> : null}
+                  {betaMode ? <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
+                    Private beta · temporary test workspaces
+                  </p> : null}
+                </div>
               </div>
 
-              <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
+              <div className="landing-live-stage min-w-0 origin-top scroll-mt-28" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
                 <div className="landing-motion-content" data-scene-content>
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
                 </div>
-              </div>
-              <div className="order-3 min-w-0 lg:order-2" data-marketing-flow>
-                <MarketSculpture />
               </div>
             </div>
 
@@ -194,11 +195,16 @@ export function LandingPage() {
           tabIndex={-1}
         >
           <div className="mx-auto max-w-7xl">
-            <div className="landing-motion-content max-w-4xl" data-scene-content>
-              <SectionHeading
-                description="From the first setup to the next session, keep your process connected."
-                title="Trade. Understand. Refine."
-              />
+            <div className="landing-workflow-intro">
+              <div className="landing-motion-content max-w-4xl" data-scene-content>
+                <SectionHeading
+                  description="The market moves on. Keep the context that helps you improve."
+                  title="Trade. Understand. Refine."
+                />
+              </div>
+              <div className="landing-workflow-scene min-w-0" data-marketing-flow>
+                <MarketSculpture />
+              </div>
             </div>
 
             <div className="mt-14 border-t border-edgelab-border">
