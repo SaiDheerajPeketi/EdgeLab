@@ -98,3 +98,5 @@ Cleanup must target the owned Compose project/profile and intentionally preserve
 Root/component READMEs are entrypoints; detailed contracts live in `docs/`. Keep [the index](README.md) current and use links rather than duplicate defaults. Feature/reference notes should describe current behavior with tests/source references and explicit compatibility limits, not accumulate unreviewed launch promises.
 
 Add comments at ownership, transaction, ordering, units and security boundaries. Explain why a seemingly simpler change is unsafe, and link the canonical guide when useful. Remove an obsolete comment when behavior changes. Do not add noisy line-by-line narration or make comments a second configuration authority.
+
+When editing Mermaid, parse and render every changed diagram with the actual renderer before committing. The documentation checker validates Markdown fences and links, not Mermaid syntax. Sequence message text must avoid raw semicolons or encode them as `#59;`; see the [Mermaid sequence syntax](https://mermaid.js.org/syntax/sequenceDiagram.html#entity-codes-to-escape-characters).

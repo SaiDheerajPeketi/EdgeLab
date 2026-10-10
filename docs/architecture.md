@@ -80,10 +80,10 @@ sequenceDiagram
     Note over API: Bounded admission, request context, metrics
     API->>Auth: Introspect ba: session when applicable
     Auth-->>API: Verified subject + current session lifetime
-    API->>SQL: Resolve tenant; check current workspace/export policy
+    API->>SQL: Resolve tenant and check current workspace/export policy
     API->>SQL: Bounded domain query or transaction
     SQL-->>API: Owned records / committed result
-    API-->>Proxy: Validated response; private/no-store
+    API-->>Proxy: Validated response with private/no-store headers
     Proxy-->>Browser: Response / retryable error
     Note over Browser: Recheck captured owner before updating state
 ```

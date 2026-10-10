@@ -8,6 +8,7 @@ These instructions apply to the whole repository. Read the [documentation index]
 - Prefix every shell command and every chained segment with `rtk`; use `rtk proxy` for commands without a dedicated wrapper. Prefer Graphify or compressed context when they reduce work without losing correctness.
 - Preserve user-owned changes. Stage explicit task-owned paths, not the whole working tree. Never reset another contributor's files or clean unrelated services, Docker resources or worktrees.
 - Comments explain invariants, ownership, units or non-obvious failure behavior. Do not narrate obvious code, copy environment defaults into comments or advertise internal plans in product copy.
+- Validate changed Mermaid diagrams with an actual parser/renderer. The documentation fence/link check does not validate diagram syntax; raw semicolons in sequence messages delimit statements.
 - Verify uncertain dependencies, schemas and behavior from source/tests. Report remaining limitations precisely. Commit each complete iteration separately after its required checks.
 
 ## Runtime and data ownership
