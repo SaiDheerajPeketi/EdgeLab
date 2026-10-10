@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 
@@ -110,7 +111,7 @@ def database_engine_options(database_url: str) -> dict[str, object]:
     return options
 
 
-def database_request_admission_limits(db_engine, configured_limit: int = 0) -> tuple[int | None, int]:
+def database_request_admission_limits(db_engine, configured_limit: int = 0, *, thread_tokens: float) -> tuple[int | None, int]:
     if configured_limit < 0:
         raise ValueError("EDGELAB_HTTP_REQUEST_LIMIT must be zero (automatic) or positive")
     pool = db_engine.pool
@@ -118,9 +119,21 @@ def database_request_admission_limits(db_engine, configured_limit: int = 0) -> t
         if db_engine.dialect.name == "sqlite" and configured_limit == 0:
             return None, 0
         capacity = pool.size() + pool._max_overflow
-        safe_limit = max(1, capacity - 2)
+        if not thread_tokens > 0:
+            raise ValueError("The request thread budget must be positive")
+        # Allow a bounded checkout queue, while preserving shared worker threads
+        # for response validation and dependency cleanup. With 40 tokens this
+        # leaves eight free; small limiters retain at least one where possible.
+        if math.isfinite(thread_tokens):
+            tokens = max(1, int(thread_tokens))
+            reserve = min(8, max(1, tokens // 5))
+            request_budget = max(1, tokens - reserve)
+        else:
+            request_budget = 2 * capacity + 2
+        probe_limit = min(2, capacity, request_budget - 1)
+        safe_limit = min(2 * capacity, request_budget - probe_limit)
         limit = min(configured_limit or safe_limit, safe_limit)
-        return limit, min(2, capacity - limit)
+        return limit, probe_limit
     # Static/Null/unbounded pools have no finite checkout queue to starve.
     return configured_limit or None, 0
 

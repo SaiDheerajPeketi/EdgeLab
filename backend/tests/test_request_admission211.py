@@ -22,14 +22,21 @@ def test_limits_use_actual_pool_and_preserve_sqlite_defaults(monkeypatch, tmp_pa
     static = create_engine("sqlite://", poolclass=StaticPool)
     postgres = create_engine("postgresql+psycopg://fixture:fixture@127.0.0.1/fixture", pool_size=5, max_overflow=10)
     try:
-        assert database_request_admission_limits(pooled) == (None, 0)
-        assert database_request_admission_limits(pooled, 999) == (2, 2)
-        assert database_request_admission_limits(pooled, 1) == (1, 2)
-        assert database_request_admission_limits(static) == (None, 0)
-        assert database_request_admission_limits(postgres) == (13, 2)
-        assert database_request_admission_limits(postgres, 999) == (13, 2)
+        assert database_request_admission_limits(pooled, thread_tokens=40) == (None, 0)
+        assert database_request_admission_limits(pooled, 999, thread_tokens=40) == (8, 2)
+        assert database_request_admission_limits(pooled, 1, thread_tokens=40) == (1, 2)
+        assert database_request_admission_limits(static, thread_tokens=40) == (None, 0)
+        assert database_request_admission_limits(postgres, thread_tokens=40) == (30, 2)
+        assert database_request_admission_limits(postgres, 999, thread_tokens=40) == (30, 2)
+        assert database_request_admission_limits(postgres, 7, thread_tokens=40) == (7, 2)
+        assert database_request_admission_limits(postgres, thread_tokens=10) == (6, 2)
+        assert database_request_admission_limits(postgres, thread_tokens=2) == (1, 0)
+        assert database_request_admission_limits(postgres, thread_tokens=1) == (1, 0)
+        assert database_request_admission_limits(postgres, thread_tokens=float("inf")) == (30, 2)
         with pytest.raises(ValueError, match="zero.*positive"):
-            database_request_admission_limits(postgres, -1)
+            database_request_admission_limits(postgres, -1, thread_tokens=40)
+        with pytest.raises(ValueError, match="thread budget.*positive"):
+            database_request_admission_limits(postgres, thread_tokens=0)
     finally:
         pooled.dispose()
         static.dispose()
@@ -95,6 +102,76 @@ def test_sync_response_validation_finishes_with_tiny_thread_and_sql_pools(tmp_pa
             release.set()
             if first is not None and not first.done():
                 await first
+            limiter.total_tokens = previous
+
+    try:
+        asyncio.run(run())
+    finally:
+        engine.dispose()
+
+
+def test_bounded_database_checkout_wait_finishes_after_first_response_validation(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'queued.db'}", pool_size=1, max_overflow=0,
+                           pool_timeout=1, connect_args={"check_same_thread": False})
+    factory = sessionmaker(bind=engine)
+    entered, release, waiting = Event(), Event(), Event()
+    dependency_calls, steps = [], []
+
+    def database():
+        with factory() as db:
+            dependency_calls.append(True)
+            number = len(dependency_calls)
+            db.info["number"] = number
+            if number == 2:
+                waiting.set()
+            db.execute(select(1)).scalar_one()
+            steps.append(("acquired", number))
+            yield db
+
+    class Payload(BaseModel):
+        answer: int
+
+        @field_validator("answer")
+        @classmethod
+        def validate_answer(cls, value):
+            assert current_thread() is not main_thread()
+            assert engine.pool.checkedout() == 1
+            steps.append(("validated", value))
+            return value
+
+    app = FastAPI()
+    app.add_middleware(RequestAdmissionMiddleware, max_requests=999, db_engine=engine)
+
+    @app.get("/api/data", response_model=Payload)
+    def data(db=Depends(database)):
+        if db.info["number"] == 1:
+            entered.set()
+            assert release.wait(3)
+        return {"answer": db.info["number"]}
+
+    async def run():
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        previous = limiter.total_tokens
+        limiter.total_tokens = 4
+        requests = []
+        try:
+            requests.append(asyncio.create_task(response_call(app, scope())))
+            assert await asyncio.to_thread(entered.wait, 2)
+            requests.append(asyncio.create_task(response_call(app, scope())))
+            assert await asyncio.to_thread(waiting.wait, 2)
+            assert not requests[1].done()
+            assert steps == [("acquired", 1)]
+            assert (await asyncio.wait_for(response_call(app, scope()), 1))[0]["status"] == 503
+            assert len(dependency_calls) == 2
+            release.set()
+            responses = await asyncio.wait_for(asyncio.gather(*requests), 2)
+            assert [response[0]["status"] for response in responses] == [200, 200]
+            assert [json.loads(response[1]["body"]) for response in responses] == [{"answer": 1}, {"answer": 2}]
+            assert steps == [("acquired", 1), ("validated", 1), ("acquired", 2), ("validated", 2)]
+            assert engine.pool.checkedout() == 0
+        finally:
+            release.set()
+            await asyncio.gather(*requests, return_exceptions=True)
             limiter.total_tokens = previous
 
     try:
@@ -224,10 +301,13 @@ def test_downstream_exception_releases_admission(tmp_path):
     async def fail(*_args):
         raise RuntimeError("fixture failure")
 
-    admission = RequestAdmissionMiddleware(fail, max_requests=1, db_engine=engine)
-    try:
+    async def run():
+        admission = RequestAdmissionMiddleware(fail, max_requests=1, db_engine=engine)
         with pytest.raises(RuntimeError, match="fixture failure"):
-            asyncio.run(response_call(admission, scope()))
+            await response_call(admission, scope())
         assert admission.active_requests == 0
+
+    try:
+        asyncio.run(run())
     finally:
         engine.dispose()

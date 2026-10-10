@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -63,7 +64,10 @@ class RequestAdmissionMiddleware:
 
     def __init__(self, app: ASGIApp, max_requests: int = 0, db_engine=None) -> None:
         self.app = app
-        self.limit, self.probe_limit = database_request_admission_limits(db_engine if db_engine is not None else engine, max_requests)
+        thread_tokens = anyio.to_thread.current_default_thread_limiter().total_tokens
+        self.limit, self.probe_limit = database_request_admission_limits(
+            db_engine if db_engine is not None else engine, max_requests, thread_tokens=thread_tokens,
+        )
         self.active_requests = 0
         self.active_probes = 0
 
