@@ -165,6 +165,7 @@ export async function saveAppStorageItem<T>(
   assertAppDataAccess(access, true);
   const combinedKey = storageKey(namespace, key);
   const queued = queueValue(combinedKey, value);
+  const versionAtStart = mutationVersions.get(combinedKey);
   setCachedValue(namespace, key, value, combinedKey);
   try { writeLocalStorageValue(key, value, Date.now(), access); }
   catch (error) { queued.remove(); throw error; }
@@ -176,6 +177,7 @@ export async function saveAppStorageItem<T>(
         assertStorageAccess(access, namespace, key, combinedKey, true);
         const item = await putAppStorageItem(namespace, key, queued.entry.value);
         assertStorageAccess(access, namespace, key, combinedKey);
+        if (mutationVersions.get(combinedKey) !== versionAtStart) return;
         writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now(), access);
       } catch {
         // Keep the UI responsive; a later successful save will replace the server value.

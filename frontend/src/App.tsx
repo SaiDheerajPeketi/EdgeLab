@@ -539,6 +539,30 @@ export function WorkspaceApp() {
     loadChartLayoutRecords().find((record) => record.isStartup)?.name ?? null,
   );
   const [workspaceRecoveryMessage, setWorkspaceRecoveryMessage] = useState<string | null>(null);
+  const layoutSaveFeedback = useRef(createChartLayoutSaveFeedback(
+    () => setChartLayoutSavedAt(Date.now()),
+    (error) => {
+      setChartLayoutSavedAt(null);
+      setWorkspaceRecoveryMessage(
+        error && typeof error === "object" && "requiresReload" in error
+          ? "Layout saves are paused. Open Workspace settings, check the previous save in Storage, then reload."
+          : "The layout could not be saved on this device. Your chart is still open; check browser storage and try saving again.",
+      );
+    },
+  ));
+  useEffect(() => {
+    const feedback = layoutSaveFeedback.current;
+    feedback.mount();
+    const invalidate = () => { feedback.invalidate(); setChartLayoutSavedAt(null); };
+    const storage = (event: StorageEvent) => { if (event.key === null) invalidate(); };
+    window.addEventListener("edgelab:auth-session-change", invalidate);
+    window.addEventListener("storage", storage);
+    return () => {
+      feedback.dispose();
+      window.removeEventListener("edgelab:auth-session-change", invalidate);
+      window.removeEventListener("storage", storage);
+    };
+  }, []);
   const [chartPersistenceHydrated, setChartPersistenceHydrated] = useState(false);
   const [chartSyncSettings, setChartSyncSettingsState] = useState<ChartSyncSettings>(() =>
     sanitizeChartSyncSettings(loadChartLayout()?.syncSettings),
@@ -1128,7 +1152,6 @@ export function WorkspaceApp() {
     }
     const timer = window.setTimeout(() => {
       persistWorkspaceRecord(normalizeLayoutName(layoutName), buildChartLayoutPayload(drawingsRef.current));
-      setChartLayoutSavedAt(Date.now());
     }, 700);
     return () => window.clearTimeout(timer);
   }, [
@@ -1598,7 +1621,7 @@ export function WorkspaceApp() {
   const savedLayoutLabel =
     chartLayoutSavedAt == null
       ? null
-      : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], {
+      : `Saved on this device · ${new Date(chartLayoutSavedAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })}`;
@@ -2385,7 +2408,6 @@ export function WorkspaceApp() {
     const payload = buildChartLayoutPayload(drawings);
     const name = normalizeLayoutName(layoutName);
     persistWorkspaceRecord(name, payload);
-    setChartLayoutSavedAt(Date.now());
   }
 
   function persistChartLayoutWithDrawings(nextDrawings: ChartDrawing[]) {
@@ -2395,21 +2417,25 @@ export function WorkspaceApp() {
     const payload = buildChartLayoutPayload(nextDrawings);
     const name = normalizeLayoutName(layoutName);
     persistWorkspaceRecord(name, payload);
-    setChartLayoutSavedAt(Date.now());
   }
 
   function persistWorkspaceRecord(name: string, payload: StoredChartLayout) {
-    const result = saveNamedChartLayout(name, payload, workspaceRevisionRef.current);
-    workspaceRevisionRef.current = result.record.revision;
-    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, result.record.layout);
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name);
-    setLayoutName(result.record.name);
-    setAvailableLayouts(result.names);
-    setWorkspaceRecoveryMessage(
-      result.conflict
-        ? `A newer revision was preserved. Your edits were recovered as “${result.record.name}”.`
-        : null,
-    );
+    void layoutSaveFeedback.current.run(() => {
+      const result = saveNamedChartLayout(name, payload, workspaceRevisionRef.current);
+      workspaceRevisionRef.current = result.record.revision;
+      setLayoutName(result.record.name);
+      setAvailableLayouts(result.names);
+      setWorkspaceRecoveryMessage(
+        result.conflict
+          ? `A newer revision was preserved. Your edits were recovered as “${result.record.name}”.`
+          : null,
+      );
+      return Promise.all([
+        result.accepted,
+        saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, result.record.layout),
+        saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name),
+      ]);
+    });
   }
 
   function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
@@ -2459,20 +2485,22 @@ export function WorkspaceApp() {
     }
     applyChartLayout(record.layout);
     workspaceRevisionRef.current = record.revision;
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
     setLayoutName(record.name);
-    setChartLayoutSavedAt(Date.now());
+    void layoutSaveFeedback.current.run(() => saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, record.name));
   }
 
   function deleteNamedChartLayout(name: string) {
-    const nextNames = deleteChartLayoutRecord(name);
-    setAvailableLayouts(nextNames);
-    if (normalizeLayoutName(defaultLayoutName ?? "") === normalizeLayoutName(name)) setDefaultLayoutName(null);
-    if (normalizeLayoutName(startupLayoutName ?? "") === normalizeLayoutName(name)) setStartupLayoutName(null);
-    if (normalizeLayoutName(name) === normalizeLayoutName(layoutName)) {
-      setLayoutName(nextNames[0] ?? "Default");
-      void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextNames[0] ?? null);
-    }
+    void layoutSaveFeedback.current.run(() => {
+      const result = deleteChartLayoutRecord(name), writes: Promise<unknown>[] = [result.accepted];
+      setAvailableLayouts(result.names);
+      if (normalizeLayoutName(defaultLayoutName ?? "") === normalizeLayoutName(name)) setDefaultLayoutName(null);
+      if (normalizeLayoutName(startupLayoutName ?? "") === normalizeLayoutName(name)) setStartupLayoutName(null);
+      if (normalizeLayoutName(name) === normalizeLayoutName(layoutName)) {
+        setLayoutName(result.names[0] ?? "Default");
+        writes.push(saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.names[0] ?? null));
+      }
+      return Promise.all(writes);
+    });
   }
 
   function duplicateNamedChartLayout(name: string) {
@@ -2482,13 +2510,15 @@ export function WorkspaceApp() {
     let copyName = normalizeLayoutName(`${record.name} copy`);
     let suffix = 2;
     while (existing.has(copyName)) copyName = normalizeLayoutName(`${record.name} copy ${suffix++}`);
-    workspaceRevisionRef.current = 0;
-    const result = saveNamedChartLayout(copyName, { ...record.layout, revision: 0 }, 0);
-    workspaceRevisionRef.current = result.record.revision;
-    setAvailableLayouts(result.names);
-    setLayoutName(result.record.name);
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name);
-    applyChartLayout(result.record.layout);
+    void layoutSaveFeedback.current.run(() => {
+      workspaceRevisionRef.current = 0;
+      const result = saveNamedChartLayout(copyName, { ...record.layout, revision: 0 }, 0);
+      workspaceRevisionRef.current = result.record.revision;
+      setAvailableLayouts(result.names);
+      setLayoutName(result.record.name);
+      applyChartLayout(result.record.layout);
+      return Promise.all([result.accepted, saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name)]);
+    });
   }
 
   function renameNamedChartLayout(from: string, to: string) {
@@ -2500,12 +2530,13 @@ export function WorkspaceApp() {
         ? { ...item, name: nextName, updatedAt: new Date().toISOString() }
         : item,
     );
-    void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records);
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextName);
-    setAvailableLayouts(records.map((item) => item.name));
-    setLayoutName(nextName);
-    if (record.isDefault) setDefaultLayoutName(nextName);
-    if (record.isStartup) setStartupLayoutName(nextName);
+    void layoutSaveFeedback.current.run(() => {
+      setAvailableLayouts(records.map((item) => item.name));
+      setLayoutName(nextName);
+      if (record.isDefault) setDefaultLayoutName(nextName);
+      if (record.isStartup) setStartupLayoutName(nextName);
+      return Promise.all([saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records), saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextName)]);
+    });
   }
 
   function setNamedLayoutFlag(name: string, flag: "isDefault" | "isStartup") {
@@ -2514,10 +2545,12 @@ export function WorkspaceApp() {
       ...record,
       [flag]: normalizeLayoutName(record.name) === normalized,
     }));
-    void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records);
-    setAvailableLayouts(records.map((record) => record.name));
-    if (flag === "isDefault") setDefaultLayoutName(normalized);
-    else setStartupLayoutName(normalized);
+    void layoutSaveFeedback.current.run(() => {
+      setAvailableLayouts(records.map((record) => record.name));
+      if (flag === "isDefault") setDefaultLayoutName(normalized);
+      else setStartupLayoutName(normalized);
+      return saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records);
+    });
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>, { restorePanels = true }: { restorePanels?: boolean } = {}) {
@@ -2605,7 +2638,7 @@ export function WorkspaceApp() {
   ) {
     setChartInteractionPreferences((current) => {
       const next = { ...current, ...patch };
-      void persistChartInteractionPreferences(next);
+      void layoutSaveFeedback.current.run(() => persistChartInteractionPreferences(next), false);
       return next;
     });
   }
@@ -4313,7 +4346,7 @@ function purgeStaleSingleHorizontalDrawing() {
   if (getCachedAppStorageItem<string | null>(STALE_SINGLE_HORIZONTAL_PURGE_KEY, null) === "1") {
     return;
   }
-  void saveAppStorageItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY, "1");
+  void saveAppStorageItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY, "1").catch(() => undefined);
 
   try {
     const legacyLayout = getCachedAppStorageItem<Partial<StoredChartLayout> | null>(
@@ -4335,7 +4368,7 @@ function purgeStaleSingleHorizontalDrawing() {
     }
 
     if (legacyLayout) {
-      void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, { ...legacyLayout, drawings: [] });
+      void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, { ...legacyLayout, drawings: [] }).catch(() => undefined);
     }
 
     if (records.length > 0) {
@@ -4349,7 +4382,7 @@ function purgeStaleSingleHorizontalDrawing() {
           },
           updatedAt: new Date().toISOString(),
         })),
-      );
+      ).catch(() => undefined);
     }
   } catch {
     // Ignore invalid local layout JSON; normal sanitizers handle the fallback path.
@@ -4460,8 +4493,9 @@ function saveNamedChartLayout(
     savedRecord,
     ...records,
   ].slice(0, 12);
-  void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
+  const accepted = saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
   return {
+    accepted,
     conflict: revisionState.conflict,
     names: nextRecords.map((record) => record.name),
     record: savedRecord,
@@ -4473,8 +4507,36 @@ function deleteChartLayoutRecord(name: string) {
   const nextRecords = loadChartLayoutRecords().filter(
     (record) => normalizeLayoutName(record.name) !== normalizedName,
   );
-  void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
-  return nextRecords.map((record) => record.name);
+  return { accepted: saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords), names: nextRecords.map((record) => record.name) };
+}
+
+function createChartLayoutSaveFeedback(saved: () => void, failed: (error: unknown) => void) {
+  let currentWrite = 0, mounted = true;
+  return {
+    mount() { mounted = true; },
+    invalidate() { currentWrite += 1; },
+    dispose() { mounted = false; currentWrite += 1; },
+    async run(action: () => unknown | Promise<unknown>, markSaved = true) {
+      const write = ++currentWrite;
+      let access: ReturnType<typeof captureAppDataAccess> = null, captured = false, admitted = false;
+      const owns = (admissionFailure = false) => {
+        if (!mounted || !captured || write !== currentWrite) return false;
+        try {
+          const current = captureAppDataAccess();
+          if (current?.owner !== access?.owner || current?.token !== access?.token || current?.epoch !== access?.epoch) return false;
+          if (!admissionFailure) assertAppDataAccess(access);
+          return true;
+        } catch { return false; }
+      };
+      try {
+        access = captureAppDataAccess(); captured = true;
+        assertAppDataAccess(access, true);
+        admitted = true;
+        await action();
+        if (owns() && markSaved) saved();
+      } catch (error) { if (owns(!admitted)) failed(error); }
+    },
+  };
 }
 
 function normalizeLayoutName(name: string) {

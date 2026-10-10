@@ -392,10 +392,10 @@ export function loadActiveChartSettingsPreset(
 
 export function persistActiveChartSettingsPresetName(name: string | null) {
   if (!name) {
-    void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, null);
+    void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, null).catch(() => undefined);
     return;
   }
-  void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, normalizeChartSettingsPresetName(name));
+  void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, normalizeChartSettingsPresetName(name)).catch(() => undefined);
 }
 
 export function subscribeChartSettingsPresets(
@@ -408,7 +408,7 @@ export function subscribeChartSettingsPresets(
 }
 
 function persistChartSettingsPresets(presets: ChartSettingsPreset[]) {
-  void saveAppStorageItem(CHART_SETTINGS_PRESETS_STORAGE_KEY, presets);
+  void saveAppStorageItem(CHART_SETTINGS_PRESETS_STORAGE_KEY, presets).catch(() => undefined);
 }
 
 function sanitizeChartSettingsPresets(value: unknown): ChartSettingsPreset[] {
