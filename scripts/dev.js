@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 
 const processes = [];
 
+if (process.env.EDGELAB_AUTH_PROVIDER === "better-auth") {
+  if (!(await isHttpUp("http://127.0.0.1:3002/health"))) processes.push({ name: "better-auth", command: "node", args: ["backend/auth/server.mjs"] });
+  else console.log("[better-auth] already running on http://127.0.0.1:3002");
+}
+
 if (!(await isHttpUp("http://127.0.0.1:3001/api/health"))) {
   processes.push({
     name: "node-api",

@@ -261,6 +261,7 @@ ACCOUNT_PUBLIC = {
     ("GET", "/health"), ("GET", "/ready"), ("GET", "/ui/rollout"),
     ("GET", "/auth/config"), ("GET", "/auth/beta/status"), ("POST", "/auth/beta/access"),
     ("POST", "/auth/dev/bypass"), ("POST", "/auth/google/exchange"),
+    ("POST", "/auth/better-auth/exchange"),
     ("GET", "/auth/session"), ("DELETE", "/auth/session"),
     ("POST", "/app-data/operations/{operation_id}/recover"), ("POST", "/quant/jobs/{job_id}/cancel"),
     ("DELETE", "/integration-secrets/{secret_id}"), ("DELETE", "/broker-connections/{connection_id}"),

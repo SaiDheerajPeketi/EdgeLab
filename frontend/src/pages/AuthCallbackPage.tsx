@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
-import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
+import { ApiError, exchangeGoogleAuthCode, exchangeBetterAuthSession } from "../lib/api";
 import { getStoredAuthSession, hasWorkspaceAccess, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import {
   buildAuthSignInHref,
@@ -13,16 +13,16 @@ import { consumeGoogleAuthState } from "../lib/googleAuth";
 
 const CALLBACK_STEPS = [
   {
-    detail: "Validate the signed Google return and confirm the redirect target.",
-    label: "Secure callback",
+    detail: "Confirm your Google sign-in.",
+    label: "Confirm sign-in",
   },
   {
-    detail: "Exchange the auth code and rehydrate the EdgeLab session.",
-    label: "Session restore",
+    detail: "Restore your account and check access.",
+    label: "Restore account",
   },
   {
-    detail: "Check access and return to your workspace or subscription options.",
-    label: "Workspace handoff",
+    detail: "Return to your requested page or subscription options.",
+    label: "Open requested page",
   },
 ] as const;
 
@@ -65,7 +65,8 @@ export function AuthCallbackPage() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const code = searchParams.get("code");
+    const betterAuth = searchParams.get("better_auth") === "1";
+    const code = betterAuth ? "better-auth" : searchParams.get("code");
     const providerError = searchParams.get("error");
     const stateKey = searchParams.get("state");
     let attempt = attemptRef.current;
@@ -73,7 +74,7 @@ export function AuthCallbackPage() {
       if (attempt) attempt.invalidated = true;
       attempt = {
         search: location.search,
-        state: consumeGoogleAuthState(stateKey),
+        state: consumeGoogleAuthState(stateKey, authIdentity()),
         owner: authIdentity(),
         invalidated: false,
         handled: false,
@@ -143,7 +144,7 @@ export function AuthCallbackPage() {
         setActiveStep(1);
         // Only pending work survives StrictMode's effect replay. A real remount
         // must consume a new state, and settled responses are never cached.
-        ownedAttempt.pending ??= exchangeGoogleAuthCode({ code, redirect_uri: authState.redirectUri });
+        ownedAttempt.pending ??= betterAuth ? exchangeBetterAuthSession() : exchangeGoogleAuthCode({ code, redirect_uri: authState.redirectUri });
         ownedAttempt.pending.then((response) => {
           if (!ownsAttempt() || ownedAttempt.handled) return;
           settling = true;

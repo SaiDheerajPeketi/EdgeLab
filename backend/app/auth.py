@@ -15,6 +15,7 @@ from app.config import settings
 from app.db import get_db
 from app.models import BetaSession, BetaUser, utcnow
 from app.services import access_policy
+from app.services import better_auth
 
 
 JWT_ALGORITHM = "HS256"
@@ -33,6 +34,7 @@ class AuthenticatedUser:
     session_created_at: datetime
     session_expires_at: datetime
     access_expires_at: datetime | None = None
+    external_token: str | None = None
 
 
 def configured_api_token() -> str:
@@ -120,6 +122,15 @@ def create_session_token(user_id: int, session_id: str, expires_at: datetime) ->
 
 
 def authenticate_token(db: Session, token: str) -> AuthenticatedUser:
+    if token.startswith(better_auth.TOKEN_PREFIX):
+        identity = better_auth.request_session(token=token)
+        user = db.scalar(select(BetaUser).where(BetaUser.google_subject == identity["sub"]))
+        if not _verified_google_user(user):
+            raise _auth_error()
+        return AuthenticatedUser(id=user.id, email=user.email, name=user.name, provider="google",
+            approved=user.status == "APPROVED", beta_position=user.beta_position,
+            session_id=identity["session_id"], session_created_at=identity["created_at"],
+            session_expires_at=identity["expires_at"], external_token=token)
     claims = _decode_jwt(token)
     user_id = claims["user_id"]
     session_id = claims["session_id"]

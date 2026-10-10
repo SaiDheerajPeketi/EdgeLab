@@ -235,6 +235,7 @@ from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
 from app.services.rate_limits import build_rate_limiter
 from app.services.auth_rate_limits import (AuthRateLimitExceeded, AuthRateLimiterUnavailable, build_google_exchange_limiter)
+from app.services import better_auth
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
@@ -1259,7 +1260,8 @@ def beta_program_status(db: Session = Depends(get_db)) -> BetaProgramStatus:
 def beta_auth_config() -> BetaAuthConfig:
     return BetaAuthConfig(
         deployment_mode=access_policy.deployment_mode(settings),
-        google_enabled=google_oauth_enabled(),
+        auth_provider="better-auth" if better_auth.enabled() else "legacy",
+        google_enabled=better_auth.readiness() if better_auth.enabled() else google_oauth_enabled(),
         google_client_id=settings.google_client_id or None,
         google_redirect_uri=settings.google_redirect_uri or None,
         manual_access_enabled=beta_manual_access_enabled(),
@@ -1378,6 +1380,65 @@ def require_google_exchange_admission():
                             headers={"Retry-After": "5"}) from exc
 
 
+def bind_verified_google_user(db: Session, userinfo: dict[str, object]) -> BetaUser:
+    email = normalize_beta_email(clean_text(userinfo.get("email")))
+    name = (clean_text(userinfo.get("name")) or email.split("@", 1)[0])[:160]
+    if userinfo.get("email_verified") is not True or not valid_google_subject(userinfo.get("sub")):
+        raise HTTPException(status_code=502, detail="Google userinfo requires a verified email and stable subject")
+    mode = access_policy.deployment_mode(settings)
+    access_policy.lock_enrollment(db)
+    subject = userinfo["sub"]
+    user = db.scalar(select(BetaUser).where(BetaUser.google_subject == subject))
+    by_email = db.scalar(select(BetaUser).where(BetaUser.email == email))
+    if user is not None:
+        if by_email is not None and by_email.id != user.id:
+            raise HTTPException(status_code=409, detail="Google account email conflicts with an existing account")
+        user.email, user.name = email, name
+    elif by_email is not None:
+        if by_email.provider not in {"email", "google"} or by_email.google_subject is not None:
+            raise HTTPException(status_code=409, detail="Use the account's existing sign-in provider")
+        if not google_authoritative_for_email(userinfo, email):
+            raise HTTPException(status_code=409, detail="This existing account requires current mailbox ownership verification before Google recovery.")
+        user = by_email
+        # Caller-supplied legacy labels did not prove ownership. Keep the same
+        # revocation rule when Better Auth first verifies an existing account.
+        db.query(BetaSession).filter(BetaSession.user_id == user.id).delete(synchronize_session=False)
+        user.provider, user.google_subject, user.name = "google", subject, name
+    else:
+        user = BetaUser(email=email, name=name, provider="google", google_subject=subject, status="WAITLISTED" if mode == "beta" else "PUBLIC")
+        db.add(user)
+        db.flush()
+    return user
+
+
+@router.post("/auth/better-auth/exchange", response_model=BetaAccessResponse,
+             dependencies=[Depends(require_google_exchange_admission)])
+def exchange_better_auth_session(request: Request, db: Session = Depends(get_db)) -> BetaAccessResponse:
+    if not better_auth.enabled():
+        raise HTTPException(404, "Better Auth is unavailable")
+    # A cookie-to-bearer bridge is a state-changing sign-in operation. Require
+    # the browser's exact configured public origin rather than forwarded hosts.
+    expected = settings.public_origin.rstrip("/")
+    if not expected or request.headers.get("origin") != expected:
+        raise HTTPException(403, "Invalid sign-in origin")
+    identity = better_auth.request_session(cookie=request.headers.get("cookie"))
+    try:
+        user = bind_verified_google_user(db, identity)
+        program = sync_beta_program(db)
+        user.last_login_at = utcnow()
+        session = BetaAuthSessionRead(token=f"{better_auth.TOKEN_PREFIX}{identity['token']}",
+            created_at=identity["created_at"], expires_at=identity["expires_at"],
+            user=serialize_beta_user(db, user, identity["expires_at"]))
+        db.commit()
+        return BetaAccessResponse(session=session, program=program)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Google account identity conflicts with an existing account") from exc
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(500, "Google sign-in failed") from exc
+
+
 @router.post("/auth/google/exchange", response_model=BetaAccessResponse,
              dependencies=[Depends(require_google_exchange_admission)])
 def exchange_google_auth_code(
@@ -1385,35 +1446,11 @@ def exchange_google_auth_code(
     db: Session = Depends(get_db),
 ) -> BetaAccessResponse:
     try:
+        if better_auth.enabled():
+            raise HTTPException(409, "Use Better Auth Google sign-in")
         token_payload = fetch_google_token_payload(payload.code, payload.redirect_uri)
         userinfo = fetch_google_userinfo(clean_text(token_payload.get("access_token")))
-        email = normalize_beta_email(clean_text(userinfo.get("email")))
-        name = clean_text(userinfo.get("name")) or email.split("@", 1)[0]
-        if userinfo.get("email_verified") is not True or not valid_google_subject(userinfo.get("sub")):
-            raise HTTPException(status_code=502, detail="Google userinfo requires a verified email and stable subject")
-        mode = access_policy.deployment_mode(settings)
-        access_policy.lock_enrollment(db)
-        subject = userinfo["sub"]
-        user = db.scalar(select(BetaUser).where(BetaUser.google_subject == subject))
-        by_email = db.scalar(select(BetaUser).where(BetaUser.email == email))
-        if user is not None:
-            if by_email is not None and by_email.id != user.id:
-                raise HTTPException(status_code=409, detail="Google account email conflicts with an existing account")
-            user.email, user.name = email, name
-        elif by_email is not None:
-            if by_email.provider not in {"email", "google"} or by_email.google_subject is not None:
-                raise HTTPException(status_code=409, detail="Use the account's existing sign-in provider")
-            if not google_authoritative_for_email(userinfo, email):
-                raise HTTPException(status_code=409, detail="This existing account requires current mailbox ownership verification before Google recovery.")
-            user = by_email
-            # Manual enrollment and pre-47 caller-supplied Google labels did not
-            # prove ownership. Revoke every prior session before binding it.
-            db.query(BetaSession).filter(BetaSession.user_id == user.id).delete(synchronize_session=False)
-            user.provider, user.google_subject, user.name = "google", subject, name
-        else:
-            user = BetaUser(email=email, name=name, provider="google", google_subject=subject, status="WAITLISTED" if mode == "beta" else "PUBLIC")
-            db.add(user)
-            db.flush()
+        user = bind_verified_google_user(db, userinfo)
         program = sync_beta_program(db)
         user.last_login_at = utcnow()
         response = BetaAccessResponse(session=issue_beta_session(db, user), program=program)
@@ -1435,7 +1472,7 @@ def read_beta_session(
     try:
         sync_beta_program(db)
         result = BetaAuthSessionRead(
-            token=create_session_token(
+            token=current_user.external_token or create_session_token(
                 current_user.id,
                 current_user.session_id,
                 current_user.session_expires_at,
@@ -1456,6 +1493,9 @@ def delete_beta_session(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
+    if current_user.external_token:
+        better_auth.request_session(token=current_user.external_token, sign_out=True)
+        return {"ok": True}
     try:
         deleted = db.query(BetaSession).filter(
             BetaSession.id == current_user.session_id,

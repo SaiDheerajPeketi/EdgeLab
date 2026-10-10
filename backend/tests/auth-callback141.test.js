@@ -56,7 +56,7 @@ const bundle = await build({
       path === "react" ? `const r=globalThis.__callback141.react;export const useEffect=r.useEffect,useRef=r.useRef,useState=r.useState;` :
       path === "react/jsx-runtime" ? `export const jsx=(type,props)=>({type,props});export const jsxs=jsx;` :
       path === "react-router-dom" ? `export const useLocation=()=>globalThis.__callback141.location();export const useNavigate=()=>globalThis.__callback141.navigate;` :
-      path === "api" ? `export class ApiError extends Error{constructor(message,status){super(message);this.status=status;}}export const exchangeGoogleAuthCode=x=>globalThis.__callback141.exchange(x);` :
+      path === "api" ? `export class ApiError extends Error{constructor(message,status){super(message);this.status=status;}}export const exchangeGoogleAuthCode=x=>globalThis.__callback141.exchange(x);export const exchangeBetterAuthSession=()=>globalThis.__callback141.exchange({betterAuth:true});` :
       `export const AuthTransitionScreen=x=>x;`,
     }));
   } }],

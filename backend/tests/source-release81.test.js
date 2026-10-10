@@ -40,6 +40,10 @@ async function fixture(t) {
     "backend/alembic/versions/001.py": "revision = '001'\n",
     "backend/scripts/start_api.sh": "#!/bin/sh\nexec python -m app.main\n",
     "backend/Dockerfile": "FROM python:3.12-slim\n",
+    "backend/auth/package.json": '{"name":"edgelab-auth","private":true}\n',
+    "backend/auth/Dockerfile": "FROM node:22-slim\n",
+    "backend/auth/auth.mjs": "export const auth = 'matching-runtime';\n",
+    "backend/auth/server.mjs": "export const serve = true;\n",
     "docker/nginx.conf": "server { listen 80; }\n",
     "scripts/dev.js": "console.log('dev');\n",
     "scripts/pine-engine.mjs": "export const pinned = true;\n",
@@ -108,6 +112,7 @@ function member(entries, relative) {
 
 test("collector preserves current allowed file bytes including dirty changes without publishing excluded material", async (t) => {
   const f = await fixture(t), excluded = [".env", ".env.production", ".git/config", ".codex/private-plan.md", "docs/internal-launch-plan.md", "backend/data/customers.json", "backend/uploads/private.svg", "backend/app/customers.csv", "backend/app/database.sqlite", "frontend/dist/compiled.js", "frontend/node_modules/token.json", "frontend/src/roadmap.md", "frontend/public/source/old-source.tar.gz", "frontend/vendor/pinets/upstream/stale.ts", "scripts/private-launch-plan.mjs", "scripts/export-app-screens.mjs", "deployment/extract-config.sh", "deployment/instance-snapshots/accounts.json", "deployment/google-oauth-client.json", "datasets/EURUSD_M1.csv", "node_modules/other-package/package.json"];
+  excluded.push("backend/auth/auth.db", "backend/auth/google-oauth-client.json", "backend/auth/.env", "backend/auth/node_modules/private.mjs");
   for (const name of excluded) await put(f.root, name, "PRIVATE_SENTINEL_81\n");
   const records = await collectSourceFiles(f.root), byPath = new Map(records.map((record) => [record.path, record]));
   for (const [name, bytes] of Object.entries(f.files)) {

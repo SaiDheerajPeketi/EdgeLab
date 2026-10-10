@@ -10,7 +10,9 @@ type StoredGoogleAuthState = {
   issuedAt: number;
   redirectUri: string;
   state: string;
+  authOwner?: string;
 };
+
 
 function randomState() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -20,7 +22,7 @@ function randomState() {
 }
 
 export function isGoogleAuthConfigured(config: BetaAuthConfig | null | undefined) {
-  return Boolean(config?.google_enabled && config.google_client_id?.trim());
+  return Boolean(config?.google_enabled && (config.auth_provider === "better-auth" || config.google_client_id?.trim()));
 }
 
 export function buildGoogleAuthorizeUrl(
@@ -31,6 +33,15 @@ export function buildGoogleAuthorizeUrl(
 ) {
   const redirectUri =
     configuredRedirectUri?.trim() || `${window.location.origin}/auth/callback/google`;
+  const state = storeGoogleAuthAttempt(fromPath, redirectUri, pricingDestination);
+  const query = new URLSearchParams({
+    client_id: clientId.trim(), redirect_uri: redirectUri,
+    response_type: "code", scope: "openid email profile", state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${query.toString()}`;
+}
+
+export function storeGoogleAuthAttempt(fromPath: string, redirectUri: string, pricingDestination?: string | null, authOwner?: string) {
   const state = randomState();
   const payload: StoredGoogleAuthState = {
     fromPath: safeAuthDestination(fromPath),
@@ -38,24 +49,25 @@ export function buildGoogleAuthorizeUrl(
     redirectUri,
     state,
   };
+  if (authOwner !== undefined) payload.authOwner = authOwner;
   if (pricingDestination && pricingDestination.length <= 2048) {
     const safe = safeAuthDestination(pricingDestination);
     if (isWorkspaceAuthDestination(pricingDestination)) payload.pricingDestination = safe;
   }
   storeGoogleAuthState(payload);
 
-  const query = new URLSearchParams({
-    client_id: clientId.trim(),
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email profile",
-    state,
-  });
-
-  return `https://accounts.google.com/o/oauth2/v2/auth?${query.toString()}`;
+  return state;
 }
 
-export function consumeGoogleAuthState(receivedState: string | null) {
+export function ownsGoogleAuthAttempt(state: string, authOwner: string) {
+  try {
+    const value = JSON.parse(readGoogleAuthState() ?? "null");
+    return isStoredGoogleAuthState(value) && value.state === state && value.authOwner === authOwner &&
+      value.issuedAt <= Date.now() && Date.now() - value.issuedAt <= GOOGLE_AUTH_STATE_TTL_MS;
+  } catch { return false; }
+}
+
+export function consumeGoogleAuthState(receivedState: string | null, authOwner?: string) {
   const rawValue = readGoogleAuthState();
   if (!rawValue) {
     clearGoogleAuthState();
@@ -67,7 +79,7 @@ export function consumeGoogleAuthState(receivedState: string | null) {
     if (
       !isStoredGoogleAuthState(parsed) ||
       !receivedState ||
-      parsed.state !== receivedState ||
+      parsed.state !== receivedState || (parsed.authOwner !== undefined && parsed.authOwner !== authOwner) ||
       Date.now() - parsed.issuedAt > GOOGLE_AUTH_STATE_TTL_MS || parsed.issuedAt > Date.now()
     ) {
       clearGoogleAuthState();
@@ -145,6 +157,7 @@ function clearGoogleAuthState() {
 function isStoredGoogleAuthState(value: StoredGoogleAuthState) {
   return (
     typeof value?.fromPath === "string" &&
+    (value.authOwner === undefined || (typeof value.authOwner === "string" && value.authOwner.length <= 8192)) &&
     value.fromPath.startsWith("/") &&
     (value.pricingDestination === undefined || (typeof value.pricingDestination === "string" && value.pricingDestination.length <= 2048)) &&
     typeof value.redirectUri === "string" &&

@@ -14,6 +14,7 @@ const exactFiles = new Set([
   "scripts/dev.js", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",
   "backend/scripts/start_api.sh", "backend/scripts/migrate_sqlite_to_database.py", "backend/scripts/seed.py", "backend/scripts/import_market_data_to_db.py", "backend/scripts/refresh_session_summaries.py",
   "backend/Dockerfile", "backend/Dockerfile.node", "backend/requirements.txt", "backend/requirements-dev.txt", "backend/alembic.ini", "backend/index.js", "backend/db.js",
+  "backend/auth/package.json", "backend/auth/Dockerfile",
 ]);
 const trees = [
   ["frontend/src", /\.(?:ts|tsx|js|jsx|mjs|css|json|svg)$/],
@@ -21,6 +22,7 @@ const trees = [
   ["frontend/vendor/pinets", /\.(?:ts|json|md)$/],
   ["backend/app", /\.py$/], ["backend/alembic", /\.(?:py|mako)$/],
   ["backend/routes", /\.js$/], ["backend/utils", /\.js$/],
+  ["backend/auth", /\.mjs$/],
   ["docker", /(?:\.(?:conf|yml|yaml|json|sql|sh)|(?:^|\/)Dockerfile)$/],
 ];
 const excludedFolders = new Set(["node_modules", "__pycache__", "uploads", "dist"]);
@@ -103,8 +105,14 @@ folder and configure EDGELAB_DATASETS_ROOT when market data is required.
 
 Docker Compose builds both application images from this source. Configure .env with
 your own secrets, dataset path, Google account and Stripe settings. The supplied
-Compose defaults select beta explicitly; select production for both API and browser
-for public paid access. Live billing requires an activated merchant account and
+main Compose defaults select production; local Compose explicitly selects beta.
+Better Auth runs on Node 22.13+ with a separate durable authentication database.
+Configure distinct BETTER_AUTH_SECRET and EDGELAB_AUTH_SERVICE_KEY values, the
+exact public origin, and Google credentials. Register the Google redirect URI
+at <public-origin>/api/better-auth/callback/google. Missing credentials leave
+Google sign-in unavailable. Direct development uses legacy auth unless explicitly
+enabled; node --env-file=.env scripts/dev.js loads local Better Auth configuration.
+Live billing requires an activated merchant account and
 live prices/credentials. Build and start with docker compose up --build -d. The web
 service uses port 8080 by default. Do not expose local development bypass settings
 or publish credentials. The optional legacy-node-api profile is retained.

@@ -6,6 +6,29 @@ x-backend-image: &backend-image
     dockerfile: backend/Dockerfile
 
 services:
+  auth:
+    build:
+      context: .
+      dockerfile: backend/auth/Dockerfile
+    environment:
+      BETTER_AUTH_URL: ${EDGELAB_PUBLIC_ORIGIN:-https://edgelab.example}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      EDGELAB_AUTH_SERVICE_KEY: ${EDGELAB_AUTH_SERVICE_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_SECRETS_FILE: ${GOOGLE_CLIENT_SECRETS_FILE:-/opt/edgelab/deployment/google-oauth-client.json}
+    volumes:
+      - auth-data:/var/lib/edgelab-auth
+      - type: bind
+        source: ./deployment
+        target: /opt/edgelab/deployment
+        read_only: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
   postgres:
     image: postgres:16-alpine
     command:
@@ -356,6 +379,9 @@ services:
       EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: ${EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED:-0}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_PUBLIC_ORIGIN: ${EDGELAB_PUBLIC_ORIGIN:-}
+      EDGELAB_AUTH_PROVIDER: ${EDGELAB_AUTH_PROVIDER:-better-auth}
+      EDGELAB_BETTER_AUTH_INTERNAL_URL: http://auth:3002
+      EDGELAB_AUTH_SERVICE_KEY: ${EDGELAB_AUTH_SERVICE_KEY:-}
       EDGELAB_DEPLOYMENT_MODE: ${EDGELAB_DEPLOYMENT_MODE:-production}
       EDGELAB_BILLING_ENABLED: ${EDGELAB_BILLING_ENABLED:-0}
       EDGELAB_STRIPE_MODE: ${EDGELAB_STRIPE_MODE:-test}
@@ -440,6 +466,9 @@ services:
       EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: ${EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED:-0}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_PUBLIC_ORIGIN: ${EDGELAB_PUBLIC_ORIGIN:-}
+      EDGELAB_AUTH_PROVIDER: ${EDGELAB_AUTH_PROVIDER:-better-auth}
+      EDGELAB_BETTER_AUTH_INTERNAL_URL: http://auth:3002
+      EDGELAB_AUTH_SERVICE_KEY: ${EDGELAB_AUTH_SERVICE_KEY:-}
       EDGELAB_DEPLOYMENT_MODE: ${EDGELAB_DEPLOYMENT_MODE:-production}
       EDGELAB_BILLING_ENABLED: ${EDGELAB_BILLING_ENABLED:-0}
       EDGELAB_STRIPE_MODE: ${EDGELAB_STRIPE_MODE:-test}
@@ -555,6 +584,8 @@ services:
         VITE_BETA_SEATS_TAKEN: ${VITE_BETA_SEATS_TAKEN:-0}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
     depends_on:
+      auth:
+        condition: service_healthy
       api:
         condition: service_healthy
       market-api:
@@ -593,6 +624,7 @@ services:
       - ./benchmark:/benchmark:ro
 
 volumes:
+  auth-data:
   api-data:
   postgres-data:
   timescaledb-data:

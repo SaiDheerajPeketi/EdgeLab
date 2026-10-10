@@ -143,6 +143,9 @@ class Settings:
     market_data_database_url: str = default_market_data_database_url()
     api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
     jwt_secret: str = os.getenv("EDGELAB_JWT_SECRET", "").strip()
+    auth_provider: str = os.getenv("EDGELAB_AUTH_PROVIDER", "legacy").strip()
+    better_auth_internal_url: str = os.getenv("EDGELAB_BETTER_AUTH_INTERNAL_URL", "http://127.0.0.1:3002").strip()
+    auth_service_key: str = os.getenv("EDGELAB_AUTH_SERVICE_KEY", "").strip()
     google_client_id: str = GOOGLE_OAUTH_CREDENTIALS.client_id
     google_client_secret: str = GOOGLE_OAUTH_CREDENTIALS.client_secret
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
@@ -281,6 +284,8 @@ class Settings:
 
 
 settings = Settings()
+if settings.auth_provider not in {"legacy", "better-auth"}:
+    raise ValueError("EDGELAB_AUTH_PROVIDER must be legacy or better-auth")
 
 if not settings.google_redirect_uri and settings.public_origin:
     settings = Settings(
@@ -291,6 +296,9 @@ if not settings.google_redirect_uri and settings.public_origin:
         market_data_database_url=settings.market_data_database_url,
         api_token=settings.api_token,
         jwt_secret=settings.jwt_secret,
+        auth_provider=settings.auth_provider,
+        better_auth_internal_url=settings.better_auth_internal_url,
+        auth_service_key=settings.auth_service_key,
         google_client_id=settings.google_client_id,
         google_client_secret=settings.google_client_secret,
         google_client_secrets_file=settings.google_client_secrets_file,

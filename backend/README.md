@@ -46,7 +46,19 @@ By default, local development uses SQLite and `datasets/`. Set `DATABASE_URL` an
 | `scripts/` | Imports, refresh jobs, and benchmarks |
 | `tests/` | Python and Node-based backend tests |
 
+## Better Auth
+
+The default Compose stack runs the real Better Auth 1.7.7 Node service in `auth/`, with durable SQLite sessions in the separate `auth-data` volume. Node 22.13+ is required for its built-in SQLite adapter. Startup runs Better Auth's migrations and schema validation before reporting health. Session cookie caching is disabled and the bearer plugin requires a valid signature. A small provider plugin uses native state to bind a per-attempt nonce and verifies Google's RS256 ID-token signature, issuer, audience and age before profile mapping. The launch HTTP surface exposes Google redirect sign-in/callback, current session and sign-out only; direct ID-token sign-in, password signup, account linking and user updates are disabled at the service boundary.
+
+Configure `EDGELAB_AUTH_PROVIDER=better-auth`, the fixed `EDGELAB_BETTER_AUTH_INTERNAL_URL`, distinct random `BETTER_AUTH_SECRET`/`EDGELAB_AUTH_SERVICE_KEY` values of at least 32 characters, and the exact public HTTPS origin. `BETTER_AUTH_URL` selects the auth service's public origin; Compose derives it from `EDGELAB_PUBLIC_ORIGIN`. Supply Google client ID/secret or `GOOGLE_CLIENT_SECRETS_FILE` (`web`, `installed`, or direct JSON format); environment values take precedence per field. Compose mounts `deployment/` read-only into the auth service and API. Register `<public-origin>/api/better-auth/callback/google` in Google Cloud. Absent credentials are reported unavailable by `/api/auth/config`.
+
+`POST /api/auth/better-auth/exchange` requires the exact configured Origin and forwards only one allowlisted signed session cookie to the fixed internal service. The distinct service key protects introspection and revocation; redirects are refused and bearer/cookie ambiguity fails closed. The bridge returns a `ba:` bearer and the existing account metadata. Every authenticated HTTP/stream check introspects that genuine session, reads the Google subject from Better Auth's server-owned account table and resolves the existing numeric account. Remote revocation/service failure does not fall back to a legacy session. `DELETE /api/auth/session` revokes that real Better Auth session. Subscriptions and exports retain verified-Google and live-paid checks.
+
+Existing verified JWT sessions remain valid. New direct development processes default to `EDGELAB_AUTH_PROVIDER=legacy` for compatibility; opting into Better Auth requires the service and credentials. Local Compose uses beta, isolated local auth secrets and loopback developer sign-in. That bypass does not produce a Google identity or paid entitlement. Tests exercise real Better Auth cookies, signed bearers, persistence/revocation, Google state/PKCE/replay and the FastAPI bridge with owned Google certificate/token transport; an external Google account/deployment check is still required once credentials are configured.
+
 ## Google exchange admission
+
+Both the legacy `/api/auth/google/exchange` and Better Auth `/api/auth/better-auth/exchange` use the API exchange admission described below. The Better Auth proxy paths also retain the socket-address Nginx limit.
 
 `POST /api/auth/google/exchange` reserves admission before contacting Google: 120 requests per 60 seconds across API processes using the configured `EDGELAB_REDIS_URL`, with atomic expiry, or one bounded process-local counter when that URL is unset. Budget exhaustion returns 429 with the remaining-window `Retry-After`; configured Redis errors return 503 with `Retry-After: 5` instead of falling back to an independent counter. Each process admits at most eight simultaneous exchanges; a full process returns 429 with `Retry-After: 1` without waiting for a slot. Requests do not use user-controlled forwarded headers as admission keys.
 

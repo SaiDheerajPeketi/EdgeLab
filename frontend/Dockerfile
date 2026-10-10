@@ -18,6 +18,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
+COPY backend/auth/package.json backend/auth/package.json
 RUN npm ci --no-audit --no-fund \
     && NODE_ARCH="$(node -p 'process.arch')" \
     && ROLLUP_PACKAGE="@rollup/rollup-linux-${NODE_ARCH}-gnu" \

@@ -23,6 +23,7 @@ backend/**/*.pyc
 *.db-journal
 *.db-shm
 *.db-wal
+backend/auth/node_modules/
 
 EURUSD_M1.csv
 datasets/*

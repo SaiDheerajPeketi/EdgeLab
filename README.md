@@ -46,6 +46,10 @@ Production mode accepts verified Google accounts and requires a current live pai
 
 Legacy beta accounts without a Google identity can verify their exact email through Gmail or Google Workspace and retain their history; first verification revokes older sessions. Existing accounts using third-party email without Google ownership authority require separate mailbox recovery. Verification alone does not grant a paid subscription.
 
+Better Auth 1.7.7 owns Google OAuth and revocable signed sessions in the default Compose deployment. Its isolated `auth-data` SQLite volume is separate from account and trading data. FastAPI checks each Better Auth bearer against the service and binds the provider's verified Google subject to the existing numeric account, preserving subscriptions and history. Existing verified legacy sessions remain valid during migration. Public authentication supports the Google authorization-code flow only; account linking, password signup and generic profile changes are not exposed.
+
+Set `EDGELAB_PUBLIC_ORIGIN` to the exact HTTPS origin, create distinct random `BETTER_AUTH_SECRET` and `EDGELAB_AUTH_SERVICE_KEY` values of at least 32 characters, and supply Google credentials through environment variables or the read-only `deployment/google-oauth-client.json` file. Register **`<public-origin>/api/better-auth/callback/google`** as the Google redirect URI. Missing Google credentials leave sign-in unavailable; they do not select a legacy fallback. External Google account sign-in still needs a deployment check with your credentials. See [auth setup](backend/README.md#better-auth).
+
 Google code exchange has separate admission limits before provider work. Nginx limits the exact `/api/auth/google/exchange` path to 10 requests per minute per connecting socket address, with a burst of three and JSON 429 responses with `Retry-After: 6`. Clients behind a NAT or upstream proxy share that address budget; forwarded headers do not change the key. The API also shares 120 admissions per 60 seconds through configured Redis, or uses one bounded process-local counter when Redis is unset, with at most eight concurrent exchanges per process. Configured Redis failure returns 503 with `Retry-After: 5`; concurrency refusal returns 429 with `Retry-After: 1`. Compose waits for Redis health before APIs start. These fixed limits require no new environment variables.
 
 Billing admission uses the same Redis URL with separate quotas: 30 subscription refreshes and six combined checkout/portal requests per verified account per minute, within 600 total admissions. Stale workspace and export verification shares the refresh budget; fresh verified access needs no extra provider request. Configured Redis failure refuses new billing work, while an unset URL uses bounded process memory. Each API process permits eight concurrent billing operations, at most two per account. Retryable refusals include `Retry-After`; expired verification never grants workspace or export access. Public prices use cached reads and one nonblocking provider refresh per process.
@@ -66,7 +70,7 @@ Add datasets beneath `datasets/`, then refresh the catalog from the application.
 
 ## Development
 
-Use Node.js 22 or newer and Python 3.12:
+Use Node.js 22.13 or newer and Python 3.12:
 
 ```bash
 npm install
@@ -76,6 +80,8 @@ EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
 ```
 
 The frontend runs at <http://127.0.0.1:5173>, FastAPI at <http://127.0.0.1:8000>, and the optional compatibility API at <http://127.0.0.1:3001>.
+
+Direct development retains legacy auth unless `EDGELAB_AUTH_PROVIDER=better-auth` is exported. For Better Auth, configure the two secrets and `BETTER_AUTH_URL=http://localhost:5173`, align `EDGELAB_PUBLIC_ORIGIN`, then run `node --env-file=.env scripts/dev.js`; the auth service listens on loopback port 3002. `.env` is not loaded by `npm run dev` itself. Local Compose supplies isolated development secrets and enables the loopback beta bypass; paid exports still require a verified active live subscription.
 
 A fresh local Vite preview can show the redesigned landing page while the API is offline. Saved rollout settings still take precedence, and workspace data requires the backend. See [frontend development](frontend/README.md) for the local preview policy.
 

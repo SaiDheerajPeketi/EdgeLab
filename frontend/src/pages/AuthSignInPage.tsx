@@ -1,13 +1,14 @@
 import { AlertCircle, ArrowRight, Check, Chrome } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthJourneyShell } from "../components/auth/AuthJourneyShell";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
 import { requestDevAuthBypass } from "../lib/api";
-import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
+import { getStoredAuthSession, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import { authDestinationFromLocation, authJourneyIssue } from "../lib/authJourney";
 import { useBetaAuthConfig } from "../lib/useBetaAuthConfig";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
+import { beginBetterAuthSignIn } from "../lib/betterAuthClient";
 
 export function AuthSignInPage() {
   const location = useLocation();
@@ -21,6 +22,25 @@ export function AuthSignInPage() {
   const issue = authJourneyIssue(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const signInOwner = useRef({ active: true, generation: 0 });
+  useEffect(() => {
+    const owner = signInOwner.current;
+    owner.active = true;
+    const retire = () => { owner.generation += 1; };
+    const clear = (event: StorageEvent) => {
+      if (event.key === null) { retire(); return; }
+      if (event.key === "edgelab.auth.session.v1") {
+        const identity = (raw: string | null) => {
+          try { const value = JSON.parse(raw ?? "null"); return value ? JSON.stringify([value.user?.id, value.token]) : ""; }
+          catch { return "invalid"; }
+        };
+        if (identity(event.oldValue) !== identity(event.newValue)) retire();
+      }
+    };
+    window.addEventListener("edgelab:auth-session-change", retire);
+    window.addEventListener("storage", clear);
+    return () => { owner.active = false; retire(); window.removeEventListener("edgelab:auth-session-change", retire); window.removeEventListener("storage", clear); };
+  }, []);
   const { loading, program } = useBetaProgramStatus();
   const { config, error: authConfigError, loading: authConfigLoading } = useBetaAuthConfig();
   const waitlistMode = searchParams.get("waitlist") === "1";
@@ -45,13 +65,26 @@ export function AuthSignInPage() {
       ? "Sign in with Google to reserve your place. EdgeLab will open the workspace automatically after approval."
       : betaMode ? "Use Google to enter the private beta. EdgeLab returns you to the workspace you originally requested." : "Sign in with Google to manage your account. An active subscription unlocks your workspace and data exports.");
 
-  const handleGoogleSignIn = () => {
-    if (!googleReady || !config.google_client_id) {
+  const handleGoogleSignIn = async () => {
+    if (!googleReady) {
       setErrorMessage("Google sign-in is unavailable right now. Try again shortly.");
       return;
     }
     setIsSubmitting(true);
     setErrorMessage(null);
+    if (config.auth_provider === "better-auth") {
+      const generation = signInOwner.current.generation;
+      const identity = getStoredAuthSession();
+      const owns = () => signInOwner.current.active && signInOwner.current.generation === generation && getStoredAuthSession()?.token === identity?.token;
+      try { await beginBetterAuthSignIn(fromPath, pricingDestination, owns); }
+      catch { if (owns()) { setErrorMessage("Google sign-in is unavailable right now. Try again shortly."); setIsSubmitting(false); } }
+      return;
+    }
+    if (!config.google_client_id) {
+      setErrorMessage("Google sign-in is unavailable right now. Try again shortly.");
+      setIsSubmitting(false);
+      return;
+    }
     window.location.replace(
       buildGoogleAuthorizeUrl(
         fromPath,

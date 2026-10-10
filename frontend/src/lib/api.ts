@@ -690,6 +690,7 @@ export type BetaProgramStatus = {
 };
 
 export type BetaAuthConfig = {
+  auth_provider?: "legacy" | "better-auth";
   deployment_mode: "beta" | "production";
   google_enabled: boolean;
   google_client_id: string | null;
@@ -1017,6 +1018,10 @@ export function exchangeGoogleAuthCode(payload: GoogleAuthExchangePayload) {
   });
 }
 
+export function exchangeBetterAuthSession() {
+  return request<BetaAccessResponse>("/auth/better-auth/exchange", { method: "POST", credentials: "include", body: "{}" });
+}
+
 export function requestDevAuthBypass() {
   return request<BetaAccessResponse>("/auth/dev/bypass", {
     method: "POST",
@@ -1029,6 +1034,7 @@ export function getAuthSession(token: string, signal?: AbortSignal) {
 
 export function deleteAuthSession(token: string) {
   return requestWithAuthorization<{ ok: boolean }>("/auth/session", token, {
+    keepalive: true,
     method: "DELETE",
   });
 }
