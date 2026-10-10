@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 
 from app.schemas import BarsResponse, Candle, DatasetMeta
+from app.services.candle_frames import frame_to_candles
 
 
 REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
@@ -80,7 +81,7 @@ class MarketDataService:
         if self.cache:
             frame = self._get_frame()
             visible = frame.iloc[offset : offset + limit]
-            bars = [self._row_to_candle(row) for _, row in visible.iterrows()]
+            bars = frame_to_candles(visible, self._local_to_utc, parse_timestamp=self._parse_timestamp)
             return BarsResponse(
                 offset=offset,
                 limit=limit,
@@ -106,7 +107,7 @@ class MarketDataService:
         frame = self._with_indicators(frame)
         visible = frame.iloc[warmup_rows : warmup_rows + limit]
 
-        bars = [self._row_to_candle(row) for _, row in visible.iterrows()]
+        bars = frame_to_candles(visible, self._local_to_utc, parse_timestamp=self._parse_timestamp)
         return BarsResponse(
             offset=offset,
             limit=limit,
@@ -178,32 +179,6 @@ class MarketDataService:
         relative_strength = avg_gain / avg_loss.replace(0, pd.NA)
         frame["rsi_14"] = 100 - (100 / (1 + relative_strength))
         return frame
-
-    def _row_to_candle(self, row: pd.Series) -> Candle:
-        timestamp = row["Timestamp"]
-        if isinstance(timestamp, pd.Timestamp):
-            dt = timestamp.to_pydatetime()
-        else:
-            dt = self._parse_timestamp(timestamp)
-
-        epoch = int(self._local_to_utc(dt).timestamp())
-        return Candle(
-            time=epoch,
-            timestamp=dt,
-            open=float(row["Open"]),
-            high=float(row["High"]),
-            low=float(row["Low"]),
-            close=float(row["Close"]),
-            volume=float(row["Volume"]),
-            ema_20=self._optional_float(row["ema_20"]),
-            ema_50=self._optional_float(row["ema_50"]),
-            rsi_14=self._optional_float(row["rsi_14"]),
-        )
-
-    def _optional_float(self, value: object) -> float | None:
-        if pd.isna(value):
-            return None
-        return float(value)
 
     def _ensure_csv_exists(self) -> None:
         if not self.csv_path.exists():

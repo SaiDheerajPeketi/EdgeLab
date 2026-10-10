@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import asc, create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
@@ -197,3 +197,79 @@ def test_metrics_summary_and_curves_split_payload():
     assert len(curves.equity_curve) == 2
     assert [row.strategy_name for row in curves.strategy_performance] == ["Breakout", "Fade"]
     assert metrics.model_dump() == {**summary.model_dump(), **curves.model_dump()}
+
+
+def test_metric_projection_matches_owned_results_without_loading_trade_notes():
+    from app.services.metrics import _build_metrics_curves, _build_metrics_summary
+
+    db = make_model_session()
+    user_id = seed_user(db)
+    other = BetaUser(email="other-metrics@edgelab.local", name="Other", provider="google", status="APPROVED")
+    db.add(other)
+    db.flush()
+    sessions = [
+        BacktestSession(user_id=owner, name=f"Metrics {index}", symbol="ES", current_offset=0)
+        for index, owner in enumerate([user_id, user_id, other.id])
+    ]
+    db.add_all(sessions)
+    db.flush()
+    session_id = sessions[0].id
+    for index, session in enumerate(sessions):
+        for offset, pnl in enumerate([30.0, -15.0, 0.0, 20.0]):
+            db.add(Trade(
+                user_id=session.user_id, session_id=session.id, status="CLOSED",
+                side="LONG" if offset % 2 else "SHORT",
+                entry_time=datetime(2026, 1, offset + 1, 9),
+                exit_time=datetime(2026, 1, offset + 1, 10),
+                entry_price=100, quantity=2, remaining_quantity=0,
+                realized_pnl=pnl + index * 1000, gross_pnl=None,
+                commission_amount=1.25, fee_amount=0.75, r_multiple=pnl / 10,
+                strategy_name="Range" if offset % 2 else None,
+                notes="Private notes " * 4000, screenshot_url="https://example.test/private.png",
+            ))
+        db.add(Trade(
+            user_id=session.user_id, session_id=session.id, status="OPEN", side="LONG",
+            entry_time=datetime(2026, 1, 5, 9), entry_price=100, quantity=1,
+            remaining_quantity=1, realized_pnl=0,
+        ))
+    db.commit()
+    references = {}
+    for scope in (None, session_id):
+        query = select(Trade).where(Trade.user_id == user_id, Trade.status == "CLOSED").order_by(asc(Trade.exit_time))
+        if scope is not None:
+            query = query.where(Trade.session_id == scope)
+        trades = list(db.scalars(query))
+        references[scope] = (
+            _build_metrics_summary(trades, 2 if scope is None else 1),
+            _build_metrics_curves(trades),
+        )
+    db.expunge_all()
+    statements = []
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+    event.listen(db.get_bind(), "before_cursor_execute", capture)
+    try:
+        for scope, (summary, curves) in references.items():
+            assert get_metrics_summary(db, user_id, scope) == summary
+            assert get_metrics_curves(db, user_id, scope) == curves
+            assert get_metrics(db, user_id, scope).model_dump() == {**summary.model_dump(), **curves.model_dump()}
+        assert not any(isinstance(row, Trade) for row in db.identity_map.values())
+        assert statements and all("trades.notes" not in query and "trades.screenshot_url" not in query for query in statements)
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", capture)
+        db.close()
+
+
+def test_summary_drawdown_preserves_missing_exit_and_loss_from_zero_semantics():
+    from app.services.metrics import MetricsTradeRow, _build_metrics_summary, _equity_curve, _max_drawdown
+
+    timestamp = datetime(2026, 1, 1, 10)
+    for values in (
+        [(30, None), (-10, timestamp), (-30, timestamp)],
+        [(-10, timestamp), (20, timestamp), (-5, timestamp)],
+        [(100, None)],
+        [],
+    ):
+        rows = [MetricsTradeRow(pnl, datetime(2026, 1, 1, 9), exit_time, 100, 1, None, None, 0, 0, None, "LONG") for pnl, exit_time in values]
+        expected = _max_drawdown([point.equity for point in _equity_curve(rows)])
+        assert _build_metrics_summary(rows, 0).max_drawdown == expected

@@ -270,6 +270,10 @@ read_model_cache = ReadModelCacheService(
     bootstrap_shell_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
     dataset_catalog_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
     redis_url=settings.redis_url,
+    storage_scope="\0".join((
+        settings.database_url, settings.market_data_database_url,
+        str(settings.datasets_root), str(settings.csv_path or ""),
+    )),
 )
 rate_limiter = build_rate_limiter(settings.redis_url)
 google_exchange_limiter = build_google_exchange_limiter(settings.redis_url)
@@ -295,11 +299,11 @@ AI_GENERATION_RATE_LIMIT = 30
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
-    return f"{id(backtester)}:{user_id}"
+    return read_model_cache.user_scope(user_id, local_identity=backtester)
 
 
 def dataset_catalog_cache_scope(user_id: int) -> str:
-    return f"{id(dataset_catalog)}:{user_id}"
+    return read_model_cache.user_scope(user_id, local_identity=dataset_catalog)
 
 BINANCE_REST_URLS = (
     "https://data-api.binance.vision/api/v3",

@@ -1,6 +1,8 @@
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
+from typing import NamedTuple
 
 from sqlalchemy import asc, func, select
 from sqlalchemy.orm import Session
@@ -17,9 +19,23 @@ from app.schemas import (
 )
 
 
+class MetricsTradeRow(NamedTuple):
+    realized_pnl: float
+    entry_time: datetime
+    exit_time: datetime | None
+    entry_price: float
+    quantity: float
+    r_multiple: float | None
+    gross_pnl: float | None
+    commission_amount: float | None
+    fee_amount: float | None
+    strategy_name: str | None
+    side: str
+
+
 @dataclass(frozen=True)
 class MetricsTradeSet:
-    closed_trades: list[Trade]
+    closed_trades: list[MetricsTradeRow | Trade]
     open_trades: int
 
 
@@ -54,7 +70,11 @@ def _load_metrics_trade_set(
     session_id: int | None = None,
 ) -> MetricsTradeSet:
     query = (
-        select(Trade)
+        select(
+            Trade.realized_pnl, Trade.entry_time, Trade.exit_time,
+            Trade.entry_price, Trade.quantity, Trade.r_multiple, Trade.gross_pnl,
+            Trade.commission_amount, Trade.fee_amount, Trade.strategy_name, Trade.side,
+        )
         .where(
             Trade.user_id == user_id,
             Trade.status == "CLOSED",
@@ -68,13 +88,14 @@ def _load_metrics_trade_set(
     if session_id is not None:
         query = query.where(Trade.session_id == session_id)
         open_trade_query = open_trade_query.where(Trade.session_id == session_id)
-    closed_trades = list(db.scalars(query).all())
+    # Metrics never need notes, screenshots, order settings or ORM identity tracking.
+    closed_trades = [MetricsTradeRow(*row) for row in db.execute(query)]
     open_trades = int(db.scalar(open_trade_query) or 0)
     return MetricsTradeSet(closed_trades=closed_trades, open_trades=open_trades)
 
 
 def _build_metrics_summary(
-    closed_trades: list[Trade],
+    closed_trades: list[MetricsTradeRow | Trade],
     open_trades: int,
 ) -> MetricsSummaryResponse:
     total_trades = len(closed_trades)
@@ -91,7 +112,16 @@ def _build_metrics_summary(
     total_commissions = sum(float(trade.commission_amount or 0.0) for trade in closed_trades)
     total_fees = sum(float(trade.fee_amount or 0.0) for trade in closed_trades)
 
-    equity_curve = _equity_curve(closed_trades)
+    # Summary consumers need only the drawdown scalar, not one Pydantic
+    # EquityPoint per trade (the curves endpoint constructs those separately).
+    running_equity = 0.0
+    peak_equity = 0.0
+    max_drawdown = 0.0
+    for trade in closed_trades:
+        running_equity += trade.realized_pnl
+        if trade.exit_time is not None:
+            peak_equity = max(peak_equity, running_equity)
+            max_drawdown = max(max_drawdown, peak_equity - running_equity)
     r_values = [
         trade.r_multiple
         for trade in closed_trades
@@ -102,7 +132,6 @@ def _build_metrics_summary(
         for hold_minutes in (_hold_minutes(trade) for trade in closed_trades)
         if hold_minutes is not None and math.isfinite(hold_minutes)
     ]
-    max_drawdown = _max_drawdown([point.equity for point in equity_curve])
 
     return MetricsSummaryResponse(
         net_pnl=net_pnl,
@@ -130,7 +159,7 @@ def _build_metrics_summary(
     )
 
 
-def _build_metrics_curves(closed_trades: list[Trade]) -> MetricsCurvesResponse:
+def _build_metrics_curves(closed_trades: list[MetricsTradeRow | Trade]) -> MetricsCurvesResponse:
     return MetricsCurvesResponse(
         equity_curve=_equity_curve(closed_trades),
         strategy_performance=_strategy_performance(closed_trades),
@@ -139,7 +168,7 @@ def _build_metrics_curves(closed_trades: list[Trade]) -> MetricsCurvesResponse:
     )
 
 
-def _equity_curve(trades: list[Trade]) -> list[EquityPoint]:
+def _equity_curve(trades: list[MetricsTradeRow | Trade]) -> list[EquityPoint]:
     equity = []
     running = 0.0
     for trade in trades:
@@ -190,8 +219,8 @@ def _trade_gross_pnl(trade: Trade) -> float:
     return float(trade.realized_pnl + (trade.commission_amount or 0.0) + (trade.fee_amount or 0.0))
 
 
-def _strategy_performance(trades: list[Trade]) -> list[StrategyPerformance]:
-    groups: dict[str, list[Trade]] = defaultdict(list)
+def _strategy_performance(trades: list[MetricsTradeRow | Trade]) -> list[StrategyPerformance]:
+    groups: dict[str, list[MetricsTradeRow | Trade]] = defaultdict(list)
     for trade in trades:
         groups[trade.strategy_name or "Unassigned"].append(trade)
 
@@ -215,7 +244,7 @@ def _strategy_performance(trades: list[Trade]) -> list[StrategyPerformance]:
     return rows
 
 
-def _side_breakdown(trades: list[Trade]) -> list[SideBreakdown]:
+def _side_breakdown(trades: list[MetricsTradeRow | Trade]) -> list[SideBreakdown]:
     rows = []
     for side in ("LONG", "SHORT"):
         side_trades = [trade for trade in trades if trade.side == side]
@@ -234,7 +263,7 @@ def _side_breakdown(trades: list[Trade]) -> list[SideBreakdown]:
     return rows
 
 
-def _calendar(trades: list[Trade]) -> list[CalendarPoint]:
+def _calendar(trades: list[MetricsTradeRow | Trade]) -> list[CalendarPoint]:
     daily: dict[str, list[float]] = defaultdict(list)
     for trade in trades:
         if trade.exit_time is None:
@@ -246,7 +275,7 @@ def _calendar(trades: list[Trade]) -> list[CalendarPoint]:
     ]
 
 
-def _sharpe_ratio(trades: list[Trade]) -> float | None:
+def _sharpe_ratio(trades: list[MetricsTradeRow | Trade]) -> float | None:
     returns = []
     for trade in trades:
         notional = trade.entry_price * trade.quantity

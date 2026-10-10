@@ -760,3 +760,19 @@ def test_refresh_catalog_links_session_to_dataset_asset_by_instrument(tmp_path):
 
         assert session.dataset_asset_id is not None
         assert session.replay_ready is True
+
+
+
+def test_idle_dataset_status_readers_do_not_accumulate_refresh_history(tmp_path):
+    catalog = DatasetCatalogService(tmp_path, None)
+    for user_id in range(1000):
+        status = catalog.refresh_status(user_id)
+        assert status.running is False
+        assert status.started_at is None and status.finished_at is None
+    assert len(catalog._refresh_state_by_user) == 0
+    assert len(catalog._locks_by_user) == 0
+    # Real refresh progress/history remains available to later readers.
+    catalog._set_refresh_state(7, running=True, current="Importing")
+    assert catalog.refresh_status(7).running is True
+    assert catalog.refresh_status(7).current == "Importing"
+    assert len(catalog._refresh_state_by_user) == 1

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import DatasetTimeframe, MarketCandle
 from app.schemas import BarsResponse, Candle, DatasetMeta
+from app.services.candle_frames import frame_to_candles
 
 
 MAX_LIMIT = 5_000
@@ -76,7 +77,7 @@ class DatabaseMarketDataService:
             return BarsResponse(offset=offset, limit=limit, next_offset=offset, bars=[])
 
         visible = frame.iloc[visible_start : visible_start + limit]
-        bars = [self._row_to_candle(row) for _, row in visible.iterrows()]
+        bars = frame_to_candles(visible, self._local_to_utc)
         return BarsResponse(
             offset=offset,
             limit=limit,
@@ -222,26 +223,6 @@ class DatabaseMarketDataService:
             timeframe_row.last_timestamp,
         )
 
-    def _row_to_candle(self, row: pd.Series) -> Candle:
-        timestamp = row["Timestamp"]
-        if isinstance(timestamp, pd.Timestamp):
-            dt = timestamp.to_pydatetime()
-        else:
-            dt = timestamp
-        epoch = int(self._local_to_utc(dt).timestamp())
-        return Candle(
-            time=epoch,
-            timestamp=dt,
-            open=float(row["Open"]),
-            high=float(row["High"]),
-            low=float(row["Low"]),
-            close=float(row["Close"]),
-            volume=float(row["Volume"]),
-            ema_20=_optional_float(row["ema_20"]),
-            ema_50=_optional_float(row["ema_50"]),
-            rsi_14=_optional_float(row["rsi_14"]),
-        )
-
     def _model_to_candle(self, row: MarketCandle) -> Candle:
         epoch = int(self._local_to_utc(row.timestamp).timestamp())
         return Candle(
@@ -296,9 +277,3 @@ def _with_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     relative_strength = avg_gain / avg_loss.replace(0, pd.NA)
     frame["rsi_14"] = 100 - (100 / (1 + relative_strength))
     return frame
-
-
-def _optional_float(value: object) -> float | None:
-    if pd.isna(value):
-        return None
-    return float(value)

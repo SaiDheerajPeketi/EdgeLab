@@ -117,6 +117,7 @@ def main() -> None:
         csv_service = MarketDataService(csv_path, cache=True, timestamp_timezone="UTC")
         db_service = DatabaseMarketDataService(
             session_factory,
+            session_factory,
             user_id=user_id,
             asset_id=asset_id,
             timeframe="M1",

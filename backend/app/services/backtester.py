@@ -1,6 +1,9 @@
 import json
+from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from fastapi import HTTPException
 from sqlalchemy import and_, asc, desc, or_, select
 from sqlalchemy.orm import Session, object_session
@@ -49,6 +52,7 @@ CANCELLED_ORDER = "CANCELLED"
 STATE_EXECUTION_LIMIT = 1000
 STATE_ORDER_LIMIT = 500
 STATE_TRADE_LIMIT = 500
+MARKET_DATA_CACHE_MAX_ENTRIES = 128
 
 
 class BacktestService:
@@ -59,9 +63,30 @@ class BacktestService:
     ):
         self.market_data = market_data
         self.dataset_catalog = dataset_catalog
-        self._market_data_cache: dict[str, MarketDataService | DatabaseMarketDataService] = {}
+        self._market_data_cache: OrderedDict[str, MarketDataService | DatabaseMarketDataService] = OrderedDict()
+        self._market_data_cache_lock = Lock()
         if market_data is not None:
             self._market_data_cache[str(market_data.csv_path)] = market_data
+
+    def _cached_market_data(
+        self,
+        key: str,
+        loader: Callable[[], MarketDataService | DatabaseMarketDataService],
+    ) -> MarketDataService | DatabaseMarketDataService:
+        with self._market_data_cache_lock:
+            service = self._market_data_cache.get(key)
+            if service is not None:
+                self._market_data_cache.move_to_end(key)
+        # Source checks may touch disk/SQL; do not hold the registry lock over I/O.
+        if service is None or service.source_has_changed():
+            service = loader()
+            with self._market_data_cache_lock:
+                self._market_data_cache[key] = service
+                self._market_data_cache.move_to_end(key)
+                while len(self._market_data_cache) > MARKET_DATA_CACHE_MAX_ENTRIES:
+                    self._market_data_cache.popitem(last=False)
+        # A request keeps its service even if another request evicts its cache entry.
+        return service
 
     def create_session(self, db: Session, user_id: int, payload: BacktestCreate) -> BacktestState:
         csv_path = self.market_data.csv_path if self.market_data is not None else None
@@ -1619,9 +1644,9 @@ class BacktestService:
                 f"db::{user_id}::{asset_id}::{timeframe_row.timeframe}"
                 f"::{timestamp_timezone or 'UTC'}"
             )
-            service = self._market_data_cache.get(cache_key)
-            if service is None or service.source_has_changed():
-                self._market_data_cache[cache_key] = DatabaseMarketDataService(
+            return self._cached_market_data(
+                cache_key,
+                lambda: DatabaseMarketDataService(
                     self.dataset_catalog.session_factory,
                     self.dataset_catalog.market_data_session_factory,
                     user_id=user_id,
@@ -1629,8 +1654,8 @@ class BacktestService:
                     timeframe=timeframe_row.timeframe,
                     csv_path=timeframe_row.csv_path or (csv_path or ""),
                     timestamp_timezone=timestamp_timezone or "UTC",
-                )
-            return self._market_data_cache[cache_key]
+                ),
+            )
         resolved_csv_path = timeframe_row.csv_path or csv_path
         if not resolved_csv_path:
             return None
@@ -1664,9 +1689,9 @@ class BacktestService:
                     f"db::{user_id}::{resolution.asset_id}::{resolution.timeframe}"
                     f"::{timestamp_timezone or 'UTC'}"
                 )
-                service = self._market_data_cache.get(cache_key)
-                if service is None or service.source_has_changed():
-                    self._market_data_cache[cache_key] = DatabaseMarketDataService(
+                return self._cached_market_data(
+                    cache_key,
+                    lambda: DatabaseMarketDataService(
                         self.dataset_catalog.session_factory,
                         self.dataset_catalog.market_data_session_factory,
                         user_id=user_id,
@@ -1674,23 +1699,22 @@ class BacktestService:
                         timeframe=resolution.timeframe,
                         csv_path=str(resolution.csv_path),
                         timestamp_timezone=timestamp_timezone or "UTC",
-                    )
-                return self._market_data_cache[cache_key]
+                    ),
+                )
 
         cache_key = f"{csv_path}::{timestamp_timezone or 'UTC'}"
-        service = self._market_data_cache.get(cache_key)
-        if service is None or service.source_has_changed():
-            cache = (
-                self.market_data is not None
-                and self.market_data.cache
-                and Path(csv_path) == self.market_data.csv_path
-            )
-            self._market_data_cache[cache_key] = MarketDataService(
+        return self._cached_market_data(
+            cache_key,
+            lambda: MarketDataService(
                 Path(csv_path),
-                cache=cache,
+                cache=(
+                    self.market_data is not None
+                    and self.market_data.cache
+                    and Path(csv_path) == self.market_data.csv_path
+                ),
                 timestamp_timezone=timestamp_timezone or "UTC",
-            )
-        return self._market_data_cache[cache_key]
+            ),
+        )
 
     def _order_or_404(self, db: Session, user_id: int, session_id: int, order_id: int) -> Order:
         order = db.scalar(

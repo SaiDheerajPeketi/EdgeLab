@@ -255,7 +255,7 @@ class DatasetCatalogService:
 
     def refresh_status(self, user_id: int) -> DatasetRefreshStatus:
         with self._state_lock:
-            state = self._refresh_state_by_user.setdefault(user_id, DatasetRefreshState())
+            state = self._refresh_state_by_user.get(user_id) or DatasetRefreshState()
             return DatasetRefreshStatus(
                 running=state.running,
                 current=state.current,
