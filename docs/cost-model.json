@@ -1,0 +1,191 @@
+{
+  "as_of": "2026-10-10",
+  "currency": "USD",
+  "purpose": "Planning assumptions, not a provider quote or production capacity certificate",
+  "monthly_price": 29,
+  "annual_price": 290,
+  "payment_processing_rate": 0.043,
+  "fx_rate": 0.02,
+  "billing_rate": 0.007,
+  "unrecovered_fee_tax_rate": 0.18,
+  "support_cost_per_payer": 2,
+  "hosted_ai_cost_per_payer": 0,
+  "overhead_monthly": 5000,
+  "replacement_cac": 60,
+  "monthly_churn_assumption": 0.05,
+  "infrastructure": {
+    "app_node_monthly": 126,
+    "app_node_vcpu": 4,
+    "app_node_ram_gib": 16,
+    "measured_read_users_on_4_guest_cpus": 25,
+    "planning_active_users_per_node": 12,
+    "spare_app_nodes": 1,
+    "minimum_app_nodes": 2,
+    "daily_app_backup_rate": 0.3,
+    "included_egress_gib_per_app_node": 5000,
+    "egress_overage_per_gib": 0.01,
+    "sql_live_copies": 2,
+    "sql_additional_storage_per_gib": 0.115,
+    "journal_gib_per_payer": 0.25,
+    "sql_fixed_gib": 20,
+    "retained_backup_equivalents": 2,
+    "object_storage_base": 5,
+    "object_storage_per_gib": 0.02,
+    "load_balancer_monthly": 12,
+    "registry_monthly": 5,
+    "dataset_distribution_reserve_monthly": 30,
+    "cdn_monthly": 0,
+    "contingency_rate": 0.2,
+    "resource_budgets": [
+      {
+        "max_peak_active": 25,
+        "sql_pair_monthly": 260,
+        "cache_pair_monthly": 60,
+        "monitoring_monthly": 12
+      },
+      {
+        "max_peak_active": 100,
+        "sql_pair_monthly": 520,
+        "cache_pair_monthly": 120,
+        "monitoring_monthly": 24
+      },
+      {
+        "max_peak_active": 500,
+        "sql_pair_monthly": 1040,
+        "cache_pair_monthly": 240,
+        "monitoring_monthly": 48
+      },
+      {
+        "max_peak_active": null,
+        "sql_pair_monthly": 2080,
+        "cache_pair_monthly": 480,
+        "monitoring_monthly": 96
+      }
+    ],
+    "derived_timeframe_factor": 1.33,
+    "sql_free_space_wal_factor": 1.25
+  },
+  "scenarios": [
+    {
+      "id": "software_byo",
+      "annual_share": 0.5,
+      "peak_active_share": 0.05,
+      "refund_rate": 0.02,
+      "dispute_reserve_rate": 0.005,
+      "history_symbols": 5,
+      "history_years": 3,
+      "egress_gib_per_payer": 10,
+      "feed_fixed_monthly": 0,
+      "feed_seat_monthly": 0,
+      "bytes_per_candle_with_indexes": 512
+    },
+    {
+      "id": "licensed_feed",
+      "annual_share": 0.5,
+      "peak_active_share": 0.05,
+      "refund_rate": 0.02,
+      "dispute_reserve_rate": 0.005,
+      "history_symbols": 5,
+      "history_years": 3,
+      "egress_gib_per_payer": 10,
+      "feed_fixed_monthly": 1000,
+      "feed_seat_monthly": 5,
+      "bytes_per_candle_with_indexes": 512
+    },
+    {
+      "id": "downside",
+      "annual_share": 1,
+      "peak_active_share": 0.1,
+      "refund_rate": 0.05,
+      "dispute_reserve_rate": 0.01,
+      "history_symbols": 20,
+      "history_years": 5,
+      "egress_gib_per_payer": 100,
+      "feed_fixed_monthly": 5000,
+      "feed_seat_monthly": 10,
+      "bytes_per_candle_with_indexes": 1024
+    },
+    {
+      "id": "all_online",
+      "annual_share": 1,
+      "peak_active_share": 1,
+      "refund_rate": 0.05,
+      "dispute_reserve_rate": 0.01,
+      "history_symbols": 20,
+      "history_years": 5,
+      "egress_gib_per_payer": 1000,
+      "feed_fixed_monthly": 5000,
+      "feed_seat_monthly": 10,
+      "bytes_per_candle_with_indexes": 1024
+    }
+  ],
+  "payer_counts": [
+    25,
+    100,
+    250,
+    1000,
+    5000
+  ],
+  "assumption_notes": [
+    "All USD values exclude customer-collected taxes. Prices are planning snapshots checked on as_of date; no purchase or quote obtained.",
+    "Payment/FX/Billing rates are published list rates. Fee GST is assumed unrecovered for conservative cash planning; actual applicability and input credits need merchant/accountant confirmation.",
+    "Scenario feed_fixed_monthly and feed_seat_monthly are illustrative reserves, not vendor quotations or proof of a license. software_byo requires explicit valid imported/BYO data rights and excludes bundled shared feeds.",
+    "12 active users per app node is a conservative planning conversion from a local 25-user read benchmark, not real cloud/live/SQL/HA capacity. Resource budget tiers are reserves, not tested throughput or specific larger SKUs.",
+    "SQL row bytes (512 base,1024 downside), derived timeframe multiplier1.33, free space/WAL multiplier1.25, per-user history/journal, peak active fractions, egress, refunds, support, overhead and churn/CAC are assumptions, not measured physical SQL sizes. Ticks/orderbook storage is excluded; no unbounded worst-case budget is asserted.",
+    "Storage conservatively bills all estimated SQL bytes and two retained backup equivalents without subtracting included disk/storage. Additional WAL/PITR, snapshots, index/bloat and DR retention can exceed this reserve.",
+    "Hosted AI cost is zero because the configured external integration requires user-owned credentials. Company-funded AI is not included; adding it requires a separately bounded cost policy.",
+    "Cloud/node failure independence, full-node survivor traffic, connection pooling, feed recovery and regional latency have not been certified. Redis-compatible Valkey requires actual Lua/expiry/fail-closed integration tests.",
+    "5% attrition/CAC is an assumed monthly-equivalent replacement budget applied to the whole payer base, not observed monthly/annual cohort churn. First-year acquisition spend is not included in steady-state operating margins.",
+    "20% infrastructure contingency is a budget reserve, not a measured bill. Salaries/support allocations and recoverable taxes must be replaced with actual costs.",
+    "resource_budgets above 500 peak users use a fixed reserve only and are particularly speculative; all_online numbers are financial stress illustrations, not a deployable cluster design.",
+    "Current candle schema has several overlapping/composite indexes. Actual pg_total_relation_size and WAL under full imports must replace assumed row bytes before procurement. The downside can be worse with longer history, more assets, full tick/depth storage or fragmented indexes.",
+    "Dispute reserve is additional to modeled refunds, intended for non-overlapping lost dispute principal/fees; actual provider flat dispute charges are not quoted here."
+  ],
+  "sources": [
+    {
+      "id": "compute",
+      "url": "https://www.digitalocean.com/pricing/droplets",
+      "supports": "4-vCPU/16GiB dedicated General Purpose $126/month, 5000GiB transfer; daily percentage backup 30%."
+    },
+    {
+      "id": "postgres",
+      "url": "https://docs.digitalocean.com/products/databases/postgresql/details/pricing/",
+      "supports": "Advanced minimum $130/writer plus same-rate standby, $0.115/GiB added storage; upcoming Standard HA restrictions."
+    },
+    {
+      "id": "cache",
+      "url": "https://docs.digitalocean.com/products/databases/valkey/details/pricing/",
+      "supports": "HA minimum $30 primary plus $30 standby."
+    },
+    {
+      "id": "object_storage",
+      "url": "https://www.digitalocean.com/pricing/spaces-object-storage",
+      "supports": "$5 base and $0.02/GiB added object storage."
+    },
+    {
+      "id": "egress",
+      "url": "https://docs.digitalocean.com/platform/billing/bandwidth/",
+      "supports": "Additional Droplet outbound $0.01/GiB and team pooling."
+    },
+    {
+      "id": "load_balancer",
+      "url": "https://docs.digitalocean.com/products/networking/load-balancers/details/pricing/",
+      "supports": "Regional HTTP load balancing $12/month minimum."
+    },
+    {
+      "id": "processing",
+      "url": "https://stripe.com/in/pricing",
+      "supports": "International USD-presentment cards 4.3% plus 2% where FX required, original processing fees not returned on refund."
+    },
+    {
+      "id": "billing",
+      "url": "https://stripe.com/in/billing/pricing",
+      "supports": "Billing list fee 0.7%."
+    },
+    {
+      "id": "fee_tax",
+      "url": "https://support.stripe.com/questions/taxes-on-stripe-fees-for-india-based-businesses",
+      "supports": "18% tax on applicable India Stripe fees; small card-transaction exception and applicable credits require actual confirmation."
+    }
+  ]
+}

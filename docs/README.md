@@ -26,6 +26,7 @@ These are engineering/operator documents for the implemented repository. Code, v
 - [Architecture decisions](decisions/README.md): a reviewed record of significant boundary and operational choices.
 - [Contributor guide](../CONTRIBUTING.md), [agent instructions](../AGENTS.md), and [PR template](../.github/PULL_REQUEST_TEMPLATE.md).
 - [Production capacity](production-capacity.md) and [performance methodology](production-performance.md): measured workload/resource/latency boundaries.
+- [Infrastructure economics and data feeds](unit-economics-and-data-feeds.md): paying-user revenue, explicit cost/margin assumptions, downside scenarios and commercial feed options.
 - [Threaded load tools](../benchmarks/README.md) and [k6 tools](../benchmark/README.md).
 - [UI quality contract](ui-quality-contract.md), [surface inventory](ui-surface-inventory.md), [design rules](../frontend/DESIGN.md), and [product principles](../frontend/PRODUCT.md).
 

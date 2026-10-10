@@ -2,6 +2,8 @@
 
 Updated 10 October 2026. Cost reductions preserve indexed SQL chart reads, full configured history, Redis caching/admission, PgBouncer, API worker defaults and background ingestion/analytics. The new-install efficient overlay consolidates the two database servers into one PostgreSQL server; it does not impose lower CPU quotas or turn off product features. Consolidation is optional because database isolation can be valuable under heavy ingestion.
 
+For paying-user revenue, complete infrastructure budgets, product margins and licensed feed options, see [infrastructure economics and data feeds](unit-economics-and-data-feeds.md). Those forecasts are planning assumptions, separate from the measured capacity evidence below.
+
 ## Architecture and operating cost
 
 Use Cloudflare in front of the existing same-origin frontend/API deployment. Cache fingerprinted assets; bypass every /api/* path, including authentication, billing, downloads and WebSockets. Keep HTML and source metadata fresh. API responses and proxy errors carry no-store headers. Cloudflare reduces static origin traffic and distance to assets; it cannot remove the round trip to the origin for private operations. Configure HTTPS at the origin/load balancer and Cloudflare Full (strict); the bundled Nginx container itself listens on HTTP behind that termination.
