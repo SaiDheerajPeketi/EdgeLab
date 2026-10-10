@@ -225,10 +225,28 @@
       "file": "overrides/transpiler/transformers/MainTransformer.ts",
       "upstreamSha256": "c0b75af644c1175accfcb8aa09aecd0bfb0131933be163ce34e784a54984bba6",
       "sha256": "b2530e662ace929c5d1531f8ad169abe9b64a4c999557762fb27b9cdcde3fc2f"
+    },
+    {
+      "source": "src/namespaces/ta/methods/cci.ts",
+      "file": "overrides/namespaces/ta/methods/cci.ts",
+      "upstreamSha256": "542f47d90a6efaa6096ad4dba173b33f28715846b1c829753336c0239c469962",
+      "sha256": "2b7cb813facc577b44fa684aa95ea32c0c96d3fecc9847862e85c8a232ad3e31"
+    },
+    {
+      "source": "src/namespaces/ta/methods/wpr.ts",
+      "file": "overrides/namespaces/ta/methods/wpr.ts",
+      "upstreamSha256": "8919dc6b07dab3668310f1da58c2d4452a2697d293ed465571efbbfc3b77ea70",
+      "sha256": "4da17c970c922aa589d6f78ceb1ae13d395956291cd5cf1d19cc87135f875a64"
+    },
+    {
+      "source": "src/namespaces/ta/methods/mfi.ts",
+      "file": "overrides/namespaces/ta/methods/mfi.ts",
+      "upstreamSha256": "5fcf3c309ed8d677c415a92dd6923f9dbc5fe3435208c52b60ddfe7b6c1bcde7",
+      "sha256": "404ad90356ffef087f3c02d9610d97d94e3ee2f6fbf6116b159e9fc8867ec741"
     }
   ],
   "namespaceMembers": {
     "file": "namespace-members.json",
-    "sha256": "0d30b1ae0a9b9102a9c5321ff5173e27d9e98bafdffaa5f62bb3de2454211642"
+    "sha256": "b02bc7c8f2fba60f2b422100f9629edb8262fe190ba32e32547780eac2e3a93f"
   }
 }

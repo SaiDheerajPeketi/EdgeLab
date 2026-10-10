@@ -40,13 +40,13 @@ test("reviewed sources and pristine reference resolve independently without pack
   const f = fixture();
   const patched = readPineEngineSources(f);
   const original = readPineEngineSources({ ...f, patched: false });
-  assert.equal(f.manifest.overrides.length, 36);
+  assert.equal(f.manifest.overrides.length, 39);
   for (const source of ["src/transpiler/analysis/ScopeManager.ts", "src/transpiler/transformers/MainTransformer.ts"]) {
     assert.ok(f.manifest.overrides.some(override => override.source === source));
   }
   assert.ok(f.manifest.overrides.some(override => override.source === "src/namespaces/strategy/methods/order.ts"));
   assert.notEqual(patched.get("src/namespaces/strategy/methods/order.ts"), original.get("src/namespaces/strategy/methods/order.ts"));
-  for (const source of ["src/namespaces/polyline/PolylineHelper.ts", "src/namespaces/label/LabelHelper.ts", "src/namespaces/box/BoxHelper.ts", "src/namespaces/line/LineHelper.ts", "src/namespaces/linefill/LinefillHelper.ts", "src/namespaces/linefill/LinefillObject.ts", "src/namespaces/Core.ts", "src/transpiler/slicing/buildLtfSlices.ts", "src/namespaces/Ticker.ts", "src/namespaces/request/methods/security.ts", "src/namespaces/request/methods/security_lower_tf.ts", "src/namespaces/request/methods/param.ts", "src/transpiler/pineToJS/inputs/constEval.ts", "src/namespaces/Str.ts", "src/namespaces/input/methods/enum.ts", "src/transpiler/pineToJS/inputs/analyzeInputs.ts", "src/Indicator/scanInputs.ts", "src/namespaces/strategy/utils.ts", "src/namespaces/strategy/methods/entry.ts", "src/namespaces/strategy/methods/exit.ts", "src/namespaces/strategy/methods/cancel_all.ts"]) {
+  for (const source of ["src/namespaces/ta/methods/cci.ts", "src/namespaces/ta/methods/wpr.ts", "src/namespaces/ta/methods/mfi.ts", "src/namespaces/polyline/PolylineHelper.ts", "src/namespaces/label/LabelHelper.ts", "src/namespaces/box/BoxHelper.ts", "src/namespaces/line/LineHelper.ts", "src/namespaces/linefill/LinefillHelper.ts", "src/namespaces/linefill/LinefillObject.ts", "src/namespaces/Core.ts", "src/transpiler/slicing/buildLtfSlices.ts", "src/namespaces/Ticker.ts", "src/namespaces/request/methods/security.ts", "src/namespaces/request/methods/security_lower_tf.ts", "src/namespaces/request/methods/param.ts", "src/transpiler/pineToJS/inputs/constEval.ts", "src/namespaces/Str.ts", "src/namespaces/input/methods/enum.ts", "src/transpiler/pineToJS/inputs/analyzeInputs.ts", "src/Indicator/scanInputs.ts", "src/namespaces/strategy/utils.ts", "src/namespaces/strategy/methods/entry.ts", "src/namespaces/strategy/methods/exit.ts", "src/namespaces/strategy/methods/cancel_all.ts"]) {
     assert.ok(f.manifest.overrides.some((override) => override.source === source));
     assert.notEqual(patched.get(source), original.get(source));
   }
