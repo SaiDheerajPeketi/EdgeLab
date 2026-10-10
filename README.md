@@ -125,3 +125,7 @@ The UI regression workflow uses Node.js 22 and the same backend virtual environm
 Machine-readable UI inventories and certification records under `docs/` are test inputs. Keep them in sync with UI changes; they are not end-user documentation.
 
 For temporary UI inspection with populated accounts, trades, notes, replay reviews and synthetic market history, use the [disposable local demo data](backend/README.md#disposable-local-demo-data) helper. Run its API/frontend on separate ports; it does not seed the normal workspace or grant paid access.
+
+## Efficient global deployment
+
+For a new VM installation, `docker compose -f docker-compose.yml -f docker-compose.efficient.yml up -d --build` selects one PostgreSQL server/pooler and indexed SQL market history. Existing worker defaults, background ingestion, analytics and full history remain enabled. The proxy uses Nginx 1.30.5 with current map/regex security fixes. The existing default split-database deployment is preserved; switching an existing market store requires a deliberate data migration. See [production capacity and operations](docs/production-capacity.md) for measured workload limits, region latency, CDN rules, costs and recovery requirements.

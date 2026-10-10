@@ -21,7 +21,8 @@ from sqlalchemy import (
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import database_connect_args, settings
+from app.config import database_connect_args, database_engine_options, settings
+from app.db import engine as application_engine
 
 
 logger = logging.getLogger(__name__)
@@ -73,10 +74,12 @@ _MARKET_CANDLES_TABLE = Table(
 
 
 def _engine_for_url(database_url: str):
-    engine_kwargs = {"pool_pre_ping": True}
+    # Share the caller transaction when candles and account rows use one store.
+    # A second connection cannot see newly flushed assets or their foreign keys.
+    if database_url == settings.database_url:
+        return application_engine
+    engine_kwargs = database_engine_options(database_url)
     connect_args = database_connect_args(database_url)
-    if not database_url.startswith("sqlite"):
-        engine_kwargs["pool_recycle"] = 1800
     engine = create_engine(database_url, connect_args=connect_args, **engine_kwargs)
     if database_url.startswith("sqlite"):
 
@@ -131,6 +134,11 @@ def _ensure_timescaledb_hypertable(bind: Engine | Connection) -> None:
     owns_connection = isinstance(bind, Engine)
     try:
         try:
+            available = connection.execute(
+                text("SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'")
+            ).scalar()
+            if not available:
+                return
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb"))
             connection.execute(
                 text(

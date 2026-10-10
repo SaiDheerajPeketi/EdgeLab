@@ -1,49 +1,44 @@
-# EdgeLab Benchmark Harness
+# EdgeLab load testing
 
-## Overview
-The `benchmark` directory contains a repeatable load and latency testing harness powered by k6. It validates the performance of the full EdgeLab stack (including PostgreSQL, Redis, and FastAPI) under authenticated, synthetic user workloads.
+Use an isolated benchmark database and dataset root. The seed refuses accounts outside its benchmark namespace and refuses an unmarked nonempty dataset directory. Never point it at customer data. Tokens and seed manifests are credentials; keep them private and outside Git.
 
-## Responsibilities
-- **Load Testing**: Executes k6 scripts against various read and write endpoints to ensure the application meets latency (e.g., p95 < 750ms) and throughput requirements.
-- **Capacity Planning**: Provides an End-to-End (E2E) capacity sweep to find the degradation point of a live deployment.
-- **Observability Integration**: Deploys an extensive observability stack (via Docker Compose profile) to collect detailed traces, logs, and query fingerprints during runs.
+## Seed a workload
 
-## Architecture / How it fits into the system
-- A dedicated `docker-compose.yml` profile (`benchmark`) provisions MinIO, Loki, Tempo, Prometheus, Grafana, db-exporters, and the `benchmark-k6` runner itself.
-- Tests target the Nginx frontend proxy or directly the FastAPI backend.
-- A Python seeding script initializes a temporary dataset with authenticated users, sessions, and trades to provide a realistic testing surface.
+The database URL and dataset root are required:
 
-## Directory Structure
-- `k6/` - Individual k6 Javascript test scenarios (e.g., `bootstrap.js`, `trades-page.js`).
-- `run-capacity-sweep.sh` - Shell script to execute incremental VU (Virtual User) steps against production URLs.
-- `README.md` - Execution instructions.
+    PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py \
+      --database-url "$BENCHMARK_DATABASE_URL" --dataset-root /tmp/edgelab-benchmark \
+      --users 100 --assets 3 --timeframes 3 --sessions-per-user 100 \
+      --trades-per-session 10 --bars-per-timeframe 2000 > /private/path/users.json
 
-## Configuration
-> ⚠️ Note: Environment variables control test parameters.
+Set an isolated JWT secret before seeding. These initial tokens exercise legacy beta authentication. They do not measure production Google sign-in or subscription verification. For production measurements, create actual native sessions in a disposable Better Auth store and match verified API identities; any synthetic billing leases must be labeled. Do not add an application auth bypass for load tests.
 
-| Environment Variable | Purpose | Default |
+The fixtures contain actual CSV bars, not metadata pointing at absent files. Import the chart series into the configured SQL candle store if measuring indexed chart reads. Record which series are imported, trade density, catalog size, cache state and worker/pool settings.
+
+## Python mixed workload
+
+    PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py \
+      --workload mixed --api-url http://127.0.0.1:8080/api \
+      --frontend-url http://127.0.0.1:8080 --benchmark-users-file /private/path/users.json \
+      --concurrency 50 --duration-seconds 120 --think-time 1 \
+      --network-rtt-ms 0 --json-output /private/path/results.json
+
+Each concurrent worker needs its own user credential and replay session. The sequential read loop includes bootstrap, catalog, journal, metrics, chart metadata and 300 bars. This is a read stress workload, not all product activity. Writes, WebSockets, downloads and external providers need separate tests.
+
+A nonzero exit means an endpoint or aggregate SLO failed, a worker failed, or results were missing. Default limits are P95 below 750ms, P99 below 1500ms and errors below 1%. Percentiles use bounded 1% logarithmic buckets; they are approximate. Whole-request latency includes configured extra RTT. RTT is modeled client delay, not geographic measurement, and must not be converted into extra server capacity.
+
+## k6 sweep
+
+Provide EDGELAB_AUTH_TOKENS and aligned EDGELAB_SESSION_IDS with one distinct user/session per virtual user, then run npm run bench:e2e-capacity. A shared identity is permitted only as an explicit cache diagnostic; it cannot establish user capacity. Native k6 defaults to loopback; the Docker fallback targets the Compose frontend. The sweep uses increasing constant-load steps and stops with a nonzero exit at the first failing step.
+
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| `EDGELAB_API_BASE_URL` | Target base URL for the API | `http://frontend/api` |
-| `EDGELAB_AUTH_TOKEN` | A valid seeded JWT token | `""` |
-| `EDGELAB_SESSION_ID` | A valid seeded session ID for scoped tests | `""` |
-| `EDGELAB_CAPACITY_VUS_STEPS` | Space separated string of VU steps for capacity sweep | `5 10 25 50 75 100 150 200 300` |
-| `K6_DURATION` | Duration per step | `3m` |
+| EDGELAB_CAPACITY_VUS_STEPS | 5 10 25 50 75 100 150 200 | Increasing concurrent users |
+| K6_DURATION | 2m | Duration of each constant-load step |
+| EDGELAB_CAPACITY_P95_MS | 750 | Endpoint and aggregate P95 limit |
+| EDGELAB_CAPACITY_P99_MS | 1500 | Endpoint and aggregate P99 limit |
+| EDGELAB_CAPACITY_MAX_ERROR_RATE | 0.01 | Maximum error fraction |
+| EDGELAB_CAPACITY_THINK_TIME_SECONDS | 1 | Pause after each full iteration |
+| EDGELAB_CAPACITY_NETWORK_RTT_MS | 0 | Modeled additional RTT per request |
 
-## Dependencies
-- **k6**: Load testing engine.
-- **Python (Seed Script)**: Requires the main backend dependencies to seed the database directly via SQLAlchemy.
-- **Docker Compose**: Required to spin up the observability harness.
-
-## Local Development
-Seed benchmark data and extract a token:
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py --reset
-```
-
-Run a specific k6 test against the local benchmark stack:
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/bootstrap.js
-```
+Runs shorter than 30 seconds are smoke checks. Ramping summaries blend load levels and do not certify the highest level. A deployment result must include endpoint latency/errors, CPU/RAM, database waits, sustained duration, generator headroom and network/auth exclusions. Test from a separate physical generator before publishing a cloud capacity number. See [production capacity](../docs/production-capacity.md) for measured local results and launch limits.

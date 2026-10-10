@@ -43,3 +43,5 @@ From the repository root:
 The scripts use temporary synthetic stores. The market-storage benchmark now supplies both current metadata and candle session factories. Never seed a customer database for a benchmark.
 
 This environment has no usable Docker Compose plugin/daemon or Redis server. PostgreSQL/TimescaleDB/Redis Lua execution and the k6 capacity sweep were not exercised. Redis race tests use a command-contract model; the container/load harness in [benchmark/README.md](../benchmark/README.md) remains the deployment verification path. These measurements establish no concurrent-user or whole-application throughput claim.
+
+A later isolated Docker/PostgreSQL/Redis verification is recorded in [production capacity and deployment](production-capacity.md). The earlier microbenchmarks and their limits above remain historical measurements.

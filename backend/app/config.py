@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 
+from sqlalchemy.engine import URL
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -50,18 +52,24 @@ def optional_path_env(name: str) -> Path | None:
     return Path(raw_value)
 
 
+def postgres_database_url(host: str, port: str) -> str:
+    return URL.create(
+        "postgresql+psycopg",
+        username=os.getenv("POSTGRES_USER", "edgelab").strip() or "edgelab",
+        password=os.getenv("POSTGRES_PASSWORD", "edgelab").strip() or "edgelab",
+        host=host,
+        port=int(port),
+        database=os.getenv("POSTGRES_DB", "edgelab").strip() or "edgelab",
+    ).render_as_string(hide_password=False)
+
+
 def default_database_url() -> str:
     explicit_url = os.getenv("DATABASE_URL", "").strip()
     if explicit_url:
         return explicit_url
-    postgres_user = os.getenv("POSTGRES_USER", "edgelab").strip() or "edgelab"
-    postgres_password = os.getenv("POSTGRES_PASSWORD", "edgelab").strip() or "edgelab"
-    postgres_db = os.getenv("POSTGRES_DB", "edgelab").strip() or "edgelab"
-    postgres_host = os.getenv("EDGELAB_POSTGRES_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    postgres_port = os.getenv("EDGELAB_POSTGRES_CONNECT_PORT", "5432").strip() or "5432"
-    return (
-        "postgresql+psycopg://"
-        f"{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+    return postgres_database_url(
+        os.getenv("EDGELAB_POSTGRES_HOST", "127.0.0.1").strip() or "127.0.0.1",
+        os.getenv("EDGELAB_POSTGRES_CONNECT_PORT", "5432").strip() or "5432",
     )
 
 
@@ -69,6 +77,12 @@ def default_market_data_database_url() -> str:
     explicit_url = os.getenv("EDGELAB_MARKET_DATA_DATABASE_URL", "").strip()
     if explicit_url:
         return explicit_url
+    market_host = os.getenv("EDGELAB_MARKET_DATA_POSTGRES_HOST", "").strip()
+    if market_host:
+        return postgres_database_url(
+            market_host,
+            os.getenv("EDGELAB_MARKET_DATA_POSTGRES_PORT", "6432").strip() or "6432",
+        )
     return default_database_url()
 
 
@@ -76,8 +90,23 @@ def database_connect_args(database_url: str) -> dict[str, object]:
     if database_url.startswith("sqlite"):
         return {"check_same_thread": False, "timeout": 60}
     if database_url.startswith("postgresql+psycopg"):
-        return {"prepare_threshold": None}
+        return {
+            "prepare_threshold": None,
+            "connect_timeout": max(int_env("EDGELAB_DB_CONNECT_TIMEOUT_SECONDS", 10), 1),
+        }
     return {}
+
+
+def database_engine_options(database_url: str) -> dict[str, object]:
+    options: dict[str, object] = {"pool_pre_ping": True}
+    if not database_url.startswith("sqlite"):
+        options.update(
+            pool_recycle=1800,
+            pool_size=max(int_env("EDGELAB_DB_POOL_SIZE", 5), 1),
+            max_overflow=max(int_env("EDGELAB_DB_POOL_MAX_OVERFLOW", 10), 0),
+            pool_timeout=max(float_env("EDGELAB_DB_POOL_TIMEOUT_SECONDS", 5.0), 0.1),
+        )
+    return options
 
 
 @dataclass(frozen=True)

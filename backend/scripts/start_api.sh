@@ -16,6 +16,9 @@ if [ "${EDGELAB_RUN_MIGRATIONS:-1}" != "0" ]; then
   done
 fi
 
+# Initialize the separate candle schema before forking; workers must not race DDL.
+python -c 'from app.market_data_db import init_market_data_db; init_market_data_db()'
+
 if [ -n "${EDGELAB_API_WORKERS:-}" ]; then
   workers="${EDGELAB_API_WORKERS}"
 else

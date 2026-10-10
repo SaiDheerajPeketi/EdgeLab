@@ -58,6 +58,7 @@ def test_default_market_data_database_url_prefers_explicit_override(monkeypatch)
 def test_database_connect_args_disable_psycopg_prepared_statements():
     assert database_connect_args("postgresql+psycopg://edge:secret@pgbouncer:6432/edgelab") == {
         "prepare_threshold": None,
+        "connect_timeout": 10,
     }
 
 

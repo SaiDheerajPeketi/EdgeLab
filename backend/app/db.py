@@ -3,14 +3,11 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import database_connect_args, settings
+from app.config import database_connect_args, database_engine_options, settings
 
 
-engine_kwargs = {"pool_pre_ping": True}
+engine_kwargs = database_engine_options(settings.database_url)
 connect_args = database_connect_args(settings.database_url)
-
-if not settings.database_url.startswith("sqlite"):
-    engine_kwargs["pool_recycle"] = 1800
 
 engine = create_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
 

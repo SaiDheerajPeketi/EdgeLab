@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.market_data_db import ensure_market_data_schema
@@ -59,15 +60,16 @@ def import_market_data_to_db(
     market_db, owns_market_db = _market_data_session(db, market_data_session_factory)
     try:
         _ensure_market_candle_table(market_db)
+        _lock_imports(market_db, user_id, timeframes)
         for timeframe_row in timeframes:
-            rows = _read_csv_rows(Path(timeframe_row.csv_path))
+            frame = _read_csv_frame(Path(timeframe_row.csv_path))
             existing = _existing_import_state(
                 market_db,
                 user_id=user_id,
                 asset_id=timeframe_row.asset_id,
                 timeframe=timeframe_row.timeframe,
             )
-            start_index = _append_start_index(rows, existing)
+            start_index = _append_start_index(frame, existing)
             if start_index is None:
                 market_db.execute(
                     delete(MarketCandle).where(
@@ -78,46 +80,48 @@ def import_market_data_to_db(
                 )
                 start_index = 0
 
-            for start in range(start_index, len(rows), IMPORT_BATCH_SIZE):
-                market_db.add_all(
+            for start in range(start_index, len(frame), IMPORT_BATCH_SIZE):
+                market_db.execute(
+                    insert(MarketCandle.__table__),
                     [
-                        MarketCandle(
-                            user_id=user_id,
-                            asset_id=timeframe_row.asset_id,
-                            timeframe=timeframe_row.timeframe,
-                            offset=index,
-                            timestamp=row["Timestamp"].to_pydatetime().replace(tzinfo=None),
-                            open=float(row["Open"]),
-                            high=float(row["High"]),
-                            low=float(row["Low"]),
-                            close=float(row["Close"]),
-                            volume=float(row["Volume"]),
+                        {
+                            "user_id": user_id,
+                            "asset_id": timeframe_row.asset_id,
+                            "timeframe": timeframe_row.timeframe,
+                            "offset": start + index,
+                            "timestamp": timestamp.to_pydatetime().replace(tzinfo=None),
+                            "open": float(open_price),
+                            "high": float(high),
+                            "low": float(low),
+                            "close": float(close),
+                            "volume": float(volume),
+                        }
+                        for index, (timestamp, open_price, high, low, close, volume) in enumerate(
+                            frame.iloc[start : start + IMPORT_BATCH_SIZE].itertuples(index=False, name=None)
                         )
-                        for index, row in rows[start : start + IMPORT_BATCH_SIZE]
-                    ]
+                    ],
                 )
-                market_db.flush()
-            timeframe_row.rows = len(rows)
+            timeframe_row.rows = len(frame)
             timeframe_row.first_timestamp = (
-                rows[0][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-                if rows
+                frame.iloc[0]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                if not frame.empty
                 else None
             )
             timeframe_row.last_timestamp = (
-                rows[-1][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-                if rows
+                frame.iloc[-1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                if not frame.empty
                 else None
             )
             timeframe_row.database_imported = True
             timeframe_row.database_imported_at = utcnow()
-            imported_rows = len(rows) - start_index
+            imported_rows = len(frame) - start_index
             total_candles += imported_rows
             imported.append(
                 {
                     "asset_id": timeframe_row.asset_id,
                     "timeframe": timeframe_row.timeframe,
                     "csv_path": timeframe_row.csv_path,
-                    "rows": len(rows),
+                    "rows": len(frame),
                     "imported_rows": imported_rows,
                     "mode": "append" if start_index > 0 else "replace",
                 }
@@ -139,12 +143,28 @@ def import_market_data_to_db(
     }
 
 
-def _read_csv_rows(csv_path: Path) -> list[tuple[int, dict[str, object]]]:
+def _read_csv_frame(csv_path: Path) -> pd.DataFrame:
     frame = pd.read_csv(csv_path, parse_dates=["Timestamp"], date_format="mixed")
     missing = [column for column in REQUIRED_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"CSV is missing required columns: {', '.join(missing)}")
-    return list(enumerate(frame.to_dict(orient="records")))
+    return frame[REQUIRED_COLUMNS]
+
+
+def _lock_imports(db: Session, user_id: int, timeframes: list[DatasetTimeframe]) -> None:
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    # All callers share these locks on the transaction that writes candles.
+    # Sorting prevents opposing multi-timeframe imports from deadlocking.
+    keys = {
+        int.from_bytes(
+            sha256(f"edgelab:market-import:{user_id}:{row.asset_id}:{row.timeframe}".encode()).digest()[:8],
+            "big", signed=True,
+        )
+        for row in timeframes
+    }
+    for key in sorted(keys):
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
 def _existing_import_state(
@@ -186,20 +206,20 @@ def _ensure_market_candle_table(db: Session) -> None:
 
 
 def _append_start_index(
-    rows: list[tuple[int, dict[str, object]]],
+    frame: pd.DataFrame,
     existing: ExistingImportState,
 ) -> int | None:
     if existing.rows <= 0:
         return 0
-    if existing.rows > len(rows):
+    if existing.rows > len(frame):
         return None
     if existing.first_timestamp is None or existing.last_timestamp is None:
         return None
-    if not rows:
+    if frame.empty:
         return None
 
-    first_timestamp = _row_timestamp(rows[0][1])
-    last_prefix_timestamp = _row_timestamp(rows[existing.rows - 1][1])
+    first_timestamp = _row_timestamp(frame.iloc[0])
+    last_prefix_timestamp = _row_timestamp(frame.iloc[existing.rows - 1])
     if first_timestamp != existing.first_timestamp:
         return None
     if last_prefix_timestamp != existing.last_timestamp:
@@ -207,6 +227,6 @@ def _append_start_index(
     return existing.rows
 
 
-def _row_timestamp(row: dict[str, object]) -> datetime:
+def _row_timestamp(row: pd.Series) -> datetime:
     value = row["Timestamp"]
     return value.to_pydatetime().replace(tzinfo=None)

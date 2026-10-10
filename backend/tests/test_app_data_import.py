@@ -1,6 +1,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -74,7 +75,8 @@ def seed_graph(db, user_id, row_id):
 
 
 @pytest.fixture(params=[False, True], ids=["sqlite-fks-off", "sqlite-fks-on"])
-def import_context(request):
+def import_context(request, monkeypatch):
+    monkeypatch.setattr(routes.backtester.dataset_catalog, "default_root", Path("/datasets"))
     engine = create_engine("sqlite:///:memory:")
     if request.param:
         @event.listens_for(engine, "connect")

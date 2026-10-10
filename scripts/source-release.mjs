@@ -8,7 +8,7 @@ import { readPineEngineSources } from "./pine-engine.mjs";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const exactFiles = new Set([
   "LICENSE", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", ".env.example", ".dockerignore",
-  "docker-compose.yml", "docker-compose.local.yml",
+  "docker-compose.yml", "docker-compose.local.yml", "docker-compose.efficient.yml",
   "frontend/package.json", "frontend/index.html", "frontend/Dockerfile", "frontend/vite.config.ts", "frontend/pineWorkerPlugin.ts",
   "frontend/tsconfig.json", "frontend/tsconfig.node.json", "frontend/tailwind.config.js", "frontend/postcss.config.js",
   "scripts/dev.js", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",

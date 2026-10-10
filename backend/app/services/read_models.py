@@ -11,6 +11,8 @@ from threading import Lock
 from time import monotonic
 from typing import TypeVar
 
+from fastapi import HTTPException
+
 try:
     import redis
 except Exception:  # pragma: no cover - optional dependency
@@ -147,6 +149,15 @@ class MemoryReadModelCache:
 class RedisReadModelCache:
     def __init__(self, client) -> None:
         self._client = client
+        self._last_failure_log_at = float("-inf")
+        self._failure_log_lock = Lock()
+
+    def _report_failure(self) -> None:
+        with self._failure_log_lock:
+            now = monotonic()
+            if now - self._last_failure_log_at >= 30:
+                logger.warning("Redis read-model cache unavailable; using uncached reads")
+                self._last_failure_log_at = now
 
     def get_or_load(
         self,
@@ -157,41 +168,56 @@ class RedisReadModelCache:
         serializer: Callable[[T], str] | None = None,
         deserializer: Callable[[str], T] | None = None,
     ) -> T:
-        if ttl_seconds <= 0:
+        if ttl_seconds <= 0 or self._client is None:
             return loader()
 
         cache_key = f"{REDIS_CACHE_NAMESPACE}data:{key}"
-        raw = self._client.get(cache_key)
+        generation_key = f"{REDIS_CACHE_NAMESPACE}generation:{key}"
+        try:
+            raw = self._client.get(cache_key)
+            generation = None if raw is not None else self._client.eval(
+                REDIS_LOAD_GENERATION, 1, generation_key, token_hex(16), max(60, ttl_seconds),
+            )
+        except redis.exceptions.RedisError:
+            self._report_failure()
+            return loader()
         if raw is not None:
             payload = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
             if deserializer is not None:
                 return deserializer(payload)
             return json.loads(payload)
 
-        generation_key = f"{REDIS_CACHE_NAMESPACE}generation:{key}"
-        generation = self._client.eval(
-            REDIS_LOAD_GENERATION, 1, generation_key, token_hex(16), max(60, ttl_seconds),
-        )
         value = loader()
         payload = serializer(value) if serializer is not None else json.dumps(value)
         # The read and publication comparison is atomic with respect to invalidation.
-        self._client.eval(
-            REDIS_PUBLISH_IF_CURRENT, 2, generation_key, cache_key,
-            generation, payload, ttl_seconds,
-        )
+        try:
+            self._client.eval(
+                REDIS_PUBLISH_IF_CURRENT, 2, generation_key, cache_key,
+                generation, payload, ttl_seconds,
+            )
+        except redis.exceptions.RedisError:
+            self._report_failure()
         return value
 
     def _remove_keys(self, keys) -> None:
         # UNLINK frees payloads off the Redis request thread; keep each command bounded.
-        remove = getattr(self._client, "unlink", self._client.delete)
-        batch = []
-        for key in keys:
-            batch.append(key)
-            if len(batch) == REDIS_INVALIDATION_BATCH_SIZE:
+        if self._client is None:
+            return
+        try:
+            remove = getattr(self._client, "unlink", self._client.delete)
+            batch = []
+            for key in keys:
+                batch.append(key)
+                if len(batch) == REDIS_INVALIDATION_BATCH_SIZE:
+                    remove(*batch)
+                    batch.clear()
+            if batch:
                 remove(*batch)
-                batch.clear()
-        if batch:
-            remove(*batch)
+        except redis.exceptions.RedisError:
+            self._report_failure()
+            # A missed shared invalidation must not report a completed write.
+            raise HTTPException(503, "Cache synchronization unavailable. Try again shortly.",
+                                headers={"Retry-After": "1", "Cache-Control": "no-store"}) from None
 
     def invalidate_key(self, key: str) -> None:
         self._remove_keys([
@@ -200,6 +226,8 @@ class RedisReadModelCache:
         ])
 
     def invalidate_prefix(self, prefix: str) -> None:
+        if self._client is None:
+            return
         # Retire admitted loaders first, then remove their previously published data.
         # Both scans are bounded; a loader admitted after the write reads fresh storage.
         self._remove_keys(self._client.scan_iter(match=f"{REDIS_CACHE_NAMESPACE}generation:{prefix}*"))
@@ -213,8 +241,8 @@ def build_read_model_cache_backend(redis_url: str):
     if not redis_url:
         return MemoryReadModelCache()
     if redis is None:
-        logger.warning("Redis cache requested but redis package missing; using memory cache")
-        return MemoryReadModelCache()
+        logger.warning("Redis cache requested but redis package missing; using uncached reads")
+        return RedisReadModelCache(None)
     try:
         client = redis.from_url(
             redis_url,
@@ -222,11 +250,10 @@ def build_read_model_cache_backend(redis_url: str):
             socket_connect_timeout=0.25,
             socket_timeout=0.25,
         )
-        client.ping()
         return RedisReadModelCache(client)
     except Exception:
-        logger.warning("Redis read-model cache unavailable; using bounded memory cache")
-        return MemoryReadModelCache()
+        logger.warning("Redis read-model cache unavailable; using uncached reads")
+        return RedisReadModelCache(None)
 
 
 def serialize_cached_value(value: object) -> str:

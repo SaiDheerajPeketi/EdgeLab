@@ -31,7 +31,7 @@ from fastapi import (
 from fastapi.params import Param
 from fastapi.responses import StreamingResponse
 from sqlalchemy import Date as SQLDate, DateTime, func, select, update
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError, TimeoutError as DatabasePoolTimeout
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -440,6 +440,11 @@ def validate_app_data_bundle(bundle: AppDataBundle, db: Session, user_id: int) -
         columns = model.__table__.columns
         table_ids: set[int] = set()
         for row in bundle.tables.get(table_name, []):
+            if model in {BacktestSession, DatasetTimeframe} and row.get("csv_path") is not None:
+                try:
+                    backtester.validate_csv_path(row["csv_path"])
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from None
             if set(row) - set(columns.keys()):
                 raise HTTPException(status_code=400, detail=f"Import table {table_name} contains unsupported fields")
             row_id = row.get("id")
@@ -492,6 +497,8 @@ def validate_app_data_bundle(bundle: AppDataBundle, db: Session, user_id: int) -
 
 
 def dataset_error_response(exc: Exception) -> HTTPException:
+    if isinstance(exc, DatabasePoolTimeout):
+        return HTTPException(status_code=503, detail="Service busy. Try again shortly.", headers={"Retry-After": "1"})
     if isinstance(exc, DatasetRefreshInProgress):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, OperationalError) and "database is locked" in str(exc).lower():
@@ -1612,7 +1619,7 @@ async def dataset_stream(websocket: WebSocket) -> None:
             timeout=WEBSOCKET_AUTH_TIMEOUT_SECONDS,
         )
         token = clean_text(initial.get("authToken")) if isinstance(initial, dict) else ""
-        current_user = verify_stream_access(token)
+        current_user = await asyncio.to_thread(verify_stream_access, token)
     except (HTTPException, asyncio.TimeoutError, ValueError, TypeError, json.JSONDecodeError):
         await websocket.close(code=4401)
         return
@@ -3015,7 +3022,7 @@ async def angelone_stream(websocket: WebSocket) -> None:
     db = SessionLocal()
     try:
         token = clean_text(initial.get("apiToken"))
-        stream_user = verify_stream_access(token)
+        stream_user = await asyncio.to_thread(verify_stream_access, token)
     except HTTPException:
         await websocket.send_json({"type": "error", "message": "Valid session required"})
         await websocket.close(code=4401)

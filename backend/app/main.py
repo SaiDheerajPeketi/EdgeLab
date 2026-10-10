@@ -6,6 +6,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy.exc import TimeoutError as DatabasePoolTimeout
+from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -47,6 +49,35 @@ async def lifespan(_: FastAPI):
     else:
         logger.info("OpenTelemetry tracing disabled: %s", tracing_status.reason)
     yield
+
+
+PRIVATE_API_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "CDN-Cache-Control": "no-store",
+    "Cloudflare-CDN-Cache-Control": "no-store",
+}
+
+
+class PrivateAPICacheMiddleware:
+    """Keep tenant data and authorization results out of browser/shared caches."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def private_send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in PRIVATE_API_HEADERS.items():
+                    if name != "Cache-Control" or headers.get(name) != "no-store":
+                        headers[name] = value
+            await send(message)
+
+        await self.app(scope, receive, private_send)
 
 
 class RequestBodyTooLarge(HTTPException):
@@ -113,6 +144,7 @@ app.add_middleware(
 )
 app.add_middleware(HTTPMetricsMiddleware, registry=http_metrics)
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(PrivateAPICacheMiddleware)
 
 tracing_status = configure_tracing(
     app=app,
@@ -122,7 +154,7 @@ tracing_status = configure_tracing(
     otlp_endpoint=settings.otel_exporter_otlp_endpoint,
     otlp_headers=settings.otel_exporter_otlp_headers,
     sample_ratio=settings.otel_trace_sample_ratio,
-    sql_engines=(engine, market_data_engine),
+    sql_engines=tuple(dict.fromkeys((engine, market_data_engine))),
 )
 
 
@@ -172,12 +204,22 @@ def sanitize_secret_validation_errors(
     return errors
 
 
+@app.exception_handler(DatabasePoolTimeout)
+async def database_pool_timeout_handler(request: Request, exc: DatabasePoolTimeout) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service busy. Try again shortly."},
+        headers={**PRIVATE_API_HEADERS, "Retry-After": "1"},
+    )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled API error")
     detail = "Internal server error"
     return JSONResponse(
         status_code=500,
+        headers=PRIVATE_API_HEADERS,
         content={
             "detail": detail,
             "error": {

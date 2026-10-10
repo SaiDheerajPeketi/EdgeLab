@@ -6,6 +6,8 @@ from math import ceil
 from threading import Lock
 from time import monotonic
 
+from fastapi import HTTPException
+
 try:
     import redis
 except Exception:  # pragma: no cover - optional dependency
@@ -13,6 +15,20 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 logger = logging.getLogger(__name__)
+RATE_LIMIT_SCRIPT = """
+local current = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if current == 1 or ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = tonumber(ARGV[1])
+end
+return {current, ttl}
+"""
+
+
+def _unavailable() -> HTTPException:
+    return HTTPException(503, "Request admission unavailable. Try again shortly.",
+                         headers={"Retry-After": "1", "Cache-Control": "no-store"})
 
 
 @dataclass(frozen=True)
@@ -54,21 +70,33 @@ class RedisRateLimiter:
         if limit <= 0 or window_seconds <= 0:
             return RateLimitDecision(allowed=True)
 
-        current = int(self._client.incr(key))
-        if current == 1:
-            self._client.expire(key, window_seconds)
+        try:
+            reply = self._client.eval(RATE_LIMIT_SCRIPT, 1, key, window_seconds)
+            if (not isinstance(reply, (list, tuple)) or len(reply) != 2
+                    or type(reply[0]) is not int or reply[0] < 1
+                    or type(reply[1]) is not int or not 0 <= reply[1] <= window_seconds):
+                raise ValueError("Invalid rate-limit reply")
+            current, ttl = reply
+        except Exception:
+            raise _unavailable() from None
         if current <= limit:
             return RateLimitDecision(allowed=True)
-        ttl = int(self._client.ttl(key))
         return RateLimitDecision(allowed=False, retry_after_seconds=max(1, ttl))
+
+
+class UnavailableRateLimiter:
+    def consume(self, key: str, *, limit: int, window_seconds: int) -> RateLimitDecision:
+        if limit <= 0 or window_seconds <= 0:
+            return RateLimitDecision(allowed=True)
+        raise _unavailable()
 
 
 def build_rate_limiter(redis_url: str):
     if not redis_url:
         return MemoryRateLimiter()
     if redis is None:
-        logger.warning("Redis rate limiter requested but redis package missing; using memory limiter")
-        return MemoryRateLimiter()
+        logger.warning("Redis rate limiter requested but redis package missing")
+        return UnavailableRateLimiter()
     try:
         client = redis.from_url(
             redis_url,
@@ -76,8 +104,7 @@ def build_rate_limiter(redis_url: str):
             socket_connect_timeout=0.25,
             socket_timeout=0.25,
         )
-        client.ping()
         return RedisRateLimiter(client)
     except Exception:
-        logger.warning("Redis rate limiter unavailable at %s; using memory limiter", redis_url, exc_info=True)
-        return MemoryRateLimiter()
+        logger.warning("Redis rate limiter unavailable")
+        return UnavailableRateLimiter()

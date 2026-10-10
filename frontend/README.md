@@ -380,3 +380,9 @@ Identical finite CCI windows and entirely zero MFI flow windows are recognized b
 ### Native volume studies
 
 The indicator library includes an editable original Chaikin Oscillator with fast/slow lengths. The editor’s New script menu also offers original Pine Chaikin Money Flow (length) and Elder Force Index (source and length); existing DSL CMF and Force Index entries keep their identities. These use the published [CMF](https://www.tradingview.com/support/solutions/43000501974-chaikin-money-flow-cmf/), [Chaikin Oscillator](https://www.tradingview.com/support/solutions/43000501979-chaikin-oscillator/) and [EFI](https://www.tradingview.com/support/solutions/43000502259-elder-s-force-index-efi/) equations. Flat-range candles contribute zero Chaikin flow while retaining volume; zero total volume leaves CMF missing. EMA initialization uses the current native engine’s full-window SMA seed; these checks do not establish exact TradingView startup parity. Independent formulas and repeated live updates are covered in `backend/tests/pine-volume190.test.js` and the actual production editor/chart path in `e2e/volume190.config.ts`.
+
+## Global CDN deployment
+
+Cloudflare can cache fingerprinted `/assets/*` while proxying `/api/*` to the VM without caching. Keep the browser, Google callback and Better Auth on one public origin; existing `VITE_API_BASE_URL=/api` works with this arrangement. API and proxy-error responses carry private/no-store headers. Never enable Cache Everything on authentication, account data, streams or paid exports. `/source/` metadata and HTML must stay fresh and match the deployed API build. The efficient Compose overlay preserves the frontend proxy layout. See [production capacity and operations](../docs/production-capacity.md).
+
+The production proxy image uses Nginx 1.30.5, including the map/regex security fixes documented in the official advisory. Validate the configuration and HTTP/cache behavior when upgrading it.

@@ -1666,6 +1666,23 @@ class BacktestService:
             user_id=user_id,
         )
 
+    def validate_csv_path(self, csv_path: str) -> Path:
+        if not isinstance(csv_path, str) or not csv_path.strip():
+            raise ValueError("Dataset CSV path is invalid")
+        try:
+            path = Path(csv_path).expanduser().resolve(strict=False)
+            legacy = self.market_data.csv_path.expanduser().resolve(strict=False) if self.market_data is not None else None
+            root = self.dataset_catalog.default_root.expanduser().resolve(strict=False) if self.dataset_catalog is not None else None
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError("Dataset CSV path is invalid") from exc
+        if path == legacy or (root is not None and path.is_relative_to(root)):
+            return path
+        # A standalone registry without configured sources remains a local file
+        # utility. HTTP routes always configure the dataset catalog.
+        if root is None and legacy is None:
+            return path
+        raise ValueError("Dataset CSV path must stay within the configured dataset directory")
+
     def market_data_for_path(
         self,
         csv_path: str,
@@ -1674,6 +1691,9 @@ class BacktestService:
         db: Session | None = None,
         user_id: int | None = None,
     ) -> MarketDataService | DatabaseMarketDataService:
+        # Imported session/catalog rows are untrusted; validate before either a
+        # catalog lookup or a cached file reader can access the supplied path.
+        csv_path = str(self.validate_csv_path(csv_path))
         if db is not None and user_id is not None and self.dataset_catalog is not None:
             try:
                 resolution = self.dataset_catalog.resolve_dataset(db, user_id, csv_path=csv_path)
@@ -1710,7 +1730,7 @@ class BacktestService:
                 cache=(
                     self.market_data is not None
                     and self.market_data.cache
-                    and Path(csv_path) == self.market_data.csv_path
+                    and Path(csv_path) == self.market_data.csv_path.expanduser().resolve(strict=False)
                 ),
                 timestamp_timezone=timestamp_timezone or "UTC",
             ),
