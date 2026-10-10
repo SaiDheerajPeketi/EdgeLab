@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expectJournalValue, selectJournalOption } from "./support/journal-select";
 import { betaSessionResponse, certifyUiState, gotoStable } from "./support/app";
 import { installJournalFixture, reviewCanary, reviewPath, seedAccount, seedTrade } from "./support/compatibility-journal";
 
@@ -26,9 +27,9 @@ async function filters(page: Page) {
   const details = page.locator("details").filter({ has: page.getByText("Analytics filters", { exact: true }) });
   if (await details.getAttribute("open") == null) await details.locator("summary").click();
 }
-async function select(page: Page, label: string, value: string) {
+async function select(page: Page, label: string, value: string, optionLabel = value) {
   await filters(page);
-  await page.getByRole("combobox", { name: label, exact: true }).selectOption(value);
+  await selectJournalOption(page.getByRole("combobox", { name: label, exact: true }), value, optionLabel);
 }
 async function openSeed(page: Page, fallback: boolean) {
   await page.getByRole("tab", { name: "Symbol", exact: true }).click();
@@ -48,7 +49,7 @@ async function fillReview(page: Page, fallback: boolean, note = saved) {
     await form.getByRole("switch", { name: "Trade reviewed", exact: true }).check();
     await form.getByRole("button", { name: "4 star rating", exact: true }).click();
   }
-  await form.getByRole("combobox", { name: "Setup grade", exact: true }).selectOption("A+");
+  await selectJournalOption(form.getByRole("combobox", { name: "Setup grade", exact: true }), "A+");
   await form.getByRole("textbox", { name: "Review note", exact: true }).fill(note);
 }
 async function assertSaved(page: Page, fallback: boolean, note = saved) {
@@ -60,7 +61,7 @@ async function assertSaved(page: Page, fallback: boolean, note = saved) {
     await expect(form.getByRole("switch", { name: "Trade reviewed", exact: true })).toBeChecked();
     await expect(form.getByRole("button", { name: "4 star rating", exact: true })).toHaveAttribute("aria-pressed", "true");
   }
-  await expect(form.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
+  await expectJournalValue(form.getByRole("combobox", { name: "Setup grade", exact: true }), "A+");
   await expect(form.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("");
   await expect(form.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText(note);
 }
@@ -119,7 +120,7 @@ for (const path of routes) {
         }
         await expect(matching(page, 1)).toBeVisible();
         await filters(page);
-        await expect(page.getByRole("combobox", { name: "Symbol", exact: true })).toHaveValue("BTCUSDT");
+        await expectJournalValue(page.getByRole("combobox", { name: "Symbol", exact: true }), "BTCUSDT");
         await expect(page.getByRole("tab", { name: "Symbol", exact: true })).toHaveAttribute("aria-selected", "true");
         await expect(page.getByRole("button", { name: "Select BTCUSDT segment", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(drill(page)).toContainText("BTCUSDT");
@@ -142,8 +143,8 @@ for (const path of routes) {
     await start(page, state, path);
     await page.getByRole("combobox", { name: "Account scope", exact: true }).selectOption("SELECTED");
     await expect(page.getByRole("checkbox", { name: new RegExp(seedAccount.name) })).toBeChecked();
-    for (const [label, value] of [["Account", String(seedAccount.id)], ["Market", "Crypto"], ["Symbol", "BTCUSDT"],
-      ["Strategy", seedTrade.strategy_name!], ["Direction", "LONG"], ["Rating", "3"]]) await select(page, label, value);
+    for (const [label, value, optionLabel] of [["Account", String(seedAccount.id), seedAccount.name], ["Market", "Crypto", "Crypto"], ["Symbol", "BTCUSDT", "BTCUSDT"],
+      ["Strategy", seedTrade.strategy_name!, seedTrade.strategy_name!], ["Direction", "LONG", "Long"], ["Rating", "3", "3 stars"]]) await select(page, label, value, optionLabel);
     await page.getByLabel("From", { exact: true }).fill("2026-09-15");
     await page.getByLabel("To", { exact: true }).fill("2026-09-15");
     await page.getByRole("checkbox", { name: tag.name, exact: true }).check();
@@ -154,10 +155,10 @@ for (const path of routes) {
     }
     await switchRenderer(page, state, false);
     await expect(page.getByRole("tab", { name: "Account", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("combobox", { name: "Account scope", exact: true })).toHaveValue(String(seedAccount.id));
+    await expectJournalValue(page.getByRole("combobox", { name: "Account scope", exact: true }), String(seedAccount.id), `${seedAccount.name} · ${seedAccount.currency}`);
     await filters(page);
-    for (const [label, value] of [["Account", String(seedAccount.id)], ["Market", "Crypto"], ["Symbol", "BTCUSDT"],
-      ["Strategy", seedTrade.strategy_name!], ["Direction", "LONG"], ["Rating", "3"]]) await expect(page.getByRole("combobox", { name: label, exact: true })).toHaveValue(value);
+    for (const [label, value, optionLabel] of [["Account", String(seedAccount.id), seedAccount.name], ["Market", "Crypto", "Crypto"], ["Symbol", "BTCUSDT", "BTCUSDT"],
+      ["Strategy", seedTrade.strategy_name!, seedTrade.strategy_name!], ["Direction", "LONG", "Long"], ["Rating", "3", "3 stars"]]) await expectJournalValue(page.getByRole("combobox", { name: label, exact: true }), value, optionLabel);
     await expect(page.getByLabel("From", { exact: true })).toHaveValue("2026-09-15");
     await expect(page.getByLabel("To", { exact: true })).toHaveValue("2026-09-15");
     await expect(page.getByRole("checkbox", { name: tag.name, exact: true })).toBeChecked();
@@ -166,7 +167,7 @@ for (const path of routes) {
     await switchRenderer(page, state, true);
     await expect(matching(page, 2)).toBeVisible();
     await filters(page);
-    await expect(page.getByRole("combobox", { name: "Symbol", exact: true })).toHaveValue("ALL");
+    await expectJournalValue(page.getByRole("combobox", { name: "Symbol", exact: true }), "ALL", "All symbols");
     await expect(page.getByRole("checkbox", { name: tag.name, exact: true })).not.toBeChecked();
   });
 
@@ -278,7 +279,7 @@ for (const path of routes) {
     await expect(rows.locator("tbody tr").first().locator("td").nth(6)).not.toHaveText("Separate currencies");
     await expect.poll(() => weak.locator("button").count()).toBeGreaterThan(0);
     await switchRenderer(page, state, false);
-    await expect(page.getByRole("combobox", { name: "Account scope", exact: true })).toHaveValue(String(seedAccount.id + 1));
+    await expectJournalValue(page.getByRole("combobox", { name: "Account scope", exact: true }), String(seedAccount.id + 1), "Archived euro desk · EUR");
     await expect(matching(page, 1)).toBeVisible();
     await expect(page.getByText(/P&L totals are withheld/)).toHaveCount(0);
   });
@@ -298,25 +299,25 @@ test("fallback analytics owner switch aborts pending history and isolates privat
   state.historyGateBefore = [...state.tradePage!].sort((a, b) => b.id - a.id)[499].id;
   const failures: string[] = [];
   page.on("requestfailed", (request) => { if (request.url().includes("order=id")) failures.push(request.url()); });
+  const beforeRefresh = state.historyReads.length;
   await page.getByRole("button", { name: /^Refresh [Jj]ournal$/, exact: true }).click();
-  await expect.poll(() => state.historyReads.some(({ before }) => before === state.historyGateBefore)).toBe(true);
+  await expect.poll(() => state.historyReads.slice(beforeRefresh).some(({ before }) => before === state.historyGateBefore)).toBe(true);
   owner++;
   state.tradePage = [];
   state.accountPage = [{ ...seedAccount, id: 90001, name: "Owner two analytics desk" }];
   state.notePage = [];
   await page.evaluate(async (session) => {
     const modulePath = "/src/lib/authSession.ts";
-    const { setStoredAuthSession } = await import(modulePath);
-    setStoredAuthSession(session);
-  }, { createdAt: betaSessionResponse.created_at, expiresAt: betaSessionResponse.expires_at, token: `analytics-owner-${owner}`,
-    user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id: owner,
-      isBetaUser: true, name: "Second analytics owner", plan: "beta", provider: "google" } });
+    const { setStoredAuthSession, toStoredAuthSession } = await import(modulePath);
+    setStoredAuthSession(toStoredAuthSession(session));
+  }, { ...betaSessionResponse, token: `analytics-owner-${owner}`,
+    user: { ...betaSessionResponse.user, id: owner, name: "Second analytics owner" } });
   await expect(matching(page, 0)).toBeVisible();
   await page.getByRole("combobox", { name: "Account scope", exact: true }).selectOption("SELECTED");
   await expect(page.getByRole("checkbox", { name: /Owner two analytics desk/ })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Older loss desk/ })).toHaveCount(0);
   await filters(page);
-  await expect(page.getByRole("combobox", { name: "Symbol", exact: true })).toHaveValue("ALL");
+  await expectJournalValue(page.getByRole("combobox", { name: "Symbol", exact: true }), "ALL", "All symbols");
   await expect(page.getByText("OLDLOSS", { exact: true })).toHaveCount(0);
   await expect.poll(() => failures.length).toBeGreaterThan(0);
   release();

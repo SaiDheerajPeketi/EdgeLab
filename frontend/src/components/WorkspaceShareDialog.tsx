@@ -29,6 +29,7 @@ import {
   type WorkspaceShareScope,
 } from "../lib/workspaceShare";
 import { Dialog, IconButton } from "./ui/Primitives";
+import { ThemedSelect } from "./ThemedSelect";
 
 type WorkspaceShareDialogProps = {
   buildPayload: (scope: WorkspaceShareScope) => WorkspaceSharePayload;
@@ -501,16 +502,19 @@ export function WorkspaceShareDialog({
               </label>
               <label className="block">
                 <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200"><LockKeyhole size={15} />Expires</span>
-                <select
-                  className="mt-2 min-h-11 w-full rounded-xl bg-black/30 px-3 text-base text-white outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-cyan-300/45"
-                  onChange={(event) => setExpiryDays(event.target.value)}
+                <ThemedSelect
+                  ariaLabel="Expires"
+                  className="mt-2 h-11 w-full text-base"
+                  onChange={setExpiryDays}
+                  options={[
+                    { label: "In 24 hours", value: "1" },
+                    { label: "In 7 days", value: "7" },
+                    { label: "In 30 days", value: "30" },
+                    { label: "Never", value: "never" },
+                  ]}
+                  portal
                   value={expiryDays}
-                >
-                  <option value="1">In 24 hours</option>
-                  <option value="7">In 7 days</option>
-                  <option value="30">In 30 days</option>
-                  <option value="never">Never</option>
-                </select>
+                />
               </label>
             </div>
 

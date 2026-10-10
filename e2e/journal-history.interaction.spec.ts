@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expectJournalOption, expectJournalValue, selectJournalOption } from "./support/journal-select";
 import { betaSessionResponse, certifyUiState, gotoStable } from "./support/app";
 import { installJournalFixture, seedAccount, seedTrade } from "./support/compatibility-journal";
 
@@ -13,7 +14,7 @@ const navigate = (page: Page, name: string) => header(page).getByRole("button", 
 async function selectSymbol(page: Page, value: string) {
   const filters = page.locator("details").filter({ has: page.getByText("Analytics filters", { exact: true }) });
   if (await filters.getAttribute("open") == null) await filters.locator("summary").click();
-  await page.getByRole("combobox", { name: "Symbol", exact: true }).selectOption(value);
+  await selectJournalOption(page.getByRole("combobox", { name: "Symbol", exact: true }), value, value === "ALL" ? "All symbols" : value);
 }
 const historyCursor = (state: State) => [...state.tradePage!].sort((a, b) => b.id - a.id)[499].id;
 
@@ -88,7 +89,7 @@ test("complete history includes older losses in dashboard, account comparison, a
   await expect(page.getByRole("table", { name: "Journal trades", exact: true }).locator("tbody tr")).toHaveCount(1);
   await expect(page.getByRole("table", { name: "Journal trades", exact: true })).toContainText("OLDLOSS");
   await selectSymbol(page, "OLDLOSS");
-  await expect(page.getByRole("combobox", { name: "Symbol", exact: true })).toHaveValue("OLDLOSS");
+  await expectJournalValue(page.getByRole("combobox", { name: "Symbol", exact: true }), "OLDLOSS");
 });
 
 test("later-page failure never exposes initial partial metrics, retry completes, and failed refresh keeps the complete snapshot", async ({ page }) => {
@@ -167,10 +168,10 @@ test("archived older foreign-currency accounts retain metadata, withheld mixed t
   await expect(metric(page, "Trades")).toHaveText("1,051");
   await expect(metric(page, "Net P&L")).toHaveText("Separate currencies");
   expect(state.accountReads).toContain("true");
-  await expect(scope(page).locator(`option[value="${olderAccount.id}"]`)).toContainText("Archived euro loss desk");
+  await expectJournalOption(scope(page), "Archived euro loss desk · EUR");
   await navigate(page, "Analytics");
   await expect(page.locator("[data-analytics-mixed-currency]")).toContainText("USD, EUR");
-  await scope(page).selectOption(String(olderAccount.id));
+  await selectJournalOption(scope(page), String(olderAccount.id), `${state.accounts[1].name} · ${state.accounts[1].currency}`);
   await expect(page.getByText(/^1 matching trades ·/)).toBeVisible();
   await expect(page.locator("[data-analytics-mixed-currency]")).toHaveCount(0);
   await navigate(page, "Overview");
@@ -235,13 +236,13 @@ test("a scope changed during history remains selected even while its remote PUT 
   await start(page);
   await completeDashboard(page);
   const release = await gateRefresh(page, state);
-  await scope(page).selectOption(String(olderAccount.id));
+  await selectJournalOption(scope(page), String(olderAccount.id), `${state.accounts[1].name} · ${state.accounts[1].currency}`);
   await expect.poll(() => pendingPuts).toBe(1);
   await expect(metric(page, "Trades")).toHaveText("1");
   release();
   state.historyGate = null;
   await expect(refresh(page)).toBeEnabled();
-  await expect(scope(page)).toHaveValue(String(olderAccount.id));
+  await expectJournalValue(scope(page), String(olderAccount.id), `${olderAccount.name} · ${olderAccount.currency}`);
   await expect(metric(page, "Net P&L")).toHaveText("-$750.00");
   releasePut();
   await expect.poll(() => stored).toEqual({ mode: "selected", accountIds: [olderAccount.id] });
@@ -263,13 +264,13 @@ test("owner changes clear mounted canonical history and abort an old owner's act
   state.notePage = [];
   await page.evaluate(async (session) => {
     const modulePath = "/src/lib/authSession.ts";
-    const { setStoredAuthSession } = await import(modulePath);
-    setStoredAuthSession(session);
-  }, { createdAt: betaSessionResponse.created_at, expiresAt: betaSessionResponse.expires_at, token: `owner-${owner}`,
-    user: { approved: true, betaPosition: null, email: betaSessionResponse.user.email, id: owner, isBetaUser: true, name: "Second owner", plan: "beta", provider: "google" } });
+    const { setStoredAuthSession, toStoredAuthSession } = await import(modulePath);
+    setStoredAuthSession(toStoredAuthSession(session));
+  }, { ...betaSessionResponse, token: `owner-${owner}`,
+    user: { ...betaSessionResponse.user, id: owner, name: "Second owner" } });
   await expect(metric(page, "Trades")).toHaveText("0");
-  await expect(scope(page)).toContainText("Owner two account");
-  await expect(scope(page)).not.toContainText(olderAccount.name);
+  await expectJournalOption(scope(page), "Owner two account · USD");
+  await expectJournalOption(scope(page), `${olderAccount.name} · ${olderAccount.currency}`, false);
   await expect.poll(() => failed.length).toBeGreaterThan(0);
   release();
   await expect(metric(page, "Trades")).toHaveText("0");
@@ -318,5 +319,5 @@ test("a confirmed account during the initial history scan cannot expose partial 
   release();
   state.historyGate = null;
   await completeDashboard(page);
-  await expect(scope(page)).toContainText("Late confirmed account");
+  await expectJournalOption(scope(page), "Late confirmed account · USD");
 });

@@ -27,6 +27,7 @@ import { createPineRuntimeJob } from "../lib/pineRuntime";
 import type { PineExecutionResult, PineSourceSnapshot } from "../lib/pineProtocol";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { PineStrategyResults } from "./PineStrategyResults";
+import { ThemedSelect } from "./ThemedSelect";
 import {
   DEFAULT_QUANT_BACKTEST_CONFIG,
   appendQuantAudit,
@@ -520,7 +521,7 @@ export function QuantPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-white/10 p-2">
-          <select aria-label="Quant conversation" className="input-control h-8 min-w-0 flex-1 text-xs" onChange={(event) => selectConversation(event.target.value)} value={activeConversation?.id ?? ""}><option value="">No conversation</option>{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}</select>
+          <ThemedSelect ariaLabel="Quant conversation" className="h-8 min-w-0 flex-1 text-xs" onChange={selectConversation} options={[{ label: "No conversation", value: "" }, ...conversations.map((conversation) => ({ label: conversation.title, value: conversation.id }))]} portal value={activeConversation?.id ?? ""} />
           <button aria-label="New conversation" className="icon-button h-8 w-8" onClick={newConversation} type="button"><Plus size={13} /></button>
           <button aria-label="Delete conversation" className="icon-button h-8 w-8" disabled={!activeConversation} onClick={deleteConversation} type="button"><Trash2 size={13} /></button>
         </div>
@@ -538,7 +539,7 @@ export function QuantPanel({
 
         <div className="border-t border-white/10 p-3">
           <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-            <select aria-label="Quant model" className="input-control h-8 min-w-0 text-xs" disabled={!provider.available} onChange={(event) => setModelId(event.target.value)} value={selectedModel?.id ?? ""}>{provider.models.length ? provider.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>) : <option value="">No supported model</option>}</select>
+            <ThemedSelect ariaLabel="Quant model" className="h-8 min-w-0 text-xs" disabled={!provider.available} onChange={setModelId} options={provider.models.length ? provider.models.map((model) => ({ label: model.label, value: model.id })) : [{ label: "No supported model", value: "" }]} portal value={selectedModel?.id ?? ""} />
             <div className="flex gap-1">
               <button aria-label="Attach full chart screenshot" className="icon-button h-8 w-8" disabled={!preferences.allowScreenshots} onClick={() => void onCaptureChart()} title={preferences.allowScreenshots ? "Attach full chart" : "Enable screenshot permission first"} type="button"><Camera size={13} /></button>
               <button aria-label="Select chart region to send" className="icon-button h-8 w-8" disabled={!preferences.allowScreenshots} onClick={onCaptureRegion} title={preferences.allowScreenshots ? "Drag-select chart region" : "Enable screenshot permission first"} type="button"><ScanSearch size={13} /></button>
@@ -555,7 +556,7 @@ export function QuantPanel({
             </div>
             <button className="studio-tool-button studio-tool-button-active" disabled={!prompt.trim() || busy || !provider.available} onClick={() => void sendPrompt()} type="button"><Send size={12} /> Send</button>
           </div>
-          <details className="mt-2 text-[11px] text-slate-500"><summary className="cursor-pointer">Permissions, retention & context</summary><div className="mt-2 grid gap-2 rounded-md bg-black/20 p-2"><Permission checked={preferences.allowStructuredContext} label="Share structured chart context" onChange={(value) => updatePreferences({ allowStructuredContext: value })} /><Permission checked={preferences.allowScreenshots} label="Allow explicit screenshot attachments" onChange={(value) => updatePreferences({ allowScreenshots: value })} /><Permission checked={preferences.allowGeneratedCode} label="Allow generated EdgeLab DSL source" onChange={(value) => updatePreferences({ allowGeneratedCode: value })} /><label className="flex items-center justify-between gap-3"><span>Conversation retention</span><select className="input-control h-8 text-xs" onChange={(event) => updatePreferences({ retention: event.target.value as QuantPreferences["retention"] })} value={preferences.retention}><option value="30-days">30 days</option><option value="session">This session</option><option value="off">Off</option></select></label><p>Context preview: {context.symbol} · {context.timeframe} · {context.visibleBars.length} visible bars · {context.activeIndicators.length} studies · {context.drawings.length} drawings.</p></div></details>
+          <details className="mt-2 text-[11px] text-slate-500"><summary className="cursor-pointer">Permissions, retention & context</summary><div className="mt-2 grid gap-2 rounded-md bg-black/20 p-2"><Permission checked={preferences.allowStructuredContext} label="Share structured chart context" onChange={(value) => updatePreferences({ allowStructuredContext: value })} /><Permission checked={preferences.allowScreenshots} label="Allow explicit screenshot attachments" onChange={(value) => updatePreferences({ allowScreenshots: value })} /><Permission checked={preferences.allowGeneratedCode} label="Allow generated EdgeLab DSL source" onChange={(value) => updatePreferences({ allowGeneratedCode: value })} /><label className="flex items-center justify-between gap-3"><span>Conversation retention</span><ThemedSelect ariaLabel="Conversation retention" className="h-8 text-xs" onChange={(value) => updatePreferences({ retention: value as QuantPreferences["retention"] })} options={[{ label: "30 days", value: "30-days" }, { label: "This session", value: "session" }, { label: "Off", value: "off" }]} portal value={preferences.retention} /></label><p>Context preview: {context.symbol} · {context.timeframe} · {context.visibleBars.length} visible bars · {context.activeIndicators.length} studies · {context.drawings.length} drawings.</p></div></details>
           {job?.usage ? <p className="mt-2 text-[10px] text-slate-500">Actual usage: {formatUsage(job.usage)}</p> : null}
         </div>
       </div>
@@ -605,13 +606,13 @@ function BacktestControls({ config, error, onChange, onRun, onCancel, result, pi
       </button></div>
     <p className="mt-1 text-[11px] leading-5 text-slate-300">{pine ? "Uses up to 20,000 loaded chart bars and the strategy’s own entries, exits and cost settings. Pine indicators have no order ledger." : "Default window is 60 calendar days. Source executes in the same isolated worker used by the chart."}</p>
     <div className="mt-3 grid grid-cols-2 gap-2">
-      <label className="col-span-2 text-[11px] text-slate-300">Indicator<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => setSelectedScriptId(event.target.value)} value={selectedScriptId}><option value="">Choose script</option>{scripts.map((script) => <option key={script.id} value={script.id}>{script.name} · v{script.revision}</option>)}</select></label>
+      <label className="col-span-2 text-[11px] text-slate-300">Indicator<ThemedSelect ariaLabel="Indicator" className="mt-1 h-8 w-full text-xs" onChange={setSelectedScriptId} options={[{ label: "Choose script", value: "" }, ...scripts.map((script) => ({ label: script.name + " · v" + script.revision, value: script.id }))]} portal value={selectedScriptId} /></label>
       {!pine ? <>
         <BacktestNumber label="Days" max={3650} min={1} onChange={(windowDays) => onChange({ ...config, windowDays })} value={config.windowDays} />
         <BacktestNumber label="Capital" min={1} onChange={(initialCapital) => onChange({ ...config, initialCapital })} value={config.initialCapital} />
         <BacktestNumber label="Commission bps" min={0} onChange={(commissionBps) => onChange({ ...config, commissionBps })} value={config.commissionBps} />
         <BacktestNumber label="Slippage bps" min={0} onChange={(slippageBps) => onChange({ ...config, slippageBps })} value={config.slippageBps} />
-        <label className="col-span-2 text-[11px] text-slate-300">Rules<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => onChange({ ...config, rule: event.target.value as QuantBacktestConfig["rule"] })} value={config.rule}><option value="price-crosses-plot">Price crosses plot</option><option value="plot-crosses-zero">Plot crosses zero</option></select></label>
+        <label className="col-span-2 text-[11px] text-slate-300">Rules<ThemedSelect ariaLabel="Rules" className="mt-1 h-8 w-full text-xs" onChange={(value) => onChange({ ...config, rule: value as QuantBacktestConfig["rule"] })} options={[{ label: "Price crosses plot", value: "price-crosses-plot" }, { label: "Plot crosses zero", value: "plot-crosses-zero" }]} portal value={config.rule} /></label>
       </> : null}
     </div>
     {error ? <p className="mt-3 rounded-md bg-rose-400/10 p-2 text-xs text-rose-200" role="alert">{error}</p> : null}

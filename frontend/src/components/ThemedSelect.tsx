@@ -5,7 +5,7 @@ import type {
   MouseEvent,
   ReactNode,
 } from "react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Children, Fragment, isValidElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
 export type ThemedSelectOption = {
@@ -21,6 +21,7 @@ type Props = {
   ariaInvalid?: boolean;
   ariaDescribedBy?: string;
   className?: string;
+  id?: string;
   defaultValue?: string;
   disabled?: boolean;
   menuClassName?: string;
@@ -41,6 +42,7 @@ export function ThemedSelect({
   ariaDescribedBy,
   className = "h-10",
   defaultValue,
+  id,
   disabled = false,
   menuClassName = "",
   onChange,
@@ -250,6 +252,7 @@ export function ThemedSelect({
       ref={rootRef}
     >
       <button
+        id={id}
         aria-activedescendant={activeOptionId}
         aria-controls={listboxId}
         aria-expanded={open}
@@ -376,4 +379,36 @@ function findTypeaheadMatch(
 
 function optionText(label: ReactNode) {
   return typeof label === "string" || typeof label === "number" ? String(label) : "";
+}
+
+/** Keeps declarative option lists on the same themed, keyboard-accessible control. */
+export function ThemedOptionSelect({
+  children, value, defaultValue, ...props
+}: Omit<Props, "options" | "value" | "defaultValue"> & {
+  children: ReactNode;
+  value?: string | number;
+  defaultValue?: string | number;
+}) {
+  return <ThemedSelect {...props} options={selectOptions(children)}
+    value={value == null ? undefined : String(value)}
+    defaultValue={defaultValue == null ? undefined : String(defaultValue)} />;
+}
+
+type OptionNodeProps = { children?: ReactNode; value?: string | number; disabled?: boolean; label?: string };
+
+/** Preserve implicit option values, groups and disabled entries when migrating forms. */
+export function selectOptions(children: ReactNode, group?: string, groupDisabled = false): ThemedSelectOption[] {
+  return Children.toArray(children).flatMap((child) => {
+    if (!isValidElement<OptionNodeProps>(child)) return [];
+    if (child.type === Fragment) return selectOptions(child.props.children, group, groupDisabled);
+    if (child.type === "optgroup") return selectOptions(child.props.children, child.props.label, groupDisabled || Boolean(child.props.disabled));
+    if (child.type !== "option") return [];
+    const label = child.props.label ?? Children.toArray(child.props.children).map((part) => typeof part === "string" || typeof part === "number" ? String(part) : "").join("");
+    return [{
+      value: String(child.props.value ?? label),
+      label,
+      disabled: groupDisabled || Boolean(child.props.disabled),
+      ...(group ? { sublabel: group } : {}),
+    }];
+  });
 }

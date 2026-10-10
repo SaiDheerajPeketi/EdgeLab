@@ -1,4 +1,5 @@
 import { NumericDraftInput } from "./NumericDraftInput";
+import { ThemedSelect } from "./ThemedSelect";
 import { usePineInputMetadata, usePineInputMigration } from "../lib/usePineInputMetadata";
 import { hasLegacyPineEnums, migratePineEnumInputs } from "../lib/pineInputMigration";
 import { usePineInstrumentContext } from "./chart/usePineInstrumentContext";
@@ -601,13 +602,27 @@ export function IndicatorEditorPanel({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <label className="sr-only" htmlFor="edge-new-template">New script template</label>
-            <select className="input-control h-8 max-w-40 text-xs" id="edge-new-template" value="" onChange={(event) => {
-              const next = PINE_INDICATOR_STARTERS.find((starter) => starter.id === event.target.value)?.source
-                ?? (event.target.value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : event.target.value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE);
-              setSelectedId(""); changeSource(next); setInputs({}); setStrategySettings({}); setHistoryRevision(null); setCatalogOrigin(undefined);
-              setCompletionOpen(false);
-              window.requestAnimationFrame(() => { if (currentOwner()) textareaRef.current?.focus(); });
-            }}><option value="" disabled>New script…</option><option value="edge">EdgeLab DSL</option><option value="pine-indicator">Pine indicator</option><option value="pine-strategy">Pine strategy</option><optgroup label="Pine indicators">{PINE_INDICATOR_STARTERS.map((starter) => <option key={starter.id} value={starter.id}>{starter.name}</option>)}</optgroup></select>
+            <ThemedSelect
+              ariaLabel="New script template"
+              className="h-8 w-40 text-xs"
+              id="edge-new-template"
+              onChange={(value) => {
+                const next = PINE_INDICATOR_STARTERS.find((starter) => starter.id === value)?.source
+                  ?? (value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE);
+                setSelectedId(""); changeSource(next); setInputs({}); setStrategySettings({}); setHistoryRevision(null); setCatalogOrigin(undefined);
+                setCompletionOpen(false);
+                window.requestAnimationFrame(() => { if (currentOwner()) textareaRef.current?.focus(); });
+              }}
+              options={[
+                { label: "New script…", value: "", disabled: true },
+                { label: "EdgeLab DSL", value: "edge" },
+                { label: "Pine indicator", value: "pine-indicator" },
+                { label: "Pine strategy", value: "pine-strategy" },
+                ...PINE_INDICATOR_STARTERS.map((starter) => ({ label: starter.name, value: starter.id, sublabel: "Pine indicators" })),
+              ]}
+              portal
+              value=""
+            />
             <button className="studio-tool-button" disabled={!canSave} onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
             <button className="studio-tool-button" disabled={!canSave || runState.status === "running"} onClick={() => save()} type="button"><Save size={13} /> Save</button>
@@ -619,15 +634,19 @@ export function IndicatorEditorPanel({
         <div className="grid min-h-0 flex-1 auto-rows-max content-start grid-cols-[minmax(0,1fr)] overflow-y-auto lg:auto-rows-auto lg:content-stretch lg:grid-cols-[210px_minmax(0,1fr)_320px] lg:overflow-hidden">
           <aside className="min-h-0 min-w-0 border-b border-white/10 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-library">Script library</label>
-            <select className="input-control mt-2 h-9 w-full text-xs" id="edge-script-library" onChange={(event) => selectScript(event.target.value)} value={selectedId}>
-              <option value="">Unsaved draft</option>
-              <optgroup label="First-party">
-                {scripts.filter((script) => script.origin === "first-party").map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
-              </optgroup>
-              <optgroup label="My scripts">
-                {userScripts.map((script) => <option key={script.id} value={script.id}>{script.name} · v{script.revision}</option>)}
-              </optgroup>
-            </select>
+            <ThemedSelect
+              ariaLabel="Script library"
+              className="mt-2 h-9 w-full text-xs"
+              id="edge-script-library"
+              onChange={selectScript}
+              options={[
+                { label: "Unsaved draft", value: "" },
+                ...scripts.filter((script) => script.origin === "first-party").map((script) => ({ label: script.name, value: script.id, sublabel: "First-party" })),
+                ...userScripts.map((script) => ({ label: script.name + " · v" + script.revision, value: script.id, sublabel: "My scripts" })),
+              ]}
+              portal
+              value={selectedId}
+            />
             <label className="mt-4 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-name">Name</label>
             <input className="input-control mt-2 h-9 w-full text-xs" id="edge-script-name" readOnly={pine} onChange={(event) => rename(event.target.value)} value={currentPrepared?.name ?? parsed.program?.name ?? ""} />
             {pine ? <p className="mt-1 text-[11px] leading-4 text-slate-300">Change the title in indicator() or strategy(), then check the script.</p> : null}
@@ -650,10 +669,18 @@ export function IndicatorEditorPanel({
               </div> : null}
             </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
-            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setStrategySettings(version.strategySettings ?? {}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setStrategySettings(selectedScript.strategySettings ?? {}); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>
-              <option value="">Current source</option>
-              {[...history].reverse().map((version) => <option key={`${version.revision}-${version.createdAt}`} value={version.revision}>v{version.revision} · {new Date(version.createdAt).toLocaleDateString()}</option>)}
-            </select>
+            <ThemedSelect
+              ariaLabel="Version history"
+              className="mt-2 h-9 w-full text-xs"
+              disabled={history.length === 0}
+              onChange={(value) => { const version = history.find((item) => item.revision === Number(value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setStrategySettings(version.strategySettings ?? {}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setStrategySettings(selectedScript.strategySettings ?? {}); setCatalogOrigin(selectedScript.catalogOrigin); } }}
+              options={[
+                { label: "Current source", value: "" },
+                ...[...history].reverse().map((version) => ({ label: "v" + version.revision + " · " + new Date(version.createdAt).toLocaleDateString(), value: String(version.revision) })),
+              ]}
+              portal
+              value={historyRevision == null ? "" : String(historyRevision)}
+            />
             <PineCatalogBrowser onImport={importCatalog} draftIdentity={catalogDraftIdentity} />
             <p className="mt-3 text-[11px] leading-5 text-slate-300">Catalog execution is experimental. Supported lines, fills and shapes render on the chart; unavailable drawing outputs and options produce visible warnings. Results may differ from TradingView.</p>
             <details className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-400">
@@ -737,7 +764,7 @@ export function IndicatorEditorPanel({
 }
 
 function GeneratedInput({ definition, onChange, value }: { definition: NonNullable<ReturnType<typeof parseEdgeIndicator>["program"]>["inputs"][number]; onChange: (value: EdgeIndicatorInputValue) => void; value: EdgeIndicatorInputValue }) {
-  return <label className="grid gap-1 text-xs text-slate-400"><span>{definition.name}</span>{definition.type === "boolean" ? <input checked={Boolean(value)} className="h-4 w-4 accent-cyan-300" onChange={(event) => onChange(event.target.checked)} type="checkbox" /> : definition.type === "source" ? <select className="input-control h-9 text-xs" onChange={(event) => onChange(event.target.value)} value={String(value)}>{["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((source) => <option key={source} value={source}>{source}</option>)}</select> : <NumericDraftInput label={definition.name} className="input-control h-9 text-xs" max={definition.max} min={definition.min} onChange={onChange} value={value} resetKey={JSON.stringify(definition)} />}</label>;
+  return <label className="grid gap-1 text-xs text-slate-400"><span>{definition.name}</span>{definition.type === "boolean" ? <input checked={Boolean(value)} className="h-4 w-4 accent-cyan-300" onChange={(event) => onChange(event.target.checked)} type="checkbox" /> : definition.type === "source" ? <ThemedSelect ariaLabel={definition.name} className="h-9 text-xs" onChange={onChange} options={["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((source) => ({ label: source, value: source }))} portal value={String(value)} /> : <NumericDraftInput label={definition.name} className="input-control h-9 text-xs" max={definition.max} min={definition.min} onChange={onChange} value={value} resetKey={JSON.stringify(definition)} />}</label>;
 }
 
 function highlightSource(source: string) {

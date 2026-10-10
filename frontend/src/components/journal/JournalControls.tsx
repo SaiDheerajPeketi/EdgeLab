@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { JournalAccount, JournalTag } from "../../lib/journalApi";
 import { inferMarket, tagOptions, type JournalFilters } from "../../lib/journalAnalytics";
 import type { JournalAccountScope } from "../../lib/journalWorkspaceState";
-import { ThemedSelect } from "../ThemedSelect";
+import { ThemedOptionSelect, ThemedSelect } from "../ThemedSelect";
 import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
 export const journalFieldClass = "min-h-[var(--control-height)] w-full min-w-0 rounded-[var(--radius-sm)] border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 text-start text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interaction)] focus:ring-2 focus:ring-[var(--ui-selection)] disabled:cursor-not-allowed disabled:opacity-50";
@@ -49,7 +49,7 @@ export function JournalFilterBar({ accounts, filters, tags, trades, onChange }: 
 }
 
 function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
-  return <label className="text-xs text-slate-500">{label}<select className={`${journalFieldClass} mt-1`} value={value} onChange={(event) => onChange(event.target.value)}>{children}</select></label>;
+  return <label className="text-xs text-slate-500">{label}<ThemedOptionSelect portal ariaLabel={label} className="mt-1 h-[var(--control-height)] w-full min-w-0" value={value} onChange={(selectedValue) => onChange(selectedValue)}>{children}</ThemedOptionSelect></label>;
 }
 
 export function JournalError({ message, onRetry, onDismiss }: { message: string; onRetry?: () => void; onDismiss?: () => void }) {

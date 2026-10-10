@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expectJournalValue, selectJournalOption } from "./support/journal-select";
 import { betaSessionResponse, certifyUiState, gotoStable } from "./support/app";
 import { installJournalFixture, noteCanary, noteDate, reviewCanary, reviewPath, seedAccount, seedTrade } from "./support/compatibility-journal";
 
@@ -112,7 +113,7 @@ test("dashboard shared, account and date reflection drafts stay independent acro
   await expect(editor(page)).toHaveValue("Unsaved next-day reflection");
   await changeHash(page, noteDate, seedAccount.id);
   await expect(editor(page)).toHaveValue("Unsaved first account dashboard reflection");
-  await page.getByRole("combobox", { name: "Account scope", exact: true }).selectOption("all");
+  await selectJournalOption(page.getByRole("combobox", { name: "Account scope", exact: true }), "all", "All accounts");
   await changeHash(page, noteDate);
   await expect(editor(page)).toHaveValue("Unsaved shared dashboard reflection");
   await saveBody(page, "Unsaved shared dashboard reflection");
@@ -172,15 +173,15 @@ test("dashboard hand-calculated KPIs, equity, risk, calendar and nine comparison
   for (const lens of ["Direction", "Market", "Symbol", "Time", "Hold", "Size", "Tag", "Rating", "Strategy"]) {
     await expect(comparison.getByRole("rowheader", { name: lens, exact: true })).toHaveCount(1);
   }
-  await page.getByRole("combobox", { name: "First comparison account", exact: true }).selectOption(String(secondAccount.id));
-  await page.getByRole("combobox", { name: "Second comparison account", exact: true }).selectOption(String(seedAccount.id));
+  await selectJournalOption(page.getByRole("combobox", { name: "First comparison account", exact: true }), String(secondAccount.id), `${secondAccount.name} · ${secondAccount.currency}`);
+  await selectJournalOption(page.getByRole("combobox", { name: "Second comparison account", exact: true }), String(seedAccount.id), `${seedAccount.name} · ${seedAccount.currency}`);
   await capture(page, info, true);
   await certifyUiState(page);
   await switchRenderer(page, state, false);
   await complete(page);
-  await expect(page.getByRole("combobox", { name: "First comparison account", exact: true })).toHaveValue(String(secondAccount.id));
-  await expect(page.getByRole("combobox", { name: "Second comparison account", exact: true })).toHaveValue(String(seedAccount.id));
-  await expect(page.getByRole("img", { name: "Second dashboard desk equity curve in USD", exact: true })).toBeVisible();
+  await expectJournalValue(page.getByRole("combobox", { name: "First comparison account", exact: true }), String(secondAccount.id), `${secondAccount.name} · ${secondAccount.currency}`);
+  await expectJournalValue(page.getByRole("combobox", { name: "Second comparison account", exact: true }), String(seedAccount.id), `${seedAccount.name} · ${seedAccount.currency}`);
+  await expect(page.getByRole("group", { name: "Second dashboard desk equity curve in USD", exact: true })).toBeVisible();
   await capture(page, info, false);
   await certifyUiState(page);
 });
@@ -305,7 +306,7 @@ test("dashboard mixed or funded-empty foreign currencies and trade/account curre
     await expect(metric(page, "Balance")).toHaveText("Separate currencies");
     await expect(metric(page, "Profit factor")).toHaveText("Separate currencies");
     await expect(section(page, "Edge Score")).toContainText(/same currency|one currency|Separate currencies/);
-    await expect(section(page, "Equity curve").getByRole("img")).toHaveCount(0);
+    await expect(section(page, "Equity curve").getByRole(fallback ? "img" : "group")).toHaveCount(0);
   }
   state.accounts = state.accounts.slice(0, 2);
   state.trade.currency = "JPY";
@@ -412,9 +413,9 @@ test("dashboard selected-account scope persists its exact canonical storage valu
   expect(writes.at(-1)).toEqual({ value: { mode: "selected", accountIds: [secondAccount.id] } });
   await expect(metric(page, "Net P&L")).toHaveText("$60.00");
   await switchRenderer(page, state, false);
-  await expect(page.getByRole("combobox", { name: "Account scope", exact: true })).toHaveValue(String(secondAccount.id));
+  await expectJournalValue(page.getByRole("combobox", { name: "Account scope", exact: true }), String(secondAccount.id), `${secondAccount.name} · ${secondAccount.currency}`);
   await expect(metric(page, "Net P&L")).toHaveText("$60.00");
-  await page.getByRole("combobox", { name: "Account scope", exact: true }).selectOption("all");
+  await selectJournalOption(page.getByRole("combobox", { name: "Account scope", exact: true }), "all", "All accounts");
   await expect.poll(() => stored).toEqual({ mode: "all", accountIds: [] });
   await switchRenderer(page, state, true);
   await complete(page);

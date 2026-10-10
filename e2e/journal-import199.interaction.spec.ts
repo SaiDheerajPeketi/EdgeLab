@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
+import { expectJournalValue, selectJournalOption } from "./support/journal-select";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -51,7 +52,7 @@ async function choose(flow: Locator, name: string, expectEnabled = true) {
   await expect(flow.getByText("Step 2 of 4 · Destination", { exact: true })).toBeVisible();
   await flow.getByRole("button", { name: "Review mapping", exact: true }).click();
   await expect(flow.getByText("Step 3 of 4 · Map and review", { exact: true })).toBeVisible();
-  await expect(flow.getByRole("combobox", { name: /^entry_time\b/ })).toHaveValue("entry_time");
+  await expectJournalValue(flow.getByRole("combobox", { name: /^entry_time\b/ }), "entry_time", "entry time");
   if (expectEnabled) await expect(flow.getByRole("button", { name: "Import", exact: true })).toBeEnabled();
 }
 async function capture(page: Page, project: string, name: string, receipt: unknown) {
@@ -96,7 +97,7 @@ test("CSV preview, current failure retry, duplicate result and explicit rollback
   state.setFail(true);
   await state.flow.getByRole("button", { name: "Import", exact: true }).click();
   await expect(state.flow.getByRole("alert")).toContainText("Correct it and retry");
-  await expect(state.flow.getByRole("combobox", { name: /^entry_price\b/ })).toHaveValue("entry_price");
+  await expectJournalValue(state.flow.getByRole("combobox", { name: /^entry_price\b/ }), "entry_price", "entry price");
   state.setFail(false);
   await state.flow.getByRole("button", { name: "Import", exact: true }).click();
   await expect(state.flow.getByText("Import complete", { exact: true })).toBeVisible();
@@ -155,7 +156,7 @@ test("changing the destination during an import retires its local feedback", asy
   await state.flow.getByRole("button", { name: "Import", exact: true }).click();
   await expect.poll(state.held).toBe(true);
   await state.flow.getByRole("button", { name: "Back", exact: true }).click();
-  await state.flow.getByRole("combobox", { name: /^Destination\b/ }).selectOption("new");
+  await selectJournalOption(state.flow.getByRole("combobox", { name: /^Destination\b/ }), "new", "Create account");
   await state.flow.getByLabel("New account name", { exact: true }).fill("New destination 199");
   const settled = page.waitForResponse(response => new URL(response.url()).pathname === "/api/journal/imports" && response.request().method() === "POST");
   state.release();

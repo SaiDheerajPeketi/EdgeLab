@@ -8,7 +8,8 @@ import {
   scopedCurrency,
 } from "../../lib/journalAnalytics";
 import type { CanonicalTrade, JournalAccount } from "../../lib/journalApi";
-import { journalFieldClass } from "./JournalControls";
+import { ThemedSelect } from "../ThemedSelect";
+import { JournalEquityPlot } from "./JournalEquityPlot";
 
 import { COMPARISON_LENSES, strongestJournalSegment, useJournalComparison } from "./useJournalDashboard";
 
@@ -42,10 +43,10 @@ function AccountColumn({ account, accounts, trades, value, onChange, side }: { a
   const cash = (value: number) => currency.combinable ? money(value, account.currency) : "Separate currencies";
   const curve = useMemo(() => equityCurve(trades, numeric(account.initial_balance)), [account.initial_balance, trades]);
   return <div className="bg-[#0d1117] p-4">
-    <label className="text-xs text-slate-500">{side === "left" ? "First account" : "Second account"}<select aria-label={`${side === "left" ? "First" : "Second"} comparison account`} className={`${journalFieldClass} mt-1`} value={value} onChange={(event) => onChange(Number(event.target.value))}>{accounts.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.currency}</option>)}</select></label>
+    <div className="text-xs text-[var(--text-secondary)]"><span>{side === "left" ? "First account" : "Second account"}</span><ThemedSelect ariaLabel={`${side === "left" ? "First" : "Second"} comparison account`} className="mt-1 h-10 w-full" portal value={String(value)} onChange={(next) => onChange(Number(next))} options={accounts.map((option) => ({ value: String(option.id), label: `${option.name} · ${option.currency}` }))} /></div>
     <div className="mt-4 flex items-end justify-between gap-3"><div><p className={`text-2xl font-semibold tabular-nums ${summary.netPnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{cash(summary.netPnl)}</p><p className="mt-1 text-[11px] text-slate-500">Net P&amp;L · {summary.closedTrades} closed trades</p></div>{currency.combinable ? summary.netPnl >= 0 ? <ArrowUpRight aria-label="Positive net result" className="h-5 w-5 text-emerald-300" /> : <ArrowDownRight aria-label="Negative net result" className="h-5 w-5 text-rose-300" /> : null}</div>
     {!currency.combinable ? <p className="mt-3 text-xs text-amber-100">Account and trade currencies differ. Monetary results and rankings stay separate.</p> : null}
-    {currency.combinable ? <MiniEquity values={curve.map((point) => point.value)} label={`${account.name} equity curve in ${account.currency}`} /> : null}
+    {currency.combinable ? <JournalEquityPlot points={curve} currency={account.currency} label={`${account.name} equity curve in ${account.currency}`} compact /> : null}
     <dl className="mt-4 grid grid-cols-2 gap-x-5 border-y border-white/10 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4"><Kpi label="Balance" value={cash(numeric(account.initial_balance) + summary.netPnl)} /><Kpi label="Gross P&L" value={cash(summary.grossPnl)} /><Kpi label="Win rate" value={`${summary.winRate.toFixed(1)}%`} /><Kpi label="Profit factor" value={!currency.combinable ? "Separate currencies" : summary.profitFactor == null ? "No losses" : summary.profitFactor.toFixed(2)} /><Kpi label="Trades" value={summary.closedTrades.toLocaleString()} /><Kpi label="Costs" value={cash(summary.costs)} /><Kpi label="Drawdown" value={cash(summary.maxDrawdown)} /><Kpi label="Expectancy" value={cash(summary.expectancy)} /></dl>
   </div>;
 }
@@ -64,5 +65,4 @@ function ComparisonMatrix({ left, right, leftTrades, rightTrades }: { left: Jour
 }
 
 function Kpi({ label, value }: { label: string; value: string }) { return <div className="py-3"><dt className="text-[10px] uppercase tracking-wide text-slate-600">{label}</dt><dd className="mt-1 font-medium tabular-nums text-slate-200">{value}</dd></div>; }
-function MiniEquity({ values, label }: { values: number[]; label: string }) { if (values.length < 2) return <div className="mt-4 grid h-20 place-items-center border-y border-dashed border-white/10 text-xs text-slate-600">Close two trades to compare the curve.</div>; const width = 420, height = 80, pad = 5, min = values.reduce((a, b) => Math.min(a, b), Infinity), max = values.reduce((a, b) => Math.max(a, b), -Infinity), range = max - min || 1; const path = values.map((value, index) => `${index ? "L" : "M"}${pad + index / (values.length - 1) * (width - pad * 2)},${height - pad - (value - min) / range * (height - pad * 2)}`).join(" "); const positive = values.at(-1)! >= values[0]; return <svg className="mt-4 h-20 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}><path d={path} fill="none" stroke={positive ? "#67e8f9" : "#fda4af"} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>; }
 function money(value: number, currency: string) { try { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value); } catch { return `${value.toFixed(2)} ${currency}`; } }

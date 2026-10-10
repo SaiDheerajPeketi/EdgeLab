@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock3, Database, RefreshCw, ShieldAlert, type LucideIcon } from "lucide-react";
 import { listMarketFootprints, listMarketInstruments, type MarketFootprint, type MarketInstrument } from "@/lib/marketInfrastructure";
 
+import { ThemedSelect } from "./ThemedSelect";
+
 type OrderFlowRouteState = "loading" | "available" | "stale" | "unsupported" | "error";
 
 const TEST_STATE_KEY = "edgelab.ui-test.order-flow-state";
@@ -66,17 +68,20 @@ export function OrderFlowWorkspace() {
         </div>
         <div aria-label="Order-flow source" className="flex flex-wrap items-center gap-2 text-xs tabular-nums text-[var(--text-secondary)]">
           <label className="sr-only" htmlFor="order-flow-instrument">Instrument</label>
-          <select id="order-flow-instrument" aria-label="Instrument" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture || !instruments.length} onChange={(event) => selectInstrument(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
-            {!instruments.length ? <option value="">{fixture ? "BTCUSDT · E2E fixture" : "No normalized instruments"}</option> : instruments.map((instrument) => <option key={instrument.id} value={instrument.id}>{instrument.canonical_symbol}</option>)}
-          </select>
+          <ThemedSelect id="order-flow-instrument" ariaLabel="Instrument" portal
+            className="h-11 min-w-0 max-w-full" disabled={fixture || !instruments.length}
+            onChange={(value) => selectInstrument(Number(value))} value={String(selectedInstrumentId ?? "")}
+            options={!instruments.length ? [{ value: "", label: fixture ? "BTCUSDT · E2E fixture" : "No normalized instruments" }]
+              : instruments.map((instrument) => ({ value: String(instrument.id), label: instrument.canonical_symbol }))} />
           <label className="sr-only" htmlFor="order-flow-timeframe">Timeframe</label>
-          <select id="order-flow-timeframe" aria-label="Timeframe" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture} onChange={(event) => setIntervalSeconds(Number(event.target.value))} value={intervalSeconds}>
-            <option value={60}>1m</option><option value={300}>5m</option><option value={900}>15m</option><option value={3600}>1h</option>
-          </select>
+          <ThemedSelect id="order-flow-timeframe" ariaLabel="Timeframe" portal
+            className="h-11 min-w-20" disabled={fixture} onChange={(value) => setIntervalSeconds(Number(value))}
+            value={String(intervalSeconds)} options={[{ value: "60", label: "1m" }, { value: "300", label: "5m" },
+              { value: "900", label: "15m" }, { value: "3600", label: "1h" }]} />
           <label className="sr-only" htmlFor="order-flow-provider">Provider</label>
-          <select id="order-flow-provider" aria-label="Provider" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture || !providers.length} onChange={(event) => setProvider(event.target.value)} value={provider}>
-            <option value="">All providers</option>{providers.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+          <ThemedSelect id="order-flow-provider" ariaLabel="Provider" portal className="h-11 min-w-0 max-w-full"
+            disabled={fixture || !providers.length} onChange={setProvider} value={provider}
+            options={[{ value: "", label: "All providers" }, ...providers.map((item) => ({ value: item, label: item }))]} />
         </div>
       </header>
 

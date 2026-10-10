@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { selectJournalOption } from "./support/journal-select";
 import {
   FROZEN_TIME,
   expectStableScreenshot,
@@ -129,7 +130,7 @@ test.describe("Journal analytics critical states", () => {
     const notice = page.locator("[data-analytics-sample]");
     await expect(notice).toHaveText(/Limited sample · 1 matching trade\. Small samples can swing sharply/);
     await expect(page.getByText("1 trade sample · open exact rows").first()).toBeVisible();
-    await expect(page.getByRole("img", { name: "By market across 1 segments" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "By market distribution", exact: true })).toBeVisible();
     await captureState(page, "journal-analytics-low-sample", notice);
   });
 
@@ -193,7 +194,7 @@ test.describe("Journal reports critical states", () => {
     await openReports(page, [usdAccount], populatedTrades);
     await page.getByText("Analytics filters", { exact: true }).click();
     const filters = page.locator("details").filter({ hasText: "Analytics filters" });
-    await filters.locator("label").filter({ hasText: /^Symbol/ }).locator("select").selectOption("ETHUSDT");
+    await selectJournalOption(filters.getByRole("combobox", { name: "Symbol", exact: true }), "ETHUSDT");
     await expect(filters).toContainText("1 active");
     await expect(page.getByText("1 matching trades · 0% reviewed")).toBeVisible();
     await captureState(page, "journal-reports-filtered", filters.locator("summary"));

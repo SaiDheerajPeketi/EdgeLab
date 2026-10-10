@@ -4,6 +4,7 @@ import { numeric } from "../../lib/journalAnalytics";
 import type { CanonicalTrade, JournalAccount, JournalDailyNote } from "../../lib/journalApi";
 import { JournalButton, journalFieldClass } from "./JournalControls";
 import { JournalAccountComparison } from "./JournalAccountComparison";
+import { JournalEquityPlot } from "./JournalEquityPlot";
 import { exactDailyNote, isJournalDate, utcEntryDay } from "../../lib/journalDailyNotes";
 import { useDailyNoteDraft } from "./useDailyNoteDraft";
 import { useJournalDashboard } from "./useJournalDashboard";
@@ -44,7 +45,7 @@ export function JournalDashboard({ accounts, notes, trades, initialDate, onSelec
     </section>
 
     <div className="grid gap-8 2xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,.8fr)]">
-      <section aria-labelledby="equity-heading" className="min-w-0 border-t border-white/10 pt-5"><div className="flex items-center gap-2"><LineChart aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="equity-heading" className="text-base font-semibold text-white">Equity curve</h2><span className="ml-auto text-xs tabular-nums text-slate-500">Max drawdown {money(summary.maxDrawdown)}</span></div>{currency.combinable && equity.length ? <EquityPlot points={equity.map((point) => point.value)} /> : <div className="mt-4 grid h-56 place-items-center border-y border-dashed border-white/10 text-center text-sm text-slate-500">{currency.combinable ? "Close trades to build the equity curve." : "Choose accounts with the same currency to compare one continuous curve."}</div>}</section>
+      <section aria-labelledby="equity-heading" className="min-w-0 border-t border-white/10 pt-5"><div className="flex items-center gap-2"><LineChart aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="equity-heading" className="text-base font-semibold text-white">Equity curve</h2><span className="ml-auto text-xs tabular-nums text-slate-500">Max drawdown {money(summary.maxDrawdown)}</span></div>{currency.combinable && equity.length ? <JournalEquityPlot points={equity} currency={currency.currency} /> : <div className="mt-4 grid h-56 place-items-center border-y border-dashed border-white/10 text-center text-sm text-slate-500">{currency.combinable ? "Close trades to build the equity curve." : "Choose accounts with the same currency to compare one continuous curve."}</div>}</section>
       <section aria-labelledby="edge-heading" className="border-t border-white/10 pt-5"><div className="flex items-center gap-2"><Gauge aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="edge-heading" className="text-base font-semibold text-white">Edge Score</h2>{currency.combinable ? <span className="ml-auto text-xs capitalize text-slate-500">{edgeScore.confidence} confidence</span> : null}</div>{currency.combinable ? <><div className="mt-4 flex items-baseline gap-3"><span className="text-4xl font-semibold tabular-nums text-white">{edgeScore.score}</span><span className="text-sm capitalize text-slate-400">{edgeScore.direction} · {edgeScore.windowDays}-day window</span></div><p className="mt-2 text-xs leading-5 text-slate-500">Compares {edgeScore.recentCount} recent trades with {edgeScore.previousCount} in the prior window. Low samples reduce confidence, not the score.</p><dl className="mt-4 divide-y divide-white/8 border-y border-white/10">{edgeScore.components.map((component) => <div key={component.label} className="flex items-center justify-between gap-3 py-2 text-xs"><dt className="text-slate-500">{component.label}</dt><dd className="tabular-nums text-slate-200">{component.value > 0 ? "+" : ""}{component.value.toFixed(1)}{component.unit}</dd></div>)}</dl></> : <p className="mt-4 text-sm text-slate-400">Choose one currency before comparing Edge Score.</p>}</section>
     </div>
 
@@ -64,14 +65,6 @@ export function JournalDashboard({ accounts, notes, trades, initialDate, onSelec
 }
 
 function Metric({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: number }) { return <div className="min-w-0 border-b border-white/10 px-3 py-4 last:border-b-0 sm:border-r sm:last:border-r-0 xl:border-b-0"><dt className="text-[11px] uppercase tracking-wide text-slate-600">{label}</dt><dd className={`mt-1 truncate text-lg font-semibold tabular-nums ${tone == null ? "text-white" : tone >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{value}</dd>{hint ? <dd className="mt-1 text-[11px] text-slate-600">{hint}</dd> : null}</div>; }
-
-function EquityPlot({ points }: { points: number[] }) {
-  const width = 900, height = 224, pad = 12;
-  const min = points.reduce((a, b) => Math.min(a, b), Infinity), max = points.reduce((a, b) => Math.max(a, b), -Infinity), range = max - min || 1;
-  const path = points.map((value, index) => `${index ? "L" : "M"}${pad + index / Math.max(1, points.length - 1) * (width - pad * 2)},${height - pad - (value - min) / range * (height - pad * 2)}`).join(" ");
-  const positive = points.at(-1)! >= points[0];
-  return <div className="mt-4"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Equity moved from ${points[0].toFixed(2)} to ${points.at(-1)!.toFixed(2)}`} className="h-56 w-full overflow-visible"><defs><linearGradient id="journal-equity-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={positive ? "#67e8f9" : "#fda4af"} stopOpacity=".22" /><stop offset="1" stopColor={positive ? "#67e8f9" : "#fda4af"} stopOpacity="0" /></linearGradient></defs><path d={`${path} L${width-pad},${height-pad} L${pad},${height-pad} Z`} fill="url(#journal-equity-fill)" /><path d={path} fill="none" stroke={positive ? "#67e8f9" : "#fda4af"} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg><div className="flex justify-between text-[10px] tabular-nums text-slate-600"><span>{points[0].toFixed(2)}</span><span>{points.at(-1)!.toFixed(2)}</span></div></div>;
-}
 
 function formatMoney(value: number, currency: string) { try { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value); } catch { return `${value.toFixed(2)} ${currency}`; } }
 function compactMoney(value: number, currency: string) { try { return new Intl.NumberFormat(undefined, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value); } catch { return `${value.toFixed(0)} ${currency}`; } }

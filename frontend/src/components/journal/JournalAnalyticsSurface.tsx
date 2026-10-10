@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronLeft, Lightbulb, Target } from "lucide-react";
 import { buildJournalBreakdown, filterJournalTrades, journalAssetMix, numeric, scopedCurrency, summarizeJournalTrades, weakSpots, type JournalBreakdownDimension } from "../../lib/journalAnalytics";
 import type { CanonicalTrade, JournalAccount, JournalTag } from "../../lib/journalApi";
 import { JournalButton, JournalEmpty, JournalFilterBar } from "./JournalControls";
 import { useJournalPages } from "./useJournalPages";
+import { OverlaySurface } from "../overlays/OverlaySurface";
 import { JOURNAL_DIMENSIONS as DIMENSIONS, useJournalAnalyticsContext } from "./useJournalAnalyticsContext";
 
 type Props = {
@@ -235,31 +236,74 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
 }
 
 function AssetMix({ title, rows, onSelect }: { title: string; rows: ReturnType<typeof journalAssetMix>; onSelect: (label: string) => void }) {
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  const tooltipId = useId();
+  const ringRef = useRef<HTMLDivElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const active = rows.find((row) => row.label === activeLabel) ?? null;
   let offset = 0;
-  const palette = ["#67e8f9", "#a78bfa", "#34d399", "#fbbf24", "#fb7185", "#94a3b8"];
+  const palette = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--text-muted)"];
   const paging = useJournalPages(rows, rows.map((row) => row.label).join("\n"));
   return (
-    <div>
-      <h3 className="text-xs font-semibold text-slate-300">{title}</h3>
+    <div
+      onBlurCapture={(event) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setActiveLabel(null); }}
+      onPointerLeave={(event) => { if (event.pointerType !== "touch" && !event.currentTarget.contains(document.activeElement)) setActiveLabel(null); }}
+      onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setActiveLabel(null); } }}
+    >
+      <h3 className="text-xs font-semibold text-[var(--text-secondary)]">{title}</h3>
       <div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-center">
-        <svg viewBox="0 0 42 42" role="img" aria-label={`${title} across ${rows.length} segments`} className="h-32 w-32 shrink-0 -rotate-90">
-          {rows.map((row, index) => {
-            const circle = <circle key={row.label} cx="21" cy="21" r="15.915" fill="none" stroke={palette[index % palette.length]} strokeWidth="6" strokeDasharray={`${row.percent} ${100 - row.percent}`} strokeDashoffset={-offset} />;
-            offset += row.percent;
-            return circle;
-          })}
-        </svg>
+        <div ref={ringRef} className="relative h-32 w-32 shrink-0">
+          <svg viewBox="0 0 42 42" role="group" aria-label={`${title} distribution`} className="h-full w-full -rotate-90">
+            {rows.map((row, index) => {
+              const circle = <circle
+                key={row.label}
+                data-journal-mix-segment
+                role="button"
+                tabIndex={0}
+                aria-label={`Inspect ${row.label}: ${row.count} trades, ${row.percent.toFixed(1)}%`}
+                aria-describedby={active?.label === row.label ? tooltipId : undefined}
+                className="cursor-pointer outline-none"
+                cx="21" cy="21" r="15.915" fill="none"
+                stroke={palette[index % palette.length]}
+                strokeWidth={active?.label === row.label ? "7" : "6"}
+                opacity={!active || active.label === row.label ? 1 : .45}
+                strokeDasharray={`${row.percent} ${100 - row.percent}`}
+                strokeDashoffset={-offset}
+                onPointerEnter={() => setActiveLabel(row.label)}
+                onPointerDown={() => setActiveLabel(row.label)}
+                onFocus={() => setActiveLabel(row.label)}
+                onClick={() => setActiveLabel(row.label)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActiveLabel(row.label); }
+                  if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                    event.preventDefault();
+                    const next = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + rows.length) % rows.length;
+                    event.currentTarget.ownerSVGElement?.querySelectorAll<SVGCircleElement>("[data-journal-mix-segment]")[next]?.focus();
+                  }
+                }}
+              />;
+              offset += row.percent;
+              return circle;
+            })}
+          </svg>
+          <OverlaySurface anchorRef={ringRef} blocksModalEscape={false} surfaceRef={tooltipRef} open={active !== null} onDismiss={() => setActiveLabel(null)} portal preferredWidth={180} estimatedHeight={64} id={tooltipId} role="tooltip" className="pointer-events-none z-[190] rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-floating)] px-3 py-2 text-xs shadow-[var(--elevation-floating)]">
+            {active ? <div data-journal-mix-tooltip>
+              <p className="break-words font-semibold text-[var(--text-primary)]">{active.label}</p>
+              <p className="mt-1 break-words tabular-nums text-[var(--text-secondary)]">{active.count.toLocaleString()} trades · {active.percent.toFixed(1)}%</p>
+            </div> : null}
+          </OverlaySurface>
+        </div>
         <div className="grid min-w-0 flex-1 gap-1">
           {paging.rows.map((row, index) => (
-            <button key={row.label} type="button" onClick={() => onSelect(row.label)} className="flex min-h-11 items-center gap-2 rounded px-2 text-left text-sm text-slate-300 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:min-h-9">
+            <button key={row.label} type="button" onClick={() => onSelect(row.label)} onPointerEnter={() => setActiveLabel(row.label)} onFocus={() => setActiveLabel(row.label)} aria-describedby={active?.label === row.label ? tooltipId : undefined} className="flex min-h-11 items-center gap-2 rounded px-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--ui-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] sm:min-h-9">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[(paging.page * 100 + index) % palette.length] }} />
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
-              <span className="tabular-nums text-slate-500">
+              <span className="tabular-nums text-[var(--text-secondary)]">
                 {row.count} · {row.percent.toFixed(0)}%
               </span>
             </button>
           ))}
-          {!rows.length ? <p className="text-sm text-slate-500">Position mix appears after trades are added.</p> : null}
+          {!rows.length ? <p className="text-sm text-[var(--text-secondary)]">Position mix appears after trades are added.</p> : null}
         </div>
       </div>
       <AnalyticsPages label={`${title} pages`} noun="segments" paging={paging} />

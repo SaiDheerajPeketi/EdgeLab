@@ -1,3 +1,4 @@
+import { ThemedOptionSelect } from "../ThemedSelect";
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, LoaderCircle, Plus, X } from "lucide-react";
 import type { CanonicalTrade, CanonicalTradeCreate, JournalAccount, JournalEntryType, JournalSetupGrade, JournalTag } from "../../lib/journalApi";
@@ -65,7 +66,7 @@ export function JournalTradeFlow({ accounts, tags, preferredAccountId, onCancel,
 }
 
 function Field({ label, value, onChange, type = "text", inputMode, placeholder }: { label: string; value: string; onChange: (value: string) => void; type?: string; inputMode?: "decimal"; placeholder?: string }) { return <label className="text-xs text-slate-500">{label}<input value={value} onChange={(event) => onChange(event.target.value)} type={type} inputMode={inputMode} placeholder={placeholder} className={`${journalFieldClass} mt-1`} /></label>; }
-function Select({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) { return <label className="text-xs text-slate-500">{label}<select value={value} onChange={(event) => onChange(event.target.value)} className={`${journalFieldClass} mt-1`}>{children}</select></label>; }
+function Select({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) { return <label className="text-xs text-slate-500">{label}<ThemedOptionSelect portal ariaLabel={label} value={value} onChange={(selectedValue) => onChange(selectedValue)} className="mt-1 h-[var(--control-height)] w-full min-w-0">{children}</ThemedOptionSelect></label>; }
 
 function initialDraft(account?: JournalAccount): Draft { const now = localNow(); return { accountId: account ? String(account.id) : "", symbol: "", currency: account?.currency ?? "USD", timezone: account?.timezone ?? "UTC", entryType: "TAKEN", side: "LONG", quantity: "1", entryTime: now, exitTime: "", entryPrice: "", exitPrice: "", commission: "0", fees: "0", stopLoss: "", takeProfit: "", strategy: "", emotion: "", missedReason: "", rating: null, grade: null, tagIds: [], note: "", screenshots: "", reviewed: false }; }
 function localNow() { const date = new Date(); return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); }

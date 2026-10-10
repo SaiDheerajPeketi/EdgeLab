@@ -23,6 +23,8 @@ import { flushSync } from "react-dom";
 import { chartRuntimeOwnerMatches, type ChartRuntimeOwner } from "../lib/chartRuntimeOwnership";
 import { PointOverlaySurface } from "./overlays/OverlaySurface";
 import { ActiveIndicatorMenu } from "./chart/ActiveIndicatorMenu";
+import { InteractiveIndicatorPlot } from "./chart/InteractiveIndicatorPlot";
+import { indicatorPlotSeriesPositions } from "../lib/indicatorPlotInspection";
 import {
   Activity,
   ArrowDownToLine,
@@ -159,6 +161,7 @@ import {
   formatChartDateTime,
   getChartTimeZoneLabel,
   type ChartTickGranularity,
+  type ChartTimeFormatSettings,
 } from "../lib/chartTimezones";
 import {
   aggregateOrderFlowBars,
@@ -4177,6 +4180,7 @@ export function TradingChart({
           {viewportSizedPricePlot && <PineChartNotices studies={customNoticeStudies} include="assumptions" />}
           {rsiStudies.map((study) => (
             <RsiPanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               key={study.id}
@@ -4189,6 +4193,7 @@ export function TradingChart({
           ))}
           {macdStudies.map((study) => (
             <MacdPanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               histogramColor={study.histogramColor}
@@ -4203,6 +4208,7 @@ export function TradingChart({
           ))}
           {atrStudies.map((study) => (
             <StudyLinePanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               key={study.id}
@@ -4216,6 +4222,7 @@ export function TradingChart({
           ))}
           {momentumStudies.map((study) => (
             <StudyLinePanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               key={study.id}
@@ -4230,6 +4237,7 @@ export function TradingChart({
           ))}
           {orderFlowStudies.map((study) => (
             <StudyLinePanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               emptyMessage={orderFlowAvailability.detail}
@@ -4245,6 +4253,7 @@ export function TradingChart({
           ))}
           {customRuntimeStudies.filter((study) => (!study.overlay || study.error) && !study.pinePlot).map((study) => (
             <StudyLinePanel
+              timeSettings={chartSettings}
               color={study.color}
               data={study.data}
               emptyMessage={study.error ?? "The script has not produced a finite value yet."}
@@ -5865,6 +5874,7 @@ function RsiPanel({
   lineWidth,
   onOpenSettings,
   selected,
+  timeSettings,
 }: {
   color: string;
   data: LineData[];
@@ -5873,13 +5883,14 @@ function RsiPanel({
   lineWidth: number;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
   selected: boolean;
+  timeSettings: ChartTimeFormatSettings;
 }) {
   const visible = data.slice(-160);
   const path = toRsiPath(visible, 960, 96);
   const latest = latestIndicatorValue(data);
 
   return (
-    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+    <div className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
         <button
           className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
@@ -5892,12 +5903,11 @@ function RsiPanel({
       </div>
       <div
         className={`indicator-pane-plot h-24 ${selected ? "indicator-pane-plot-active" : ""}`}
-        onClick={onOpenSettings}
       >
         {visible.length > 1 ? (
-          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
-            <path d="M 0 28.8 L 960 28.8" stroke="rgba(34, 197, 94, 0.26)" strokeWidth="1" />
-            <path d="M 0 67.2 L 960 67.2" stroke="rgba(251, 113, 133, 0.26)" strokeWidth="1" />
+          <InteractiveIndicatorPlot className="h-full" height={96} label={label} points={visible} series={[{ label: "RSI", color, data: visible, digits: 1 }]} timeSettings={timeSettings}>
+            <path d="M 0 28.8 L 960 28.8" stroke="var(--profit)" strokeOpacity=".26" strokeWidth="1" />
+            <path d="M 0 67.2 L 960 67.2" stroke="var(--loss)" strokeOpacity=".26" strokeWidth="1" />
             <path
               d={path}
               fill="none"
@@ -5906,7 +5916,7 @@ function RsiPanel({
               strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
               strokeWidth={lineWidth}
             />
-          </svg>
+          </InteractiveIndicatorPlot>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
             Waiting for enough candles
@@ -5926,6 +5936,7 @@ function MacdPanel({
   lineWidth,
   onOpenSettings,
   selected,
+  timeSettings,
   signalColor,
 }: {
   color: string;
@@ -5936,11 +5947,14 @@ function MacdPanel({
   lineWidth: number;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
   selected: boolean;
+  timeSettings: ChartTimeFormatSettings;
   signalColor: string;
 }) {
   const visibleMacd = data.macd.slice(-160);
-  const visibleSignal = data.signal.slice(-160);
-  const visibleHistogram = data.histogram.slice(-160);
+  const alignedSignal = indicatorPlotSeriesPositions(visibleMacd, data.signal.slice(-160), 960);
+  const alignedHistogram = indicatorPlotSeriesPositions(visibleMacd, data.histogram.slice(-160), 960);
+  const visibleSignal = alignedSignal.map(({ point }) => point);
+  const visibleHistogram = alignedHistogram.map(({ point }) => point);
   const values = [
     ...visibleMacd.map((point) => Number(point.value)),
     ...visibleSignal.map((point) => Number(point.value)),
@@ -5951,7 +5965,7 @@ function MacdPanel({
   const signalLatest = visibleSignal.at(-1)?.value;
 
   return (
-    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+    <div className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
         <button
           className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
@@ -5960,24 +5974,22 @@ function MacdPanel({
         >
           {label}
         </button>
-        <span className="text-slate-300">
+        <span className="text-[var(--text-secondary)]">
           {latest == null ? "—" : Number(latest).toFixed(5)} / {signalLatest == null ? "—" : Number(signalLatest).toFixed(5)}
         </span>
       </div>
       <div
         className={`indicator-pane-plot h-28 ${selected ? "indicator-pane-plot-active" : ""}`}
-        onClick={onOpenSettings}
       >
         {visibleMacd.length > 1 ? (
-          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 112">
-            <path d="M 0 56 L 960 56" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
-            {visibleHistogram.map((point, index) => {
-              const x = (index / Math.max(1, visibleHistogram.length - 1)) * 960;
+          <InteractiveIndicatorPlot className="h-full" height={112} label={label} points={visibleMacd} series={[{ label: "MACD", color, data: visibleMacd, digits: 5 }, { label: "Signal", color: signalColor, data: visibleSignal, digits: 5 }, { label: "Histogram", color: histogramColor, data: visibleHistogram, digits: 5 }]} timeSettings={timeSettings}>
+            <path d="M 0 56 L 960 56" stroke="var(--chart-grid)" strokeWidth="1" />
+            {alignedHistogram.map(({ point, index, x }) => {
               const y = 56 - (point.value / maxAbs) * 50;
               return (
                 <line
                   key={`${point.time}-${index}`}
-                  stroke={point.value >= 0 ? histogramColor : "#fb7185"}
+                  stroke={point.value >= 0 ? histogramColor : "var(--loss)"}
                   strokeOpacity="0.62"
                   strokeWidth="4"
                   x1={x}
@@ -5996,14 +6008,14 @@ function MacdPanel({
               strokeWidth={lineWidth}
             />
             <path
-              d={toOscillatorPath(visibleSignal, 960, 112, maxAbs)}
+              d={toAlignedOscillatorPath(alignedSignal, 112, maxAbs)}
               fill="none"
               stroke={signalColor}
               strokeDasharray={lineStyleDasharray(lineStyle)}
               strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
               strokeWidth={Math.max(1, lineWidth - 0.25)}
             />
-          </svg>
+          </InteractiveIndicatorPlot>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
             Waiting for enough candles
@@ -6023,6 +6035,7 @@ function StudyLinePanel({
   lineWidth,
   onOpenSettings,
   selected,
+  timeSettings,
   valueDigits = 2,
   zeroLine = false,
 }: {
@@ -6034,6 +6047,7 @@ function StudyLinePanel({
   lineWidth: number;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
   selected: boolean;
+  timeSettings: ChartTimeFormatSettings;
   valueDigits?: number;
   zeroLine?: boolean;
 }) {
@@ -6043,7 +6057,7 @@ function StudyLinePanel({
   const latest = latestIndicatorValue(data);
 
   return (
-    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+    <div className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
         <button
           className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
@@ -6052,18 +6066,17 @@ function StudyLinePanel({
         >
           {label}
         </button>
-        <span className="text-slate-300">
+        <span className="text-[var(--text-secondary)]">
           {latest == null ? "—" : latest.toFixed(valueDigits)}
         </span>
       </div>
       <div
         className={`indicator-pane-plot h-24 ${selected ? "indicator-pane-plot-active" : ""}`}
-        onClick={onOpenSettings}
       >
         {visible.length > 1 ? (
-          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
+          <InteractiveIndicatorPlot className="h-full" height={96} label={label} points={visible} series={[{ label, color, data: visible, digits: valueDigits }]} timeSettings={timeSettings}>
             {zeroLine && (
-              <path d="M 0 48 L 960 48" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
+              <path d="M 0 48 L 960 48" stroke="var(--chart-grid)" strokeWidth="1" />
             )}
             <path
               d={
@@ -6077,7 +6090,7 @@ function StudyLinePanel({
               strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
               strokeWidth={lineWidth}
             />
-          </svg>
+          </InteractiveIndicatorPlot>
         ) : (
           <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-slate-500">
             {emptyMessage}
@@ -10660,6 +10673,15 @@ function toOscillatorPath(
       return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
+}
+
+function toAlignedOscillatorPath(values: readonly { point: LineData; index: number; x: number }[], height: number, maxAbs: number) {
+  if (values.length < 2) return "";
+  return values.map(({ point, index, x }, position) => {
+    const command = position > 0 && index === values[position - 1].index + 1 ? "L" : "M";
+    const y = height / 2 - Number(point.value) / maxAbs * height * 0.44;
+    return `${command} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
 }
 
 function toScaledPath(values: LineData[], width: number, height: number) {
