@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import ts from "../../frontend/node_modules/typescript/lib/typescript.js";
 
 const compiled = await build({ bundle: true, format: "esm", platform: "node", write: false, logLevel: "silent",
-  stdin: { contents: `export * from './frontend/src/lib/betterAuthClient';export * from './frontend/src/lib/googleAuth';export * from './frontend/src/lib/authSession';`,
+  stdin: { contents: `export * from './frontend/src/lib/betterAuthClient';export * from './frontend/src/lib/googleAuth';export * from './frontend/src/lib/authSession';export {authJourneyIssue} from './frontend/src/lib/authJourney';`,
     resolveDir: process.cwd(), loader: "ts" } });
 const native = await import("data:text/javascript;base64," + Buffer.from(compiled.outputFiles[0].text).toString("base64"));
 const storage = () => { const data = new Map(); return { getItem: k => data.get(k) ?? null, setItem: (k,v) => data.set(k,String(v)), removeItem: k => data.delete(k) }; };
@@ -35,6 +35,7 @@ test("actual Better Auth client requests redirect-only Google sign-in and only t
   const body = await f.requests[0].json();
   assert.equal(body.provider, "google"); assert.equal(body.disableRedirect, true);
   const callback = new URL(body.callbackURL);
+  assert.equal(body.errorCallbackURL, body.callbackURL);
   assert.equal(callback.pathname, "/auth/callback/google"); assert.equal(callback.searchParams.get("better_auth"), "1");
   f.resolve(); await pending;
   assert.equal(f.redirects.length, 1);
@@ -66,6 +67,15 @@ test("unexpected redirect origins are refused by actual client handoff", async (
   const f = fixture(); const pending = native.beginBetterAuthSignIn("/app");
   await new Promise(resolve => setImmediate(resolve)); f.resolve("https://accounts.google.com.attacker.example/steal");
   await assert.rejects(pending, /Invalid Google/); assert.deepEqual(f.redirects, []);
+});
+
+test("native Google error codes resolve to current sign-in retry messages", () => {
+  // The source resolver is exercised by the genuine callback suite; this uses
+  // its same compiled production module, not duplicated enum classifications.
+  assert.equal(native.authJourneyIssue(new URLSearchParams("error=state_mismatch")).kind, "expired");
+  assert.equal(native.authJourneyIssue(new URLSearchParams("error=state_not_found")).kind, "expired");
+  assert.equal(native.authJourneyIssue(new URLSearchParams("error=access_denied")).kind, "cancelled");
+  assert.equal(native.authJourneyIssue(new URLSearchParams("error=unable_to_get_user_info")).kind, "retryable");
 });
 
 test("service-ready Better Auth with no API client ID runs the actual sign-in handler; legacy remains unavailable", async () => {

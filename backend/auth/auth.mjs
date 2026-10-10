@@ -66,6 +66,7 @@ export async function createEdgeLabAuth(env = process.env) {
   const options = {
     appName: "EdgeLab", baseURL: baseURL.origin, basePath: "/api/better-auth", secret, database,
     trustedOrigins: [baseURL.origin],
+    onAPIError: { errorURL: `${baseURL.origin}/auth/signin` },
     advanced: { cookiePrefix: "edgelab", useSecureCookies: baseURL.protocol === "https:" },
     session: { cookieCache: { enabled: false }, disableSessionRefresh: true, expiresIn: 7 * 24 * 60 * 60 },
     account: { accountLinking: { enabled: false } },

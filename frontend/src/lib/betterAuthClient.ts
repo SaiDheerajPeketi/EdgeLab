@@ -14,7 +14,7 @@ export async function beginBetterAuthSignIn(fromPath: string, pricingDestination
   const callback = new URL(redirectUri);
   callback.searchParams.set("better_auth", "1");
   callback.searchParams.set("state", state);
-  const response = await client.signIn.social({ provider: "google", callbackURL: callback.href, disableRedirect: true });
+  const response = await client.signIn.social({ provider: "google", callbackURL: callback.href, errorCallbackURL: callback.href, disableRedirect: true });
   if (!owns() || !ownsGoogleAuthAttempt(state, ownerIdentity())) return;
   if (response.error) throw new Error("Google sign-in is unavailable right now. Try again shortly.");
   const target = new URL(response.data?.url ?? "");

@@ -108,7 +108,7 @@ test("real Google redirect flow binds state and PKCE, consumes state once and re
   const env = config(), originalFetch = globalThis.fetch;
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const jwk = { ...await exportJWK(publicKey), kid: "redirect-key", alg: "RS256", use: "sig" };
-  let authorization, tokenCalls = 0, service, invalidClaim;
+  let authorization, tokenCalls = 0, service, server, origin, invalidClaim;
   globalThis.fetch = async (input, options) => {
     const request = new Request(input, options);
     if (request.url === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [jwk] });
@@ -126,13 +126,25 @@ test("real Google redirect flow binds state and PKCE, consumes state once and re
     }
     return originalFetch(input, options);
   };
-  try {
+  const launch = async () => {
     service = await createEdgeLabAuth(env);
-    const begin = (callbackURL) => service.auth.handler(new Request(`${env.BETTER_AUTH_URL}/api/better-auth/sign-in/social`, { method: "POST",
+    server = createAuthServer(service);
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    origin = `http://127.0.0.1:${server.address().port}`;
+  };
+  const stop = async () => {
+    if (server) await new Promise(resolve => server.close(resolve));
+    server = undefined;
+    service?.database.close(); service = undefined;
+  };
+  try {
+    await launch();
+    const begin = (callbackURL, errorCallbackURL = callbackURL) => originalFetch(`${origin}/api/better-auth/sign-in/social`, { method: "POST", redirect: "manual",
       headers: { "Content-Type": "application/json", Origin: env.BETTER_AUTH_URL },
-      body: JSON.stringify({ provider: "google", callbackURL, disableRedirect: true, additionalData: { googleHostedDomain: "attacker.example" } }) }));
+      body: JSON.stringify({ provider: "google", callbackURL, errorCallbackURL, disableRedirect: true, additionalData: { googleHostedDomain: "attacker.example" } }) });
     const callbackURL = `${env.BETTER_AUTH_URL}/auth/callback/google?better_auth=1&state=owned-local-state`;
     assert.equal((await begin("https://attacker.example/callback")).status, 403);
+    assert.equal((await begin(callbackURL, "https://attacker.example/error")).status, 403);
     const started = await begin(callbackURL);
     assert.equal(started.status, 200);
     authorization = new URL((await started.json()).url);
@@ -140,9 +152,16 @@ test("real Google redirect flow binds state and PKCE, consumes state once and re
     assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
     assert.ok(authorization.searchParams.get("nonce")?.length >= 16);
     const cookie = started.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
-    const callback = state => service.auth.handler(new Request(`${env.BETTER_AUTH_URL}/api/better-auth/callback/google?code=owned-code&state=${state}`, { headers: { Cookie: cookie } }));
+    const callback = state => originalFetch(`${origin}/api/better-auth/callback/google?code=owned-code&state=${state}`, { headers: { Cookie: cookie }, redirect: "manual" });
+    const missing = await originalFetch(`${origin}/api/better-auth/callback/google?code=owned-code`, { headers: { Cookie: cookie }, redirect: "manual" });
+    assert.equal(missing.status, 302);
+    assert.equal(new URL(missing.headers.get("location")).pathname, "/auth/signin");
+    assert.equal(new URL(missing.headers.get("location")).searchParams.get("error"), "state_not_found");
+    assert.equal(missing.headers.getSetCookie().some(value => value.startsWith("edgelab.session_token=")), false);
     const wrong = await callback("unowned-state");
     assert.equal(wrong.status, 302); assert.match(wrong.headers.get("location"), /error=/); assert.equal(tokenCalls, 0);
+    assert.equal(new URL(wrong.headers.get("location")).pathname, "/auth/signin");
+    assert.equal(service.database.prepare('SELECT COUNT(*) AS n FROM session').get().n, 0);
     const completed = await callback(authorization.searchParams.get("state"));
     assert.equal(completed.status, 302); assert.equal(completed.headers.get("location"), callbackURL);
     assert.equal(tokenCalls, 1);
@@ -151,20 +170,27 @@ test("real Google redirect flow binds state and PKCE, consumes state once and re
     assert.equal(actual.user.googleHostedDomain, "provider.example");
     const replay = await callback(authorization.searchParams.get("state"));
     assert.match(replay.headers.get("location"), /error=/); assert.equal(tokenCalls, 1);
-    for (const claim of ["nonce", "issuer", "audience"]) {
-      service.database.close();
-      service = await createEdgeLabAuth(env); // Independent attempts retain native per-path admission.
+    for (const claim of ["access_denied", "nonce", "issuer", "audience"]) {
+      await stop(); await launch(); // Independent attempts retain native per-path admission.
       invalidClaim = claim;
       const start = await begin(callbackURL);
       assert.equal(start.status, 200, await start.clone().text());
       authorization = new URL((await start.json()).url);
-      const rejected = await service.auth.handler(new Request(`${env.BETTER_AUTH_URL}/api/better-auth/callback/google?code=owned-code&state=${authorization.searchParams.get("state")}`, {
-        headers: { Cookie: start.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } }));
+      const callsBefore = tokenCalls;
+      const query = new URLSearchParams({ state: authorization.searchParams.get("state"), ...(claim === "access_denied" ? { error: "access_denied" } : { code: "owned-code" }) });
+      const rejected = await originalFetch(`${origin}/api/better-auth/callback/google?${query}`, {
+        headers: { Cookie: start.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") }, redirect: "manual" });
       assert.equal(rejected.status, 302);
-      assert.match(rejected.headers.get("location"), /error=unable_to_get_user_info/);
+      const retry = new URL(rejected.headers.get("location"));
+      assert.equal(retry.origin, env.BETTER_AUTH_URL); assert.equal(retry.pathname, "/auth/callback/google");
+      assert.equal(retry.searchParams.get("better_auth"), "1"); assert.equal(retry.searchParams.get("state"), "owned-local-state");
+      assert.equal(retry.searchParams.get("error"), claim === "access_denied" ? "access_denied" : "unable_to_get_user_info");
+      assert.equal(tokenCalls, callsBefore + (claim === "access_denied" ? 0 : 1));
       assert.equal(rejected.headers.getSetCookie().some(value => value.startsWith("edgelab.session_token=")), false);
+      assert.equal(service.database.prepare('SELECT COUNT(*) AS n FROM session').get().n, 0);
+      assert.equal(await service.auth.api.getSession({ headers: new Headers({ Cookie: start.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") }) }), null);
     }
-  } finally { service?.database.close(); globalThis.fetch = originalFetch; }
+  } finally { await stop(); globalThis.fetch = originalFetch; }
 });
 
 test("operator Google credential files match existing deployment format and environment precedence", async () => {
