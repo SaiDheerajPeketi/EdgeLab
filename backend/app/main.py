@@ -1,4 +1,5 @@
 import logging
+from collections import deque
 from contextlib import asynccontextmanager
 
 import anyio.to_thread
@@ -70,6 +71,39 @@ class RequestAdmissionMiddleware:
         )
         self.active_requests = 0
         self.active_probes = 0
+        self.queue_limit = self.limit or 0
+        self.waiting_requests: deque[anyio.Event] = deque()
+
+    async def _admit_request(self, *, wait: bool) -> bool:
+        # Checking/reserving never awaits: new arrivals cannot overtake waiters.
+        if self.active_requests < self.limit and not self.waiting_requests:
+            self.active_requests += 1
+            return True
+        if not wait or len(self.waiting_requests) >= self.queue_limit:
+            return False
+        waiter = anyio.Event()
+        self.waiting_requests.append(waiter)
+        admitted = False
+        try:
+            # Waiting uses only the event loop, preserving worker thread reserves.
+            with anyio.move_on_after(0.25) as timeout:
+                await waiter.wait()
+            admitted = not timeout.cancel_called and anyio.current_time() < timeout.deadline
+            return admitted
+        finally:
+            if waiter.is_set():
+                if not admitted:
+                    # Cancellation/timeout can race with a transferred slot.
+                    self._release_request()
+            else:
+                self.waiting_requests.remove(waiter)
+
+    def _release_request(self) -> None:
+        if self.waiting_requests:
+            # Transfer the active slot before waking the oldest waiter.
+            self.waiting_requests.popleft().set()
+        else:
+            self.active_requests -= 1
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = scope.get("path", "")
@@ -79,19 +113,18 @@ class RequestAdmissionMiddleware:
             return
         # Database-backed health checks use bounded reserved capacity. An
         # unlimited liveness bypass could itself occupy every worker thread.
-        probe = path in {"/api/health", "/api/ready"} and self.probe_limit > 0
-        active = self.active_probes if probe else self.active_requests
-        limit = self.probe_limit if probe else self.limit
-        # No await between checking and reserving: each worker's event loop
-        # admits atomically, with no queued admission tasks or worker threads.
-        if active >= limit:
+        probe_path = path in {"/api/health", "/api/ready"}
+        probe = probe_path and self.probe_limit > 0
+        if probe:
+            admitted = self.active_probes < self.probe_limit
+            if admitted:
+                self.active_probes += 1
+        else:
+            admitted = await self._admit_request(wait=not probe_path)
+        if not admitted:
             await JSONResponse(status_code=503, content={"detail": "Service busy. Try again shortly."},
                                headers={**PRIVATE_API_HEADERS, "Retry-After": "1"})(scope, receive, send)
             return
-        if probe:
-            self.active_probes += 1
-        else:
-            self.active_requests += 1
         try:
             # Hold admission through validation, streaming and DB dependency cleanup.
             await self.app(scope, receive, send)
@@ -99,7 +132,7 @@ class RequestAdmissionMiddleware:
             if probe:
                 self.active_probes -= 1
             else:
-                self.active_requests -= 1
+                self._release_request()
 
 
 class PrivateAPICacheMiddleware:
