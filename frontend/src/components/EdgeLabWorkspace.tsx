@@ -1,3 +1,5 @@
+import { createOwnedSaveFeedback } from "../lib/saveFeedback";
+import { assertAppDataAccess, captureAppDataAccess } from "../lib/appDataBarrier";
 import { pineSourceSnapshotForChart } from "../lib/pineSourceSnapshot";
 import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
@@ -4159,7 +4161,32 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [layoutName, setLayoutName] = useState(() => loadActiveLiveChartLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadLiveChartLayoutRecords().map((record) => record.name));
-  const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
+  const [chartLayoutStatus, setChartLayoutStatus] = useState<{ action: "saved" | "loaded"; at: number } | null>(null);
+  const [chartLayoutError, setChartLayoutError] = useState<string | null>(null);
+  const liveLayoutSaveFeedback = useRef(createOwnedSaveFeedback(
+    markLayoutSaved,
+    (error) => {
+      setChartLayoutStatus(null);
+      setChartLayoutError(error && typeof error === "object" && "requiresReload" in error
+        ? "Layout saves are paused. Open Workspace settings, check the previous save in Storage, then reload."
+        : "Could not finish saving this layout on your device. Your chart is kept. Check browser storage and try saving again.");
+    },
+  ));
+  useEffect(() => {
+    const feedback = liveLayoutSaveFeedback.current;
+    feedback.mount();
+    const invalidate = () => { feedback.invalidate(); setChartLayoutStatus(null); setChartLayoutError(null); };
+    const stop = subscribeAuthSession(invalidate);
+    const storage = (event: StorageEvent) => { if (event.key === null) invalidate(); };
+    const dataState = () => { try { assertAppDataAccess(captureAppDataAccess()); } catch { invalidate(); } };
+    window.addEventListener("storage", storage);
+    window.addEventListener("edgelab:app-data-state-change", dataState);
+    return () => {
+      feedback.dispose(); stop();
+      window.removeEventListener("storage", storage);
+      window.removeEventListener("edgelab:app-data-state-change", dataState);
+    };
+  }, []);
   const [drawingUndoStack, setDrawingUndoStack] = useState<ChartDrawing[][]>([]);
   const [timeframeShortcutFeedback, setTimeframeShortcutFeedback] = useState<TimeframeShortcutFeedback | null>(null);
   const drawingUndoBatchOpenRef = useRef(false);
@@ -4176,10 +4203,9 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const activeChartPaneIndex = visibleChartPanes.findIndex((pane) => pane.id === activeChartPane.id);
   const isMultiChartLayout = chartPaneLayoutDefinition.panes > 1;
   const activePaneLabel = isMultiChartLayout && activeChartPaneIndex >= 0 ? `Pane ${activeChartPaneIndex + 1}` : "Live chart";
-  const savedLayoutLabel =
-    chartLayoutSavedAt == null
-      ? null
-      : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const savedLayoutLabel = chartLayoutStatus
+    ? `${chartLayoutStatus.action === "saved" ? "Saved on this device" : "Loaded"} ${new Date(chartLayoutStatus.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : null;
   const changeTone = tickerChangeLabel.startsWith("+")
     ? toneForNumber(1)
     : tickerChangeLabel.startsWith("-")
@@ -4313,7 +4339,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
 
   useEffect(() => {
     const persistTimer = window.setTimeout(() => {
-      void saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, buildLiveChartLayoutPayload());
+      setChartLayoutStatus(null);
+      void liveLayoutSaveFeedback.current.run(() => saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, buildLiveChartLayoutPayload()), false);
     }, 0);
     return () => window.clearTimeout(persistTimer);
   }, [activeChartPaneId, chartPaneLayout, chartPanes, chartSyncSettings]);
@@ -4561,7 +4588,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
 
   function changeChartPaneLayout(nextLayout: ChartPaneLayoutId) {
     const layout = chartPaneLayoutById(nextLayout);
-    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, null);
+    setChartLayoutStatus(null);
+    void liveLayoutSaveFeedback.current.run(() => saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, null), false);
     setChartPaneLayout(layout.id);
     setChartPanes((current) => {
       const nextPanes = [...current];
@@ -4752,14 +4780,28 @@ const LiveChartStudio = memo(function LiveChartStudio({
     }
   }
 
+  function markLayoutSaved() {
+    setChartLayoutStatus({ action: "saved", at: Date.now() });
+    setChartLayoutError(null);
+  }
+
   function saveChartLayout() {
     const payload = buildLiveChartLayoutPayload();
     const name = normalizeLiveLayoutName(layoutName);
-    void saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, payload);
-    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, name);
-    setLayoutName(name);
-    setAvailableLayouts(saveNamedLiveChartLayout(name, payload));
-    setChartLayoutSavedAt(Date.now());
+    let names = availableLayouts;
+    void liveLayoutSaveFeedback.current.run(() => {
+      const record = saveNamedLiveChartLayout(name, payload);
+      names = record.names;
+      return Promise.all([
+        record.accepted,
+        saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, payload),
+        saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, name),
+      ]);
+    }, () => {
+      setLayoutName(name);
+      setAvailableLayouts(names);
+      markLayoutSaved();
+    });
   }
 
   function buildLiveChartLayoutPayload(): LiveChartLayout {
@@ -4782,23 +4824,37 @@ const LiveChartStudio = memo(function LiveChartStudio({
   }
 
   function loadNamedChartLayout(name: string) {
-    const record = loadLiveChartLayoutRecord(name);
-    if (!record) {
-      return;
-    }
-    applyChartLayout(record.layout);
-    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
-    setLayoutName(record.name);
-    setChartLayoutSavedAt(Date.now());
+    let record: LiveChartLayoutRecord | undefined;
+    void liveLayoutSaveFeedback.current.run(() => {
+      record = loadLiveChartLayoutRecord(name);
+      if (!record) throw new Error("The saved layout is unavailable.");
+      setChartLayoutStatus(null);
+      applyChartLayout(record.layout);
+      return saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
+    }, () => {
+      if (!record) return;
+      setLayoutName(record.name);
+      setChartLayoutStatus({ action: "loaded", at: Date.now() });
+      setChartLayoutError(null);
+    });
   }
 
   function deleteNamedChartLayout(name: string) {
-    const nextNames = deleteLiveChartLayoutRecord(name);
-    setAvailableLayouts(nextNames);
-    if (normalizeLiveLayoutName(name) === normalizeLiveLayoutName(layoutName)) {
-      setLayoutName(nextNames[0] ?? "Live Default");
-      void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, nextNames[0] ?? null);
-    }
+    let names = availableLayouts;
+    const deletingActive = normalizeLiveLayoutName(name) === normalizeLiveLayoutName(layoutName);
+    void liveLayoutSaveFeedback.current.run(() => {
+      const record = deleteLiveChartLayoutRecord(name);
+      names = record.names;
+      return Promise.all([
+        record.accepted,
+        deletingActive ? saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, names[0] ?? null) : Promise.resolve(),
+      ]);
+    }, () => {
+      setAvailableLayouts(names);
+      if (deletingActive) setLayoutName(names[0] ?? "Live Default");
+      setChartLayoutStatus(null);
+      setChartLayoutError(null);
+    });
   }
 
   function applyChartLayout(layout: Partial<LiveChartLayout>) {
@@ -4819,6 +4875,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       ref={chartStudioRef}
     >
       {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
+      {chartLayoutError ? <p role="alert" data-live-layout-save-error="true" className="border-b border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] px-4 py-3 text-sm text-[var(--warning-text)]">{chartLayoutError}</p> : null}
       <div data-live-chart-header="true" className="flex min-w-0 flex-col gap-2 border-b border-white/10 px-4 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-3">
         <div data-live-chart-metadata="true" className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:thin] [&>*]:shrink-0 sm:flex-wrap sm:overflow-visible sm:whitespace-normal">
           <strong className="truncate text-[var(--text-primary)]">{editorSymbol}</strong>
@@ -5527,8 +5584,7 @@ function saveNamedLiveChartLayout(name: string, layout: LiveChartLayout) {
     },
     ...records,
   ].slice(0, 12);
-  void saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords);
-  return nextRecords.map((record) => record.name);
+  return { names: nextRecords.map((record) => record.name), accepted: saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords) };
 }
 
 function deleteLiveChartLayoutRecord(name: string) {
@@ -5536,8 +5592,7 @@ function deleteLiveChartLayoutRecord(name: string) {
   const nextRecords = loadLiveChartLayoutRecords().filter(
     (record) => normalizeLiveLayoutName(record.name) !== normalizedName,
   );
-  void saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords);
-  return nextRecords.map((record) => record.name);
+  return { names: nextRecords.map((record) => record.name), accepted: saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords) };
 }
 
 function normalizeLiveLayoutName(name: string) {

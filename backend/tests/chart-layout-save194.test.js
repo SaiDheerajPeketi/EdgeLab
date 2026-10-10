@@ -10,7 +10,7 @@ import { build } from "esbuild";
 const ts = createRequire(import.meta.url)(path.resolve("frontend/node_modules/typescript"));
 const appSource = fs.readFileSync("frontend/src/App.tsx", "utf8");
 const ast = ts.createSourceFile("App.tsx", appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ["createChartLayoutSaveFeedback", "saveNamedChartLayout", "deleteChartLayoutRecord", "loadChartLayoutRecord", "loadChartLayoutRecords", "normalizeLayoutName", "upgradeStoredChartLayout"];
+const names = ["saveNamedChartLayout", "deleteChartLayoutRecord", "loadChartLayoutRecord", "loadChartLayoutRecords", "normalizeLayoutName", "upgradeStoredChartLayout"];
 const helpers = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text));
 assert.equal(helpers.length, names.length);
 const keys = ["CHART_LAYOUT_STORAGE_KEY", "CHART_LAYOUTS_STORAGE_KEY", "ACTIVE_CHART_LAYOUT_STORAGE_KEY", "CHART_WORKSPACE_SCHEMA_VERSION", "CHART_SETTINGS_DEFAULTS_VERSION"];
@@ -20,6 +20,7 @@ const bundled = (await build({ bundle: true, platform: "node", format: "esm", wr
     import { assertAppDataAccess, captureAppDataAccess } from "./frontend/src/lib/appDataBarrier.ts";
     import { getCachedAppStorageItem, saveAppStorageItem } from "./frontend/src/lib/serverStorage.ts";
     import { nextWorkspaceRevision } from "./frontend/src/lib/chartWorkspace.ts";
+    export { createOwnedSaveFeedback as createChartLayoutSaveFeedback } from "./frontend/src/lib/saveFeedback.ts";
     export * from "./frontend/src/lib/serverStorage.ts";
     export * from "./frontend/src/lib/chartSettings.ts";
     ${constants.map(node => node.getText(ast)).join("\n")}

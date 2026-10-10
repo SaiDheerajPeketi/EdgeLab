@@ -1,3 +1,4 @@
+import { createOwnedSaveFeedback } from "./lib/saveFeedback";
 import { pineSourceSnapshotForChart } from "./lib/pineSourceSnapshot";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
@@ -539,7 +540,7 @@ export function WorkspaceApp() {
     loadChartLayoutRecords().find((record) => record.isStartup)?.name ?? null,
   );
   const [workspaceRecoveryMessage, setWorkspaceRecoveryMessage] = useState<string | null>(null);
-  const layoutSaveFeedback = useRef(createChartLayoutSaveFeedback(
+  const layoutSaveFeedback = useRef(createOwnedSaveFeedback(
     () => setChartLayoutSavedAt(Date.now()),
     (error) => {
       setChartLayoutSavedAt(null);
@@ -4507,34 +4508,6 @@ function deleteChartLayoutRecord(name: string) {
   return { accepted: saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords), names: nextRecords.map((record) => record.name) };
 }
 
-function createChartLayoutSaveFeedback(saved: () => void, failed: (error: unknown) => void) {
-  let currentWrite = 0, mounted = true;
-  return {
-    mount() { mounted = true; },
-    invalidate() { currentWrite += 1; },
-    dispose() { mounted = false; currentWrite += 1; },
-    async run(action: () => unknown | Promise<unknown>, markSaved = true) {
-      const write = ++currentWrite;
-      let access: ReturnType<typeof captureAppDataAccess> = null, captured = false, admitted = false;
-      const owns = (admissionFailure = false) => {
-        if (!mounted || !captured || write !== currentWrite) return false;
-        try {
-          const current = captureAppDataAccess();
-          if (current?.owner !== access?.owner || current?.token !== access?.token || current?.epoch !== access?.epoch) return false;
-          if (!admissionFailure) assertAppDataAccess(access);
-          return true;
-        } catch { return false; }
-      };
-      try {
-        access = captureAppDataAccess(); captured = true;
-        assertAppDataAccess(access, true);
-        admitted = true;
-        await action();
-        if (owns() && markSaved) saved();
-      } catch (error) { if (owns(!admitted)) failed(error); }
-    },
-  };
-}
 
 function normalizeLayoutName(name: string) {
   const trimmed = name.trim();
