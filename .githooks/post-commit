@@ -1,0 +1,35 @@
+#!/bin/sh
+# codex-auto-push-v1: push each commit, preserving detached commits separately.
+# Set CODEX_AUTO_PUSH=0 for a single local commit.
+case "${CODEX_AUTO_PUSH:-1}" in 0|false|no) exit 0 ;; esac
+
+rtk_bin=${RTK_BIN:-/opt/homebrew/bin/rtk}
+git_cmd() { "$rtk_bin" proxy git "$@"; }
+if branch=$(git_cmd symbolic-ref --quiet --short HEAD); then
+    remote=$(git_cmd config --get "branch.$branch.remote")
+    target=$(git_cmd config --get "branch.$branch.merge")
+    set -- --set-upstream
+else
+    commit=$(git_cmd rev-parse --short=12 HEAD) || exit 0
+    branch="codex/preserve-detached-$commit"
+    remote=origin
+    target="refs/heads/$branch"
+    set --
+fi
+
+if [ -z "$remote" ]; then
+    remote=origin
+fi
+if [ -z "$target" ]; then
+    target="refs/heads/$branch"
+fi
+if [ "$remote" = . ] || ! git_cmd remote get-url "$remote" >/dev/null 2>&1; then
+    printf 'Auto-push skipped: branch %s has no usable remote.\n' "$branch" >&2
+    exit 0
+fi
+
+if GIT_TERMINAL_PROMPT=0 git_cmd push "$@" "$remote" "HEAD:$target"; then
+    exit 0
+fi
+printf 'Auto-push failed for %s. The commit is saved locally; retry git push after resolving the error.\n' "$branch" >&2
+exit 0
