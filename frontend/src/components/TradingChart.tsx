@@ -6171,15 +6171,15 @@ function NativePineStudyPanel({ label, plots, readouts, priceChart, onOpenSettin
     });
   }, [plots, readouts, priceChart, tableOnly, chartSettings.indicatorValues, chartSettings.pricePrecision,
     chartSettings.backgroundColor, chartSettings.textColor, chartSettings.textSize, chartSettings.gridColor, chartSettings.gridMode]);
-  return <section className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3" aria-label={`${label} native Pine pane`}>
+  return <section className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-2 py-3 sm:px-4" aria-label={`${label} native Pine pane`}>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-      <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
+      <button className={`indicator-pane-title !max-w-none !whitespace-normal !normal-case !tracking-normal min-w-0 flex-1 ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
       <details className="min-w-0 max-w-full text-[var(--text-secondary)]">
         <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">Plots</summary>
         <p role="region" aria-label={`${label} output names`} tabIndex={0} className="max-h-24 overflow-y-auto overscroll-contain break-words py-2 leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]">{plots.map((plot) => plot.name).join(" · ")}</p>
       </details>
     </div>
-    <div ref={container} className={`${tableOnly ? "h-48" : "h-32"} w-full`} />
+    <div ref={container} className={`${tableOnly ? "h-48" : "h-40"} w-full`} />
     {selected && inputTarget?.plots === plots && <PineStudyInputAnchors indicator={indicator} chart={inputTarget.chart}
       series={inputTarget.series} bars={bars} contextKey={contextKey} placement="pane" onChange={onChange}
       pickInputId={pickInputId} onEndPick={onEndPick} />}

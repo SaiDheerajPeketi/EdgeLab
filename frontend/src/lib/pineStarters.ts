@@ -121,4 +121,24 @@ ha=ticker.heikinashi(ticker.standard(syminfo.tickerid))
 [o,h,l,c]=request.security(ha,timeframe.period,[open,high,low,close])
 shade=c>=o?upColor:downColor
 plotcandle(o,h,l,c,title="Heikin-Ashi",color=shade,wickcolor=shade,bordercolor=shade)`),
+  starter("pine-cmf", "Chaikin Money Flow", "Volume-weighted closing position within each candle's range, over a rolling window.", `indicator("Chaikin Money Flow", overlay=false, precision=4)
+length=input.int(20,"Length",minval=1,maxval=500)
+// Flat candles contribute zero flow while their volume stays in the denominator.
+multiplier=high==low?0.0:((close-low)-(high-close))/(high-low)
+// Calculate both rolling sums on every bar; a zero-volume ratio stays missing.
+plot(math.sum(multiplier*volume,length)/math.sum(volume,length),"CMF",color=color.teal)
+hline(0,"Zero",color=color.gray)`),
+  starter("pine-chaikin-oscillator", "Chaikin Oscillator", "Compares fast and slow averages of accumulation/distribution to show changes in volume pressure.", `indicator("Chaikin Oscillator", overlay=false, precision=2)
+fastLength=input.int(3,"Fast length",minval=1,maxval=500)
+slowLength=input.int(10,"Slow length",minval=1,maxval=500)
+multiplier=high==low?0.0:((close-low)-(high-close))/(high-low)
+accumulation=ta.cum(multiplier*volume)
+oscillator=ta.ema(accumulation,fastLength)-ta.ema(accumulation,slowLength)
+plot(oscillator,"Chaikin Oscillator",color=color.teal)
+hline(0,"Zero",color=color.gray)`),
+  starter("pine-elder-force", "Elder Force Index", "Smooths price change multiplied by volume to compare upward and downward pressure.", `indicator("Elder Force Index", overlay=false, precision=2)
+price=input.source(close,"Source")
+length=input.int(13,"Length",minval=1,maxval=500)
+plot(ta.ema(ta.change(price)*volume,length),"EFI",color=color.blue)
+hline(0,"Zero",color=color.gray)`),
 ];
