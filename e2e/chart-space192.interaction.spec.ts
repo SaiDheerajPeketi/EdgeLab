@@ -48,7 +48,7 @@ test("chart keeps its price area and collapsed tools preserve width, hover, dock
     await expect(page).toHaveURL(/\/app\/journal\/trades$/);
     await state.waitForAccountWrites();
     await page.reload();
-    await expect(page.locator('header[aria-label="Workspace context"]').getByRole("heading", { level: 1, name: "Trade log", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Trades", exact: true }).getByRole("heading", { level: 1, name: "Trades", exact: true })).toBeVisible();
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
   expect(errors).toEqual([]);

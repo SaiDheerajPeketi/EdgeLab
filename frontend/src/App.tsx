@@ -1748,12 +1748,16 @@ export function WorkspaceApp() {
     });
   }
 
-  function navigateWorkspace(view: WorkspaceView) {
-    rememberWindowScroll(activeWorkspace);
-    setNotebookReturnTarget(null);
+  function selectWorkspace(view: WorkspaceView) {
     const href = workspaceHrefForView(view, window.location.hash);
     if (window.location.pathname + window.location.hash !== href) navigate(href);
     flushSync(() => setActiveWorkspace(view));
+  }
+
+  function navigateWorkspace(view: WorkspaceView) {
+    rememberWindowScroll(activeWorkspace);
+    setNotebookReturnTarget(null);
+    selectWorkspace(view);
     if (view === "sessions") {
       setPlaying(false);
       setReplayFocusTrade(null);
@@ -1779,11 +1783,11 @@ export function WorkspaceApp() {
       || journalFocusMatchesSymbol(request.symbol, sessionSymbol);
     if (!state?.session || !sessionMatches) {
       setJournalFocusRange(null);
-      setActiveWorkspace("live");
+      selectWorkspace("live");
       return;
     }
 
-    setActiveWorkspace("backtest");
+    selectWorkspace("backtest");
     const option = chartSymbolOptions.find((item) => chartSymbolsEqual(item.symbol, sessionSymbol));
     setChartPanes((currentPanes) => currentPanes.map((pane) => pane.id === activeChartPane.id
       ? {
@@ -1815,7 +1819,7 @@ export function WorkspaceApp() {
   useEffect(() => {
     const openJournalDeepLink = () => {
       if (window.location.hash.replace(/^#/, "") !== "journal/trades") return;
-      setActiveWorkspace("journalTrades");
+      selectWorkspace("journalTrades");
       setSessionGateOpen(false);
     };
     openJournalDeepLink();
@@ -2792,7 +2796,7 @@ export function WorkspaceApp() {
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     if (!await awaitReplaySelection(newSession(payload))) return;
     setReplayFocusTrade(null);
-    setActiveWorkspace("backtest");
+    selectWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -2803,7 +2807,7 @@ export function WorkspaceApp() {
   async function resumeSessionFromGateway(sessionId?: number) {
     if (!await awaitReplaySelection(sessionId ? loadSession(sessionId) : ensureLatestReplayLoaded(), sessionId)) return;
     setReplayFocusTrade(null);
-    setActiveWorkspace("backtest");
+    selectWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -2826,7 +2830,7 @@ export function WorkspaceApp() {
     const current = useBacktestStore.getState();
     if (deletingActiveSession && current.state == null && current.replayOperationVersion === operationVersion) {
       setReplayFocusTrade(null);
-      setActiveWorkspace("sessions");
+      selectWorkspace("sessions");
       setSessionGateOpen(true);
       setLeftPaneOpen(false);
       setChartToolsOpen(false);
@@ -2840,7 +2844,7 @@ export function WorkspaceApp() {
     setReviewTrade(null);
     setEditingTrade(null);
     setReplayFocusTrade(trade);
-    setActiveWorkspace("backtest");
+    selectWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -2863,7 +2867,7 @@ export function WorkspaceApp() {
     setNotebookFocusTradeId(trade.id);
     setNotebookReturnTarget(activeWorkspace === "tradeView" || activeWorkspace === "dayView" ? activeWorkspace : null);
     pendingNotebookScrollResetRef.current = true;
-    setActiveWorkspace("notebook");
+    selectWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -2879,7 +2883,7 @@ export function WorkspaceApp() {
     setNotebookReturnTarget(panel === "results" ? "backtestResults" : "backtestReview");
     backtestPanelScrollRef.current = window.scrollY;
     pendingNotebookScrollResetRef.current = true;
-    setActiveWorkspace("notebook");
+    selectWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -2895,7 +2899,7 @@ export function WorkspaceApp() {
     }
     setNotebookReturnTarget(null);
     setReplayFocusTrade(null);
-    setActiveWorkspace("backtest");
+    selectWorkspace("backtest");
     setSessionGateOpen(false);
     setWorkspacePanel(returnPanel);
   }
@@ -2940,7 +2944,7 @@ export function WorkspaceApp() {
           className="workspace-tab inline-flex items-center justify-center gap-2"
           onClick={() => {
             setPlaying(false);
-            setActiveWorkspace("sessions");
+            selectWorkspace("sessions");
             setSessionGateOpen(true);
           }}
           type="button"
@@ -3094,7 +3098,7 @@ export function WorkspaceApp() {
   function closeSharedCopy() {
     setActiveSharedCopy(null);
     setActiveSharedCopyLocalOnly(false);
-    setActiveWorkspace("sessions");
+    selectWorkspace("sessions");
     setSessionGateOpen(true);
     const url = new URL(window.location.href);
     url.searchParams.delete("workspaceCopy");
@@ -3158,10 +3162,7 @@ export function WorkspaceApp() {
             </div>
           ) : null}
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
-            <Suspense fallback={<WorkspaceLoadingPanel />}>
-              {activeWorkspace === "live" ? null : (
-                <WorkspaceContextHeader activeView={activeWorkspace} />
-              )}
+            <Suspense fallback={<><WorkspaceContextHeader activeView={activeWorkspace} /><WorkspaceLoadingPanel /></>}>
               <EdgeLabWorkspace
                 activeSession={state?.session ?? null}
                 datasets={datasets}
@@ -3171,25 +3172,25 @@ export function WorkspaceApp() {
                 onNavigateBacktest={() => {
                   setNotebookReturnTarget(null);
                   setReplayFocusTrade(null);
-                  setActiveWorkspace("backtest");
+                  selectWorkspace("backtest");
                   setSessionGateOpen(false);
                 }}
                 onNavigateDayView={() => {
                   setNotebookReturnTarget(null);
                   setReplayFocusTrade(null);
-                  setActiveWorkspace("dayView");
+                  selectWorkspace("dayView");
                   setSessionGateOpen(false);
                 }}
                 onNavigateSessions={() => {
                   setNotebookReturnTarget(null);
                   setReplayFocusTrade(null);
-                  setActiveWorkspace("sessions");
+                  selectWorkspace("sessions");
                   setSessionGateOpen(true);
                 }}
                 onNavigateTradeView={() => {
                   setNotebookReturnTarget(null);
                   setReplayFocusTrade(null);
-                  setActiveWorkspace("tradeView");
+                  selectWorkspace("tradeView");
                   setSessionGateOpen(false);
                 }}
                 onReplayTrade={replayTradeFromNotes}
@@ -3224,10 +3225,6 @@ export function WorkspaceApp() {
             </Suspense>
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
-              <WorkspaceContextHeader
-                activeView="sessions"
-                scope={state?.session ? `${formatMarketSymbol(state.session.symbol)} · Session #${state.session.id}` : "Choose or create a replay session"}
-              />
               {error && !resultSessionsLoadError && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                   <AlertTriangle size={18} />

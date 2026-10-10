@@ -8,11 +8,14 @@ const palette = { "--ui-surface": "#eee6d9", "--ui-inset": "#ded5c8", "--ui-rais
   "--text-primary": "#18293a", "--text-secondary": "#405162", "--text-accent": "#493060",
   "--profit-text": "#155d34", "--loss-text": "#8c2034", "--warning-text": "#704510" };
 async function header(page: Page, label: string) {
-  const context = page.locator('header[aria-label="Workspace context"]');
-  await expect(context.getByRole("heading", { level: 1, name: label, exact: true })).toBeVisible();
-  await expect(context.getByRole("button")).toHaveCount(0);
-  await expect(context).not.toContainText(/Live connection|Saved workspace|Return to replay sessions/);
-  expect(await context.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  const main = page.locator("main#workspace-content");
+  const heading = main.getByRole("heading", { level: 1 });
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText(label);
+  await expect(heading).toBeVisible();
+  await expect(main.locator('header[aria-label="Workspace context"]')).toHaveCount(0);
+  await expect(main).not.toContainText(/Live connection|Saved workspace|Return to replay sessions/);
+  expect(await heading.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
 }
 test("workspace pages use their sidebar navigation without redundant Back controls or invented connection labels", async ({ page }, info) => {
   const errors: string[] = [];
@@ -57,7 +60,7 @@ test("workspace pages use their sidebar navigation without redundant Back contro
     expect(probe.height).toBeGreaterThanOrEqual(44); probes.push({ name, ...probe });
   }
   await page.screenshot({ path: path.join(directory, "order-flow-palette-inheritance.png"), animations: "disabled" });
-  const routes = [["/app", "Replay sessions"], ["/app/reports", "Metrics"], ["/app/journal/accounts", "Trading accounts"], ["/app/settings/global", "Workspace settings"]];
+  const routes = [["/app", "Continue where the market left you."], ["/app/reports", "Backtest Performance Reports"], ["/app/journal/accounts", "Accounts"], ["/app/settings/global", "Settings"]];
   for (const [route, label] of routes) { await transport.waitForAccountWrites(); await page.goto(route); await header(page, label); }
   // Settings remain accessible through the real navigation after removing their header shortcut.
   if (info.project.name !== "desktop") {
@@ -82,4 +85,17 @@ test("workspace pages use their sidebar navigation without redundant Back contro
   expect(errors).toEqual([]);
   fs.writeFileSync(path.join(directory, "receipt.json"), JSON.stringify({ routes: [["/app/live", "Live markets"], ["/app/order-flow", "Order flow"], ...routes],
     errors, themeProbes: probes, navigationWorked: true, qualification: "Actual production pages/navigation, controlled authenticated API/provider transport. Palette injection tests CSS inheritance, not a light-mode chooser." }, null, 2));
+});
+
+
+test("unavailable sessions retain one visible heading and their retry action", async ({ page }) => {
+  const transport = await liveViewportSetup(page);
+  await transport.waitForAccountWrites();
+  await page.route(/\/api\/(?:bootstrap(?:-shell)?|backtests)(?:\?|$)/, route => route.fulfill({
+    status: 503, json: { detail: "Session service unavailable" },
+  }));
+  await page.goto("/app");
+  await header(page, "Saved sessions unavailable");
+  await expect(page.getByRole("button", { name: "Retry saved sessions", exact: true })).toBeVisible();
+  await transport.waitForAccountWrites();
 });

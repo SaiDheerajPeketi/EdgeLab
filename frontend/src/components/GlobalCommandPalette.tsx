@@ -47,8 +47,8 @@ export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelec
 
   useLayoutEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const editing = target?.matches("input, textarea, select, [contenteditable=true]");
+      const target = event.target;
+      const editing = target instanceof Element && target.matches("input, textarea, select, [contenteditable=true]");
       if (isCommandPaletteShortcut(event)) { event.preventDefault(); openPalette("commands"); }
       else if (!editing && !open && event.key === "?") { event.preventDefault(); openPalette("shortcuts"); }
     };

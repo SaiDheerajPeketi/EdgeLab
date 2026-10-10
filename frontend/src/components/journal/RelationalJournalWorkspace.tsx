@@ -83,7 +83,8 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
   async function importSample() { setSampleBusy(true); setNotice(null); try { const result = await journal.importSample(); setNotice(`Sample ready: ${result.run.imported_rows} trades imported. You can remove them with Reset sample.`); navigate("dashboard"); } catch { /* hook exposes the error */ } finally { setSampleBusy(false); } }
   async function resetSample() { setSampleBusy(true); setNotice(null); try { await journal.resetSample(); setNotice("Sample trades were rolled back; your other Journal records were unchanged."); } catch { /* hook exposes the error */ } finally { setSampleBusy(false); } }
 
-  if (journal.loading && !journal.historyReady) return <JournalSkeleton rows={9} />;
+  const fallbackHeading = <h1 className="mb-4 text-xl font-semibold text-[var(--text-primary)]">Journal / {routePresentation.label}</h1>;
+  if (journal.loading && !journal.historyReady) return <div>{fallbackHeading}<JournalSkeleton rows={9} /></div>;
 
   const dashboardAvailable = surface !== "dashboard" || ((!selectedDate || isJournalDate(selectedDate)) && (noteAccountId == null || journal.accounts.some((account) => account.id === noteAccountId)));
   const dashboardTrades = surface === "dashboard" && noteAccountId != null ? journal.trades.filter((trade) => trade.account_id === noteAccountId) : journal.scopedTrades;
@@ -95,6 +96,7 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
       {journal.error ? <div className="mb-5"><JournalError message={journal.error} onRetry={() => void journal.refresh()} onDismiss={journal.clearError} /></div> : null}
       {notice ? <p role="status" className="mb-5 border-y border-emerald-300/20 bg-emerald-300/[0.04] px-3 py-2 text-sm text-emerald-100">{notice}</p> : null}
       {journal.migration === "migrating" ? <p className="mb-5 flex items-center gap-2 text-xs text-slate-500"><LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />Checking the safe one-time legacy Journal backfill…</p> : null}
+      {!journal.historyReady || !journal.accounts.length || !dashboardAvailable ? fallbackHeading : null}
       {!journal.historyReady ? null : !journal.accounts.length ? journal.error ? null : <Onboarding busy={sampleBusy} onAccounts={() => navigate("accounts")} onSample={() => void importSample()} /> : <div key={`${view}-${surface}`} data-motion="route-surface" data-journal-route={view}><SurfaceContent surface={surface} journal={journal} initialDimension={initialDimension} selectedDate={selectedDate} noteAccountId={noteAccountId} calendarMode={view === "journalDayView"} selectNote={selectNote} navigate={navigate} openTrade={openTrade} /></div>}
     </div></section></JournalPanelManager>
     {tradeLoadError && !selectedTrade ? <div className="p-5"><p className="text-rose-200" role="alert">This trade could not be opened.</p><JournalButton onClick={() => setTradeRevision((value) => value + 1)}>Retry trade</JournalButton></div> : null}

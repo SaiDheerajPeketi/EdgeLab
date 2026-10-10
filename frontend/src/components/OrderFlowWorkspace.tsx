@@ -57,9 +57,9 @@ export function OrderFlowWorkspace() {
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ui-border-subtle)] px-4 py-3 sm:px-5">
         <div className="min-w-0">
-          <h2 id="order-flow-heading" className="sr-only">
+          <h1 id="order-flow-heading" className="text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
             Order flow
-          </h2>
+          </h1>
           <p className="mt-1 max-w-[70ch] text-sm leading-5 text-[var(--text-secondary)]">
             Footprint data appears only when the selected feed supplies trade-level bid and ask attribution.
           </p>

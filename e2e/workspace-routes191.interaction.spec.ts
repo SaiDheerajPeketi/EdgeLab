@@ -3,21 +3,21 @@ import { certifyUiState, expectCertifiedScreenshot } from "./support/app";
 import { liveViewportSetup } from "./chart-viewport151.support";
 
 const routes = [
-  { path: "/app/accounts", label: "Replay accounts", screenshot: "workspace-route-accounts.png" },
-  { path: "/app/economic-calendar", label: "Economic calendar", screenshot: "workspace-route-economicCalendar.png" },
-  { path: "/app/feedback", label: "Feedback", screenshot: "workspace-route-feedback.png" },
-  { path: "/app/journal/finance", label: "Income & expenses", screenshot: "workspace-route-financeTracker.png" },
-  { path: "/app/journal/playbooks", label: "Playbooks", screenshot: "workspace-route-journalPlaybooks.png" },
-  { path: "/app/journal/sessions", label: "Journal sessions", screenshot: "workspace-route-journalSessions.png" },
-  { path: "/app/journal/strategies", label: "Strategies", screenshot: "workspace-route-journalStrategies.png" },
-  { path: "/app/playbooks", label: "Playbooks", screenshot: "workspace-route-playbooks.png" },
-  { path: "/app/position-size", label: "Position size", screenshot: "workspace-route-positionSizeCalculator.png" },
-  { path: "/app/replay-settings", label: "Replay settings", screenshot: "workspace-route-settings.png" },
-  { path: "/app/results/calendar", label: "Day review", screenshot: "workspace-route-dayView.png" },
-  { path: "/app/results/notes", label: "Replay notes", screenshot: "workspace-route-notebook.png" },
-  { path: "/app/results/overview", label: "Overview", screenshot: "workspace-route-dashboard.png" },
-  { path: "/app/results/trades", label: "Trade log", screenshot: "workspace-route-tradeView.png" },
-  { path: "/app/strategies", label: "Strategies", screenshot: "workspace-route-strategies.png" },
+  { path: "/app/accounts", label: "Backtest Accounts & Imports", screenshot: "workspace-route-accounts.png" },
+  { path: "/app/economic-calendar", label: "Forex Factory Calendar", screenshot: "workspace-route-economicCalendar.png" },
+  { path: "/app/feedback", label: "Tell Us What To Fix", screenshot: "workspace-route-feedback.png" },
+  { path: "/app/journal/finance", label: "Income & Expense Tracker", screenshot: "workspace-route-financeTracker.png" },
+  { path: "/app/journal/playbooks", label: "Analytics", screenshot: "workspace-route-journalPlaybooks.png" },
+  { path: "/app/journal/sessions", label: "Analytics", screenshot: "workspace-route-journalSessions.png" },
+  { path: "/app/journal/strategies", label: "Analytics", screenshot: "workspace-route-journalStrategies.png" },
+  { path: "/app/playbooks", label: "Backtest Rule Library", screenshot: "workspace-route-playbooks.png" },
+  { path: "/app/position-size", label: "Position Size Calculator", screenshot: "workspace-route-positionSizeCalculator.png" },
+  { path: "/app/replay-settings", label: "Settings", screenshot: "workspace-route-settings.png" },
+  { path: "/app/results/calendar", label: "Backtest Daily Review", screenshot: "workspace-route-dayView.png" },
+  { path: "/app/results/notes", label: "Backtest Trade Notes", screenshot: "workspace-route-notebook.png" },
+  { path: "/app/results/overview", label: "Backtest Command Center", screenshot: "workspace-route-dashboard.png" },
+  { path: "/app/results/trades", label: "Backtest Trade Log", screenshot: "workspace-route-tradeView.png" },
+  { path: "/app/strategies", label: "Backtest Strategy Performance", screenshot: "workspace-route-strategies.png" },
 ] as const;
 
 function collectErrors(page: Page) {
@@ -45,15 +45,21 @@ async function setup(page: Page) {
 
 async function settledHeader(page: Page, label: string) {
   const main = page.locator("main#workspace-content");
-  const context = main.locator('header[aria-label="Workspace context"]');
-  await expect(context.getByRole("heading", { level: 1, name: label, exact: true })).toBeVisible();
-  await expect(context.getByRole("button")).toHaveCount(0);
-  await expect(context).not.toContainText(/Live connection|Saved workspace|Return to replay sessions/);
+  const heading = main.getByRole("heading", { level: 1 });
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toHaveText(label);
+  await expect(heading).toBeVisible();
+  await expect(main.locator('header[aria-label="Workspace context"]')).toHaveCount(0);
+  await expect(main).not.toContainText(/Live connection|Saved workspace|Return to replay sessions/);
+  await expect(main.locator(".command-header").getByText("EL", { exact: true })).toHaveCount(0);
+  if (new URL(page.url()).pathname === "/app/replay-settings") {
+    await expect(main.getByRole("button", { name: "Back to Backtest", exact: true })).toHaveCount(0);
+  }
   await expect(main.getByRole("status", { name: "Loading Journal", exact: true })).toHaveCount(0);
   await expect(main.getByText(/^Loading(?:\s|…|\.{3}|$)/i)).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-  expect(await context.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  expect(await heading.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
 }
 
 test("canonical workspace routes render settled production pages at the default viewport", async ({ page }, info) => {
@@ -109,23 +115,23 @@ test("canonical navigation survives browser back, forward and reload", async ({ 
   const errors = collectErrors(page), transport = await setup(page);
   await transport.waitForAccountWrites();
   await page.goto("/app/position-size");
-  await settledHeader(page, "Position size");
+  await settledHeader(page, "Position Size Calculator");
   await transport.waitForAccountWrites();
   await openEconomicCalendar(page);
   await expect.poll(() => new URL(page.url()).pathname).toBe("/app/economic-calendar");
-  await settledHeader(page, "Economic calendar");
+  await settledHeader(page, "Forex Factory Calendar");
   await transport.waitForAccountWrites();
   await page.goBack();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/app/position-size");
-  await settledHeader(page, "Position size");
+  await settledHeader(page, "Position Size Calculator");
   await transport.waitForAccountWrites();
   await page.goForward();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/app/economic-calendar");
-  await settledHeader(page, "Economic calendar");
+  await settledHeader(page, "Forex Factory Calendar");
   await transport.waitForAccountWrites();
   await page.reload();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/app/economic-calendar");
-  await settledHeader(page, "Economic calendar");
+  await settledHeader(page, "Forex Factory Calendar");
   await transport.waitForAccountWrites();
   expect(errors).toEqual([]);
 });
@@ -135,7 +141,7 @@ test("feedback native choices expose genuine 44px label targets", async ({ page 
   test.skip(info.project.name === "desktop", "The native label hit target is checked on coarse pointers.");
   const transport = await setup(page);
   await page.goto("/app/feedback");
-  await settledHeader(page, "Feedback");
+  await settledHeader(page, "Tell Us What To Fix");
   await transport.waitForAccountWrites();
   const evidence = [];
   for (const name of [/^Include current session context/, /^Attach HAR network logs/]) {

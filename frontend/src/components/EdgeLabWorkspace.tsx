@@ -957,7 +957,7 @@ export function EdgeLabWorkspace({
     case "reports":
       return <ReportsPage {...shared} />;
     case "settings":
-      return settingsCenter("backtest", onNavigateBacktest, "Back to Backtest");
+      return settingsCenter("backtest");
     case "strategies":
       return <StrategiesPage {...shared} />;
     case "tradeView":
@@ -18525,7 +18525,6 @@ function PageScaffold({
   actions,
   children,
   description,
-  eyebrow,
   title,
 }: {
   actions?: ReactNode;
@@ -18539,11 +18538,7 @@ function PageScaffold({
       <section className="command-header">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">
-              <NetworkMark />
-              {eyebrow}
-            </div>
-            <h1 className="mt-2 text-2xl font-semibold text-white">{title}</h1>
+            <h1 className="text-2xl font-semibold text-white">{title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">{description}</p>
           </div>
           {actions}

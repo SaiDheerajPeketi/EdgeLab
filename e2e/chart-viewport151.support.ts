@@ -97,7 +97,7 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     if (endpoint === "/live/binance/instruments") return route.fulfill({ json: { provider: "binance", instruments: ["BTCUSDT", "ETHUSDT"].map(symbol => ({ symbol, name: symbol, status: "TRADING", asset_class: "crypto", base_asset: symbol.slice(0, -4), quote_asset: "USDT", tick_size: .01, min_quantity: .00001, quantity_step: .00001 })), total: 2 } });
     if (target === "/app/replay") {
       const replayBars = history.map(bar => ({ ...bar, timestamp: new Date(bar.time * 1000).toISOString(), ema_20: null, ema_50: null, rsi_14: null }));
-      if (endpoint === "/backtests/latest") {
+      if (endpoint === "/backtests/latest" || (endpoint === "/backtests/4101" && request.method() === "GET")) {
         const state = replayState();
         return route.fulfill({ json: { ...state, session: { ...state.session, timeframe: "1m", current_offset: 599,
           start_offset: 0, end_offset: 599, start_at: replayBars[0].timestamp, end_at: replayBars.at(-1)!.timestamp }, current_candle: replayBars.at(-1) } });
