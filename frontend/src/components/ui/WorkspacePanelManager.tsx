@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Columns3, PanelLeftClose, PanelRightClose, PanelsTopLeft, type LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "./Primitives";
+import { assertAppDataAccess, captureAppDataAccess, type AppDataAccess } from "../../lib/appDataBarrier";
 
 export type WorkspacePanelPreferences<PanelId extends string> = { activePanel: PanelId; collapsed: boolean; dock: "left" | "right"; mode: "compact" | "expanded"; width: number };
 export type WorkspacePanelDefinition<PanelId extends string> = { id: PanelId; icon: LucideIcon; label: string; content: ReactNode };
@@ -10,6 +11,9 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
   const [hoverPreview, setHoverPreview] = useState(false);
   const [previewHeight, setPreviewHeight] = useState(0);
   const [previewWidth, setPreviewWidth] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveRef = useRef({ mounted: true, sequence: 0, onChange });
+  if (saveRef.current.onChange !== onChange) { saveRef.current.sequence += 1; saveRef.current.onChange = onChange; }
   const toolsRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -21,6 +25,14 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
   const panels = useMemo(() => definitions.filter((item) => item.content != null), [definitions]);
   const active = panels.find((item) => item.id === preferences.activePanel) ?? panels[0];
   useEffect(() => setPreferences(value), [value]);
+  useEffect(() => {
+    const state = saveRef.current; state.mounted = true;
+    const invalidate = () => { state.sequence += 1; setSaveError(null); };
+    const storage = (event: StorageEvent) => { if (event.key === null) invalidate(); };
+    window.addEventListener("edgelab:auth-session-change", invalidate);
+    window.addEventListener("storage", storage);
+    return () => { state.mounted = false; state.sequence += 1; window.removeEventListener("edgelab:auth-session-change", invalidate); window.removeEventListener("storage", storage); };
+  }, []);
   useLayoutEffect(() => {
     if (!hoverPreview || !preferences.collapsed) return;
     const measure = () => {
@@ -45,15 +57,39 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
   useEffect(() => { let cancelled = false; void load?.().then((next) => { if (!cancelled && !interactedRef.current) setPreferences(next); }).catch(() => undefined); return () => { cancelled = true; }; }, [load]);
   useEffect(() => {
     const move = (event: PointerEvent) => { const start = dragStartRef.current; if (!start) return; const direction = liveRef.current.dock === "right" ? start.clientX - event.clientX : event.clientX - start.clientX; update({ width: clampWidth(start.width + direction) }, false); };
-    const end = () => { if (!dragStartRef.current) return; dragStartRef.current = null; void onChange(liveRef.current); };
+    const end = () => { if (!dragStartRef.current) return; dragStartRef.current = null; void savePreferences(liveRef.current); };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
   }, [onChange]);
+  async function savePreferences(next: WorkspacePanelPreferences<PanelId>) {
+    const state = saveRef.current, sequence = ++state.sequence;
+    let access: AppDataAccess | null = null, captured = false, admitted = false;
+    const owns = (admissionFailure = false) => {
+      if (!state.mounted || state.sequence !== sequence || state.onChange !== onChange || !captured) return false;
+      try {
+        const current = captureAppDataAccess();
+        if (current?.owner !== access?.owner || current?.token !== access?.token || current?.epoch !== access?.epoch) return false;
+        if (!admissionFailure) assertAppDataAccess(access);
+        return true;
+      } catch { return false; }
+    };
+    try {
+      access = captureAppDataAccess(); captured = true;
+      assertAppDataAccess(access, true); admitted = true;
+      await onChange(next);
+      if (owns()) setSaveError(null);
+    } catch (error) {
+      if (owns(!admitted)) setSaveError(error && typeof error === "object" && "requiresReload" in error
+        ? "Panel saves are paused. Open Workspace settings, check the previous save in Storage, then reload."
+        : "Could not save panel preferences. Your current layout is kept. Try changing the setting again.");
+    }
+  }
   function update(patch: Partial<WorkspacePanelPreferences<PanelId>>, persist = true) {
     interactedRef.current = true;
     const restoreFocus = patch.collapsed !== undefined && toolsRef.current?.contains(document.activeElement);
     if (patch.collapsed !== undefined) setHoverPreview(false);
-    setPreferences((current) => { const next = { ...current, ...patch }; liveRef.current = next; if (persist) void onChange(next); return next; });
+    const next = { ...liveRef.current, ...patch }; liveRef.current = next; setPreferences(next);
+    if (persist) void savePreferences(next);
     if (restoreFocus) window.requestAnimationFrame(() => {
       if (liveRef.current.collapsed !== patch.collapsed) return;
       if (patch.collapsed) triggerRef.current?.focus();
@@ -81,6 +117,7 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
   </aside>;
   return <div className="relative flex min-w-0 flex-col lg:flex-row" data-workspace-panel-layout="true" data-overlay-tools={overlayCollapsed && preferences.collapsed ? preferences.dock : undefined}><div className="min-w-0 flex-1" data-workspace-panel-content="true">{children}</div>{active ? <div ref={toolsRef} className={`relative shrink-0 ${preferences.collapsed ? "sticky top-3 self-start" : ""} ${overlayCollapsed && preferences.collapsed ? `lg:absolute lg:top-0 lg:z-[var(--layer-docked-tool)] ${preferences.dock === "left" ? "lg:left-0" : "lg:right-0"}` : ""} ${preferences.dock === "left" ? "lg:order-first" : ""}`} onPointerEnter={enterPreview} onPointerLeave={leavePreview} onBlurCapture={(event) => { if (!pointerInsideRef.current && !event.currentTarget.contains(event.relatedTarget)) setHoverPreview(false); }} onKeyDown={(event) => { if (event.key === "Escape" && preview) { event.preventDefault(); setHoverPreview(false); triggerRef.current?.focus(); } }}>
     {preferences.collapsed ? <button ref={triggerRef} type="button" title={`Open ${active.label}`} data-motion="workspace-panel-trigger" aria-expanded={preview} onPointerEnter={(event) => { if (event.pointerType === "mouse") setHoverPreview(true); }} onClick={() => update({ collapsed: false })} className="ui-workspace-panel-trigger relative z-10 m-2 inline-flex min-h-[var(--control-height)] items-center gap-2 self-start rounded-[var(--radius-sm)] bg-[var(--ui-raised)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--elevation-raised)] ring-1 ring-[var(--ui-border-subtle)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"><PanelsTopLeft aria-hidden="true" className="h-4 w-4 text-[var(--interaction)]" />Tools</button> : null}
+    {saveError ? <p role="alert" className="m-2 max-w-[min(22rem,calc(100vw_-_2rem))] rounded-[var(--radius-sm)] border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] p-3 text-xs text-[var(--text-secondary)]">{saveError}</p> : null}
     {panel}
   </div> : null}</div>;
 }
