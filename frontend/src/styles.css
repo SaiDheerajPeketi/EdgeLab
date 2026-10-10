@@ -2913,6 +2913,43 @@ button:disabled {
     overflow-y: auto;
   }
 
+  /* Live chart context already sits in the app shell; retain its heading and actual feed status. */
+  [data-ui-surface="chart-live"] > [data-workspace-panel-layout] > [data-workspace-panel-content] > .mx-auto > .command-header {
+    min-height: 60px;
+    padding-block: 8px;
+  }
+  [data-ui-surface="chart-live"] > [data-workspace-panel-layout] > [data-workspace-panel-content] > .mx-auto > .command-header > div {
+    align-items: center;
+    gap: 12px;
+  }
+  [data-ui-surface="chart-live"] > [data-workspace-panel-layout] > [data-workspace-panel-content] > .mx-auto > .command-header > div > :first-child > :is(div:first-child, p) {
+    display: none;
+  }
+  [data-ui-surface="chart-live"] > [data-workspace-panel-layout] > [data-workspace-panel-content] > .mx-auto > .command-header h1 {
+    margin-top: 0;
+    font-size: 1.25rem;
+    line-height: 1.5;
+  }
+
+  @media (min-width: 1024px) {
+    /* Keep the collapsed chart tools in an existing header slot, clear of its feed status and actions. */
+    [data-ui-surface="chart-live"] > [data-workspace-panel-layout][data-overlay-tools="right"] > [data-workspace-panel-content] > .mx-auto > .command-header,
+    [data-ui-surface="chart-live"] > [data-workspace-panel-layout][data-overlay-tools="right"] > [data-workspace-panel-content] .backtest-focus-header {
+      padding-right: 7.5rem;
+    }
+    [data-ui-surface="chart-live"] > [data-workspace-panel-layout][data-overlay-tools="left"] > [data-workspace-panel-content] > .mx-auto > .command-header,
+    [data-ui-surface="chart-live"] > [data-workspace-panel-layout][data-overlay-tools="left"] > [data-workspace-panel-content] .backtest-focus-header {
+      padding-left: 7.5rem;
+    }
+
+    .chart-pane-layout-single .chart-frame,
+    .chart-fullscreen-shell .chart-pane-layout-single .chart-frame,
+    .chart-pane-layout-single .drawing-rail,
+    .chart-fullscreen-shell .chart-pane-layout-single .drawing-rail {
+      min-height: 568px;
+    }
+  }
+
   .chart-pane-layout-single .drawing-rail-button {
     flex-shrink: 0;
   }

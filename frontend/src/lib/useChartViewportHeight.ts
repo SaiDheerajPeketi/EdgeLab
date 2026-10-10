@@ -53,10 +53,15 @@ function updateHeight(frame: HTMLDivElement | null) {
   const bottom = fixedNavigation ? Math.min(viewportHeight, navRect.top) : viewportHeight;
   // Adding the scroll offset keeps the height stable while visiting studies.
   const top = frame.getBoundingClientRect().top + (fullscreen ? fullscreen.scrollTop : window.scrollY);
-  const minimumHeight = window.innerWidth <= 480 ? 260 : 320;
-  const height = `${Math.round(Math.min(860, Math.max(minimumHeight, bottom - top - 8)))}px`;
+  const height = `${chartViewportPriceHeight(window.innerWidth, bottom - top - 8)}px`;
   if (frame.style.getPropertyValue("--chart-price-height") !== height) {
     frame.style.setProperty("--chart-price-height", height);
     frame.closest<HTMLElement>(".chart-stage")?.style.setProperty("--chart-price-height", height);
   }
+}
+
+/** Desktop keeps the established readable plot; narrow screens retain their compact floor. */
+export function chartViewportPriceHeight(viewportWidth: number, availableHeight: number) {
+  const minimumHeight = viewportWidth >= 1024 ? 568 : viewportWidth <= 480 ? 260 : 320;
+  return Math.round(Math.min(860, Math.max(minimumHeight, availableHeight)));
 }
