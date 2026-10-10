@@ -2,6 +2,8 @@
 
 This guide describes the implemented system, its ownership boundaries, and why they matter when changing or deploying it. It does not promise every TradingView feature, external provider activation, Kubernetes support, or independently certified high availability. Start with the [documentation index](README.md); use [configuration](configuration.md) and [maintenance](maintenance.md) for operating procedures.
 
+The [personal local variant](personal-self-hosting.md) runs a separate loopback-only SQLite API, frontend proxy and real crypto history job. Its fixed local identity has session-bound workspace/export access; production/beta identity and paid export policies remain separate. Private keys and downloaded datasets are excluded from matching source.
+
 ## 1. System shape
 
 EdgeLab is a modular application with a React browser and one primary Python domain package. Production runs that package in two API services and background processes. The APIs are workload-isolated instances of the same FastAPI application, not separate independently versioned business microservices. Better Auth is a separate Node service because it owns the OAuth/session protocol. The older Node API is compatibility-only.

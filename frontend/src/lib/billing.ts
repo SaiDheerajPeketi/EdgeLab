@@ -1,6 +1,7 @@
-import { apiRequest } from "./api";
+import { apiRequest, getAuthSession } from "./api";
 import { isWorkspaceAuthDestination } from "./authJourney";
-import { getStoredAuthSession, type AuthSession } from "./authSession";
+import { isPersonalMode } from "./deploymentMode";
+import { getStoredAuthSession, isPersonalWorkspaceSession, setStoredAuthSession, toStoredAuthSession, type AuthSession } from "./authSession";
 
 export type BillingStatus = {
   provider: "stripe";
@@ -170,8 +171,45 @@ export function hasActiveSubscription(status: BillingStatus | null, now = Date.n
   return verified <= now && verified > now - 300_000 && Date.parse(status.current_period_end ?? "") > now;
 }
 
+function storedIdentity(raw: string | null) {
+  try { const session = JSON.parse(raw ?? "null"); return session ? `${session.user?.id}:${session.token}` : ""; }
+  catch { return "invalid"; }
+}
+
+/** Personal export access is reconciled with the server under the original identity. */
+export async function refreshPersonalWorkspaceSession(owner: AuthSession | null = getStoredAuthSession()) {
+  if (!isPersonalMode() || !owner || owner.user.deploymentMode !== "personal") throw new Error("Open your local workspace before exporting data.");
+  const controller = new AbortController();
+  const retire = () => controller.abort();
+  const storage = (event: StorageEvent) => {
+    if (event.key === null || (event.key === "edgelab.auth.session.v1" && storedIdentity(event.oldValue) !== storedIdentity(event.newValue))) retire();
+  };
+  window.addEventListener("edgelab:auth-session-change", retire);
+  window.addEventListener("storage", storage);
+  const assertOwner = () => {
+    const current = getStoredAuthSession();
+    if (controller.signal.aborted || current?.token !== owner.token || current.user.id !== owner.user.id) {
+      throw new DOMException("The account changed before local access could be checked.", "AbortError");
+    }
+  };
+  try {
+    assertOwner();
+    const response = await getAuthSession(owner.token, controller.signal);
+    assertOwner();
+    if (response.user.id !== owner.user.id || response.token !== owner.token) throw new Error("Your local workspace access could not be verified. Open the workspace again.");
+    const next = toStoredAuthSession(response);
+    setStoredAuthSession(next);
+    if (!isPersonalWorkspaceSession(next)) throw new Error("Your local workspace session expired or access is unavailable. Open the workspace again.");
+    return next;
+  } finally {
+    window.removeEventListener("edgelab:auth-session-change", retire);
+    window.removeEventListener("storage", storage);
+  }
+}
+
 export async function requireActiveExportSubscription(owner: AuthSession | null = getStoredAuthSession()) {
-  if (!owner) throw new Error("Sign in with an active paid subscription to export your data.");
+  if (!owner) throw new Error(isPersonalMode() ? "Open your local workspace session to export data." : "Sign in with an active paid subscription to export your data.");
+  if (isPersonalMode()) return refreshPersonalWorkspaceSession(owner);
   const status = await getBillingStatus(owner);
   const current = getStoredAuthSession();
   if (current?.token !== owner.token || current.user.id !== owner.user.id) throw new DOMException("The account changed before export.", "AbortError");

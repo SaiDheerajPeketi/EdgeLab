@@ -682,7 +682,7 @@ export type WorkspaceShareOpen = {
 };
 
 export type BetaProgramStatus = {
-  mode: "beta" | "production";
+  mode: "beta" | "production" | "personal";
   seats_total: number;
   seats_taken: number;
   seats_remaining: number;
@@ -691,7 +691,7 @@ export type BetaProgramStatus = {
 
 export type BetaAuthConfig = {
   auth_provider?: "legacy" | "better-auth";
-  deployment_mode: "beta" | "production";
+  deployment_mode: "beta" | "production" | "personal";
   google_enabled: boolean;
   google_client_id: string | null;
   google_redirect_uri: string | null;
@@ -718,11 +718,11 @@ export type BetaAuthUser = {
   provider: "email" | "google";
   approved: boolean;
   beta_position: number | null;
-  deployment_mode: "beta" | "production";
+  deployment_mode: "beta" | "production" | "personal";
   workspace_access: boolean;
   access_expires_at: string | null;
   is_beta_user: boolean;
-  plan: "beta" | "pro" | "none";
+  plan: "beta" | "pro" | "none" | "personal";
 };
 
 export type BetaAuthSession = {

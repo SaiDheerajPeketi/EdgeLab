@@ -35,6 +35,7 @@ from app.observability import (
     telemetry_config,
 )
 from app.services.integration_secrets import validate_vault_startup
+from app.personal_access import PersonalAccessMiddleware, validate_personal_settings
 
 
 configure_logging(
@@ -50,6 +51,7 @@ if market_data_engine is not engine:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_personal_settings(settings)
     validate_vault_startup(settings.environment)
     # The container startup script migrates before forking; create_all alone
     # cannot upgrade changed columns in an existing production database.
@@ -266,6 +268,7 @@ app.add_middleware(
 app.add_middleware(HTTPMetricsMiddleware, registry=http_metrics)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(PrivateAPICacheMiddleware)
+app.add_middleware(PersonalAccessMiddleware, source_settings=settings)
 
 tracing_status = configure_tracing(
     app=app,

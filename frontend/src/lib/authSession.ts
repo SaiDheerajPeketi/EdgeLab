@@ -1,4 +1,5 @@
 import type { BetaAuthSession } from "./api";
+import { deploymentMode, isPersonalMode, type DeploymentMode } from "./deploymentMode";
 
 export type AuthSession = {
   createdAt: string;
@@ -9,12 +10,12 @@ export type AuthSession = {
     betaPosition: number | null;
     email: string;
     id: number;
-    deploymentMode: "beta" | "production";
+    deploymentMode: "beta" | "production" | "personal";
     workspaceAccess: boolean;
     accessExpiresAt: string | null;
     isBetaUser: boolean;
     name: string;
-    plan: "beta" | "pro" | "none";
+    plan: "beta" | "pro" | "none" | "personal";
     provider: "email" | "google";
   };
 };
@@ -174,9 +175,17 @@ export function hasWorkspaceAccess(session: AuthSession | null, now = Date.now()
   if (!session || session.user.workspaceAccess !== true ||
       !(Date.parse(session.expiresAt) > now) ||
       !(Date.parse(session.user.accessExpiresAt ?? "") > now)) return false;
+  if (session.user.deploymentMode === "personal") return isPersonalWorkspaceSession(session, now);
   return session.user.deploymentMode === "beta"
     ? session.user.approved === true && session.user.isBetaUser === true && session.user.plan === "beta"
     : session.user.deploymentMode === "production" && session.user.isBetaUser === false && session.user.plan === "pro";
+}
+
+export function isPersonalWorkspaceSession(session: AuthSession | null, now = Date.now(), mode: DeploymentMode = deploymentMode) {
+  return isPersonalMode(mode) && session?.user.deploymentMode === "personal" &&
+    session.user.plan === "personal" && session.user.provider === "email" && session.user.isBetaUser === false &&
+    session.user.workspaceAccess === true && Date.parse(session.expiresAt) > now &&
+    Date.parse(session.user.accessExpiresAt ?? "") > now;
 }
 
 export function subscribeAuthSession(listener: () => void) {

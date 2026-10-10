@@ -39,7 +39,8 @@ def main() -> None:
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
         backfill_write_batch_candles=settings.data_populator_backfill_write_batch_candles,
         binance_archive_workers=settings.data_populator_binance_archive_workers,
-        catalog_session_factory=SessionLocal,
+        # Personal CSV discovery belongs to the API; this job has no account store.
+        catalog_session_factory=None if settings.deployment_mode == "personal" else SessionLocal,
         market_data_session_factory=MarketDataSessionLocal,
         catalog_import_enabled=settings.market_data_import_enabled,
     )

@@ -34,7 +34,7 @@ Constructed PostgreSQL URLs escape credential characters. When supplying a full 
 | --- | --- |
 | `EDGELAB_AUTH_PROVIDER` | `legacy`; allowed `legacy` or `better-auth`; Compose selects Better Auth |
 | `EDGELAB_ENVIRONMENT` | `development`; Compose production security requires a valid integration vault |
-| `EDGELAB_DEPLOYMENT_MODE` | `production`; explicit `beta` enables capped approved workspace access |
+| `EDGELAB_DEPLOYMENT_MODE` |  `production`; `beta` enables capped approved access; `personal` requires the separate loopback-only configuration |
 | `EDGELAB_PUBLIC_ORIGIN` | Exact browser origin, no trailing path; production HTTPS |
 | `CORS_ORIGINS` | Comma-separated exact browser origins; native defaults are local development ports |
 | `EDGELAB_JWT_SECRET` | Private legacy session signing secret |
@@ -64,6 +64,8 @@ Better Auth storage controls:
 | `EDGELAB_AUTH_STOP_GRACE_PERIOD` | `45s` in Compose | Must exceed the auth service's 30-second drain deadline |
 
 The auth URL accepts only PostgreSQL schemes and supported TLS parameters, without arbitrary connection overrides. Remote connections should use `sslmode=verify-full` and the appropriate trusted root; TLS verification is not disabled. The adapter schema-qualifies tables instead of using session `search_path`. Migrations require schema/table creation permission and serialize on a direct transaction connection. Acquisition/connect waits are bounded to two seconds; the health probe has a one-second query timeout. All replicas need the same store/schema, secrets, Google configuration and public origin. Changing from SQLite neither copies its users nor preserves sessions automatically.
+
+Personal deployment also requires `EDGELAB_ENVIRONMENT=development`, loopback `EDGELAB_PUBLIC_ORIGIN` and CORS origins, and a private `EDGELAB_PERSONAL_PROXY_SECRET` of at least 32 characters. The personal helper creates and preserves signing/encryption/proxy keys outside tracked source; its Nginx overwrites the private proxy header. See [personal configuration and feeds](personal-self-hosting.md). Public production/beta authorization remains unchanged.
 
 ## Billing and secret vault
 

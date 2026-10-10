@@ -6,6 +6,7 @@ Run commands from the repository root. Use [configuration](configuration.md) and
 
 | Choice | Intended use | Persistent stores |
 | --- | --- | --- |
+| `docker-compose.personal.yml` | Personal local workspace without Google/Stripe | Independent SQLite volume, private keys and downloaded CSVs |
 | `docker-compose.local.yml` | Single-user installation on a loopback address | SQLite application/candle databases and a separate SQLite auth volume |
 | `docker-compose.yml` | Default production service split | PostgreSQL application data, TimescaleDB candles, SQLite auth by default, dataset files |
 | Base Compose plus `docker-compose.efficient.yml` | New production installation using one indexed PostgreSQL store | Application data and candles on the same PostgreSQL server; auth remains separate |
@@ -14,6 +15,8 @@ Run commands from the repository root. Use [configuration](configuration.md) and
 | `benchmark` profile / load scripts | Isolated workload measurements | Disposable benchmark fixtures; never customer data |
 
 The efficient overlay requires Docker Compose **2.24.4 or newer** for `!override`. It preserves the API service split and background workers while omitting the second database/pooler. It does not move existing candle data: migrating a split installation requires a reviewed copy/import, verification and rollback plan before changing database URLs. An explicit database URL takes precedence over host defaults; review those settings when selecting the overlay.
+
+For personal use with local exports and real history downloads, follow [personal self-hosting](personal-self-hosting.md). The following local installation retains the beta access policy.
 
 ## Single-user Docker installation
 
@@ -65,7 +68,7 @@ docker compose config --quiet
 docker compose up --build -d --wait
 ```
 
-Replace database, JWT, Better Auth signing and internal service-key defaults. Production startup also requires the vault keyring and active key ID. Configure the HTTPS public origin, allowed CORS origins and Google OAuth credentials/callbacks. For production workspace access, configure live Stripe billing and verified active subscriptions. Keep `EDGELAB_DEPLOYMENT_MODE` and build-time `VITE_DEPLOYMENT_MODE` aligned; both default to `production`. Data exports require an active live paid subscription in either mode. Keep the developer bypass disabled.
+Replace database, JWT, Better Auth signing and internal service-key defaults. Production startup also requires the vault keyring and active key ID. Configure the HTTPS public origin, allowed CORS origins and Google OAuth credentials/callbacks. For production workspace access, configure live Stripe billing and verified active subscriptions. Keep `EDGELAB_DEPLOYMENT_MODE` and build-time `VITE_DEPLOYMENT_MODE` aligned; both default to `production`. Data exports require an active live paid subscription in production and beta. The separate personal installation has its own loopback-only local export policy. Keep the developer bypass disabled.
 
 For a **new efficient installation**, use the same file selection for every lifecycle command:
 

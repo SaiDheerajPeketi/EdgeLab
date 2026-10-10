@@ -44,6 +44,7 @@ from app.auth import (
 )
 from app.services import access_policy
 from app.config import settings
+from app.personal_access import PERSONAL_EMAIL, personal_request_allowed, validate_personal_settings
 from app.db import SessionLocal, get_db
 from app.market_data_db import MarketDataSessionLocal
 from app.models import (
@@ -535,7 +536,7 @@ def purge_expired_beta_sessions(db: Session) -> None:
 
 def sync_beta_program(db: Session) -> BetaProgramStatus:
     mode = access_policy.deployment_mode(settings)
-    if mode == "production":
+    if mode != "beta":
         return BetaProgramStatus(mode=mode, deployment_mode=mode, seats_total=0, seats_taken=0, seats_remaining=0, waitlist_count=0)
     purge_expired_beta_sessions(db)
     return BetaProgramStatus(**access_policy.sync_beta(db, settings))
@@ -543,7 +544,7 @@ def sync_beta_program(db: Session) -> BetaProgramStatus:
 
 def serialize_beta_user(db: Session, user: BetaUser, expires_at: datetime) -> BetaAuthUser:
     access = access_policy.access_snapshot(db, user.id, settings)
-    if access["workspace_access"] and access["deployment_mode"] == "beta":
+    if access["workspace_access"] and access["deployment_mode"] in {"beta", "personal"}:
         access["access_expires_at"] = expires_at
     elif access["access_expires_at"] is not None:
         access["access_expires_at"] = min(normalize_db_datetime(expires_at), access["access_expires_at"])
@@ -577,6 +578,8 @@ def grant_beta_access_response(
     provider: str,
 ) -> BetaAccessResponse:
     mode = access_policy.deployment_mode(settings)
+    if mode == "personal" and (email != PERSONAL_EMAIL or provider != "email"):
+        raise HTTPException(status_code=403, detail="Personal deployment uses the local account")
     access_policy.lock_enrollment(db)
     user = db.scalar(select(BetaUser).where(BetaUser.email == email))
     if user is None:
@@ -779,7 +782,7 @@ def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
 
 
 def google_oauth_enabled() -> bool:
-    return bool(settings.google_client_id and settings.google_client_secret)
+    return access_policy.deployment_mode(settings) != "personal" and bool(settings.google_client_id and settings.google_client_secret)
 
 
 def beta_manual_access_enabled() -> bool:
@@ -802,6 +805,12 @@ def is_local_dev_origin(origin: str) -> bool:
 
 
 def dev_auth_bypass_enabled() -> bool:
+    if access_policy.deployment_mode(settings) == "personal":
+        try:
+            validate_personal_settings(settings)
+        except ValueError:
+            return False
+        return True
     if access_policy.deployment_mode(settings) != "beta" or not bool(getattr(settings, "dev_auth_bypass_enabled", False)):
         return False
     if settings.public_origin and not is_local_dev_origin(settings.public_origin):
@@ -812,6 +821,8 @@ def dev_auth_bypass_enabled() -> bool:
 
 
 def local_dev_request_allowed(request: Request) -> bool:
+    if access_policy.deployment_mode(settings) == "personal":
+        return personal_request_allowed(request.scope, settings)
     host = request.url.hostname
     client_host = request.client.host if request.client else None
     return is_local_dev_host(host) and is_local_dev_host(client_host)
@@ -1269,6 +1280,8 @@ def beta_program_status(db: Session = Depends(get_db)) -> BetaProgramStatus:
 
 @router.get("/auth/config", response_model=BetaAuthConfig)
 def beta_auth_config() -> BetaAuthConfig:
+    if access_policy.deployment_mode(settings) == "personal":
+        return BetaAuthConfig(deployment_mode="personal", dev_auth_bypass_enabled=dev_auth_bypass_enabled())
     return BetaAuthConfig(
         deployment_mode=access_policy.deployment_mode(settings),
         auth_provider="better-auth" if better_auth.enabled() else "legacy",
@@ -1343,7 +1356,7 @@ def dev_auth_bypass(
     try:
         response = grant_beta_access_response(
             db,
-            email="developer@localhost.edgelab",
+            email=PERSONAL_EMAIL,
             name="Local Developer",
             provider="email",
         )
@@ -1392,6 +1405,8 @@ def require_google_exchange_admission():
 
 
 def bind_verified_google_user(db: Session, userinfo: dict[str, object]) -> BetaUser:
+    if access_policy.deployment_mode(settings) == "personal":
+        raise HTTPException(status_code=403, detail="Google sign-in is unavailable in personal deployment")
     email = normalize_beta_email(clean_text(userinfo.get("email")))
     name = (clean_text(userinfo.get("name")) or email.split("@", 1)[0])[:160]
     if userinfo.get("email_verified") is not True or not valid_google_subject(userinfo.get("sub")):
@@ -1425,6 +1440,8 @@ def bind_verified_google_user(db: Session, userinfo: dict[str, object]) -> BetaU
 @router.post("/auth/better-auth/exchange", response_model=BetaAccessResponse,
              dependencies=[Depends(require_google_exchange_admission)])
 def exchange_better_auth_session(request: Request, db: Session = Depends(get_db)) -> BetaAccessResponse:
+    if access_policy.deployment_mode(settings) == "personal":
+        raise HTTPException(403, "Google sign-in is unavailable in personal deployment")
     if not better_auth.enabled():
         raise HTTPException(404, "Better Auth is unavailable")
     # A cookie-to-bearer bridge is a state-changing sign-in operation. Require
@@ -1456,6 +1473,8 @@ def exchange_google_auth_code(
     payload: GoogleAuthExchangeRequest,
     db: Session = Depends(get_db),
 ) -> BetaAccessResponse:
+    if access_policy.deployment_mode(settings) == "personal":
+        raise HTTPException(403, "Google sign-in is unavailable in personal deployment")
     try:
         if better_auth.enabled():
             raise HTTPException(409, "Use Better Auth Google sign-in")
@@ -2839,6 +2858,8 @@ def dukascopy_instruments(
     limit: int = Query(default=120, ge=1, le=5000),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DukascopyInstrumentsResponse:
+    if access_policy.deployment_mode(settings) == "personal":
+        raise HTTPException(403, "Dukascopy automated access requires provider-specific permission. Import licensed CSV data instead.")
     enforce_rate_limit("live-instruments", current_user.id, settings.market_data_meta_rate_limit)
     data = fetch_dukascopy_json("common/instruments", {})
     if not isinstance(data, dict) or not isinstance(data.get("instruments"), dict):
@@ -2968,6 +2989,8 @@ def dukascopy_candles(
     before: int | None = Query(default=None, ge=0),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DukascopyCandlesResponse:
+    if access_policy.deployment_mode(settings) == "personal":
+        raise HTTPException(403, "Dukascopy automated access requires provider-specific permission. Import licensed CSV data instead.")
     enforce_rate_limit("live-candles", current_user.id, settings.market_data_bars_rate_limit)
     normalized_interval = interval.upper()
     if normalized_interval not in DUKASCOPY_INTERVALS:

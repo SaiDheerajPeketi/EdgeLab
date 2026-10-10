@@ -135,7 +135,7 @@ export function AccountSystemMenu({
       <div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-cyan-300/[0.07] px-3 py-2.5 text-xs">
         <span className="inline-flex min-w-0 items-center gap-2 font-semibold text-cyan-50">
           <BadgeCheck aria-hidden="true" className="shrink-0" size={16} />
-          {session.user.deploymentMode === "beta" ? "Beta access" : session.user.plan === "pro" && session.user.workspaceAccess ? "Pro access" : "Account"}
+          {session.user.deploymentMode === "personal" ? "Personal workspace" : session.user.deploymentMode === "beta" ? "Beta access" : session.user.plan === "pro" && session.user.workspaceAccess ? "Pro access" : "Account"}
         </span>
         <span className="truncate text-[var(--text-primary)]">
           {session.user.provider === "google" ? "Google account" : "Email account"}

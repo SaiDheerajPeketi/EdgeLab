@@ -39,3 +39,6 @@ frontend/public/source/
 # Private benchmark results and local generated instance snapshots.
 benchmark/results/
 deployment/instance-snapshots/
+
+# Personal signing/encryption keys and downloaded feeds are private local state.
+.artifacts/personal/

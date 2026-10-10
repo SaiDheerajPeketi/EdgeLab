@@ -9,6 +9,7 @@ Start with [setup and deployment](../docs/setup-and-deployment.md). See [archite
 | Runtime | Account database | Candle database | Authentication |
 | --- | --- | --- | --- |
 | Native Python, no database override | PostgreSQL at `127.0.0.1:5432`, constructed from `POSTGRES_*` | Same database unless overridden | Legacy EdgeLab sessions by default |
+| `docker-compose.personal.yml` | Personal SQLite volume | Separate SQLite file; CSV discovery | Fixed loopback-only local identity; no Google/Stripe |
 | `docker-compose.local.yml` | Explicit SQLite file in `local-api-data` | Separate SQLite file in that volume | Better Auth SQLite plus loopback developer sign-in, beta mode |
 | `docker-compose.yml` | PostgreSQL through `pgbouncer-postgres` | TimescaleDB through `pgbouncer-timescaledb` | Better Auth; SQLite by default, optional PostgreSQL |
 | Base Compose plus `docker-compose.efficient.yml` | PostgreSQL through one pooler | Same PostgreSQL store | Same auth choices as base Compose |
@@ -16,6 +17,8 @@ Start with [setup and deployment](../docs/setup-and-deployment.md). See [archite
 The efficient overlay is a new-install option requiring Compose 2.24.4 or later. It preserves SQL candle imports, background services, worker sizing and historical coverage. Switching an existing split store requires an explicit candle-data migration; changing the host setting does not move data. Explicit `DATABASE_URL` or `EDGELAB_MARKET_DATA_DATABASE_URL` values take precedence over host settings, including the overlay.
 
 Account records and imported candles remain owner-scoped. CSVs are the dataset discovery and fallback source. PostgreSQL import locks serialize writes for an owner/asset/timeframe; they do not turn each account's candles into a globally shared dataset. Redis holds disposable read models and admission counters. Authentication, subscription authority and encrypted credentials remain in their authoritative stores.
+
+For the personal installation, use [personal setup](../docs/personal-self-hosting.md). It starts one Uvicorn process with proxy-header trust disabled; `app/personal_access.py` owns its request boundary.
 
 ## Native development
 
@@ -84,7 +87,7 @@ Configure the exact public HTTPS origin, Google credentials, a fixed internal au
 
 SQLite auth uses the separate `auth-data` volume. For shared replicas, set `BETTER_AUTH_DATABASE_URL` to a **direct PostgreSQL writer** with a dedicated schema, shared signing/service keys, Google configuration and public origin. Startup serializes migrations on the same direct connection; health queries the session table. A transaction pooler or read replica is unsuitable for this path. Switching stores neither imports existing SQLite accounts nor preserves their sessions automatically. See [auth configuration](../docs/configuration.md#authentication-and-account-access).
 
-Identity and workspace authority are separate. Production enrollment is public, but workspace use requires a verified live paid subscription with a fresh provider lease. Explicit beta mode uses capped approved seats. Account/session recovery and billing have narrower identity-only paths. Data exports require a verified Google identity and live active subscription in **both** modes. Test purchases and developer accounts do not satisfy those gates.
+Identity and workspace authority are separate. Production enrollment is public, but workspace use requires a verified live paid subscription with a fresh provider lease. Explicit beta mode uses capped approved seats. Account/session recovery and billing have narrower identity-only paths. Data exports require a verified Google identity and live active subscription in production and beta. The separate personal mode grants workspace/export access only to its fixed local identity, with session expiry and loopback/proxy admission. Test purchases and developer accounts do not satisfy those gates.
 
 ## Billing and integration secrets
 

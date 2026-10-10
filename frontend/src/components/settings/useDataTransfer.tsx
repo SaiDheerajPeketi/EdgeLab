@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { exportAppDataBundle, importAppDataBundle, recoverAccountDataOperations, validateAppDataBundle, type AppDataBundle, type AppDataImportResult } from "../../lib/api";
 import { appDataRecoveryNeeded, appDataSessionKey, assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant } from "../../lib/appDataBarrier";
-import { getStoredAuthSession, subscribeAuthSession } from "../../lib/authSession";
-import { getBillingStatus, hasActiveSubscription, type BillingStatus } from "../../lib/billing";
+import { getStoredAuthSession, isPersonalWorkspaceSession, subscribeAuthSession } from "../../lib/authSession";
+import { getBillingStatus, hasActiveSubscription, refreshPersonalWorkspaceSession, type BillingStatus } from "../../lib/billing";
+import { isPersonalMode } from "../../lib/deploymentMode";
 import { Link } from "react-router-dom";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -21,7 +22,7 @@ export function DataTransferProvider({ children }: { children: ReactNode }) {
   }, []);
   return <TransferContext.Provider value={transfer}>
     {exportNotice ? <div className="relative z-[130] flex flex-wrap items-center justify-between gap-3 bg-amber-950 px-4 py-3 text-sm leading-6 text-amber-100" role="alert">
-      <p className="min-w-0 flex-1">{exportNotice} <Link className="inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100" to="/account">Manage subscription</Link></p>
+      <p className="min-w-0 flex-1">{exportNotice} <Link className="inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100" to="/account">{transfer.personal ? "Manage local access" : "Manage subscription"}</Link></p>
       <button className="min-h-11 px-3 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100" type="button" onClick={() => setExportNotice("")}>Dismiss</button>
     </div> : null}
     {children}
@@ -64,7 +65,8 @@ function useTransferController() {
   const draftStorage = useRef<{ key: string; binding: string } | null>(null);
   const views = useRef(new Set<symbol>());
   const busy = restoring || reading || exportState === "working" || importState === "working" || recovery.state === "checking";
-  const canExport = subscriptionOwner.current === sessionIdentity() && hasActiveSubscription(subscription, subscriptionClock);
+  const personal = isPersonalMode();
+  const canExport = subscriptionOwner.current === sessionIdentity() && (personal ? isPersonalWorkspaceSession(getStoredAuthSession(), subscriptionClock) : hasActiveSubscription(subscription, subscriptionClock));
 
   useEffect(() => {
     let alive = true, generation = 0, pending = false;
@@ -78,7 +80,7 @@ function useTransferController() {
       const run = ++generation;
       pending = true; setSubscriptionChecking(true);
       try {
-        const status = await getBillingStatus();
+        const status = personal ? (await refreshPersonalWorkspaceSession(), null) : await getBillingStatus();
         if (alive && run === generation && owner === sessionIdentity()) {
           setSubscription(status); setSubscriptionClock(Date.now());
         }
@@ -91,6 +93,7 @@ function useTransferController() {
     void refresh();
     const unsubscribe = subscribeAuthSession(() => {
       if (subscriptionOwner.current !== sessionIdentity()) void refresh();
+      else if (personal) setSubscriptionClock(Date.now());
     });
     const timer = window.setInterval(() => void refresh(), 30_000);
     const clock = window.setInterval(() => setSubscriptionClock(Date.now()), 1000);
@@ -257,8 +260,8 @@ function useTransferController() {
 
   async function exportData(view: symbol) {
     if (!views.current.has(view)) return;
-    if (subscriptionOwner.current !== sessionIdentity() || !hasActiveSubscription(subscription)) {
-      setError("An active paid subscription is required to export data. Check your subscription in Account.");
+    if (subscriptionOwner.current !== sessionIdentity() || !(personal ? isPersonalWorkspaceSession(getStoredAuthSession()) : hasActiveSubscription(subscription))) {
+      setError(personal ? "Open your local workspace session to export data." : "An active paid subscription is required to export data. Check your subscription in Account.");
       return;
     }
     const ticket = begin("export");
@@ -266,9 +269,11 @@ function useTransferController() {
     setExportState("working");
     setError(null);
     try {
+      if (personal) await refreshPersonalWorkspaceSession();
+      if (!current(ticket)) return;
       const bundle = await exportAppDataBundle();
       if (!current(ticket)) return;
-      if (!hasActiveSubscription(subscription)) throw new Error("Your subscription needs to be checked again before exporting. Open Account, refresh your status, and retry.");
+      if (personal ? !isPersonalWorkspaceSession(getStoredAuthSession()) : !hasActiveSubscription(subscription)) throw new Error(personal ? "Open your local workspace session to export data." : "Your subscription needs to be checked again before exporting. Open Account, refresh your status, and retry.");
       setExportState("idle");
       if (!views.current.has(view)) return;
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
@@ -337,7 +342,7 @@ function useTransferController() {
   }
 
   return { fileInputRef, exportState, draft, confirmation, setConfirmation, importState, error, result, reading, pendingSaves,
-    reloadRequired, recovery, busy, restoring, draftWarning, canExport, subscriptionChecking, identityKey: identity.current ?? "signed-out",
+    reloadRequired, recovery, busy, restoring, draftWarning, canExport, personal, subscriptionChecking, identityKey: identity.current ?? "signed-out",
     attachView, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData };
 }
 

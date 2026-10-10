@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { EdgeLabWordmark } from "../brand/EdgeLabBrand";
 import { getLatestBacktest } from "../../lib/api";
+import { isPersonalMode } from "../../lib/deploymentMode";
 import { getStoredAuthSession, hasWorkspaceAccess } from "../../lib/authSession";
 import { listCanonicalTrades } from "../../lib/journalApi";
 import { loadAppStorageItem } from "../../lib/serverStorage";
@@ -25,6 +26,7 @@ export function CompatibilityRouteRenderer({ group }: { group: UiRouteGroup }) {
   const session = getStoredAuthSession();
   const deepLink = compatibilityDeepLink(location);
   if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !hasWorkspaceAccess(session)) {
+    if (isPersonalMode() || session?.user.deploymentMode === "personal") return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink })} />;
     if (session && session.user.deploymentMode !== "beta") return <Navigate replace state={{ fromPath: deepLink }} to={buildPricingHref(deepLink)} />;
     return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink, waitlist: Boolean(session) })} />;
   }

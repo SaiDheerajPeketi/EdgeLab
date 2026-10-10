@@ -2,6 +2,10 @@
 
 Run package commands from the repository root. See [maintenance](../docs/maintenance.md) for release checks and [architecture](../docs/architecture.md) for code ownership.
 
+## Personal installation
+
+`personal.mjs` generates private local keys once and runs only the pinned personal Compose project. Use `npm run personal:start`, `personal:stop`, `personal:logs`, `personal:check` and `personal:feeds`. Stop preserves volumes and keys. [Personal setup](../docs/personal-self-hosting.md) documents real data coverage, optional own-key imports and backups.
+
 ## Development
 
 - `dev.js` starts FastAPI, Vite and the compatibility Node API, reusing compatible healthy backends. It starts Better Auth only when `EDGELAB_AUTH_PROVIDER=better-auth` is set. Use [native setup](../docs/setup-and-deployment.md#native-development) for the preview environment; `dev:backend` is the legacy Node service.

@@ -1,0 +1,93 @@
+# Independent local installation. No public auth, billing, Redis or PostgreSQL needed.
+name: edgelab-personal
+x-personal-environment: &personal-environment
+  DATABASE_URL: sqlite:////var/lib/edgelab/edgelab.db
+  EDGELAB_MARKET_DATA_DATABASE_URL: sqlite:////var/lib/edgelab/market_data.db
+  EDGELAB_ENVIRONMENT: development
+  EDGELAB_DEPLOYMENT_MODE: personal
+  EDGELAB_AUTH_PROVIDER: legacy
+  EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:?Run npm run personal:start to create private keys}
+  EDGELAB_PERSONAL_PROXY_SECRET: ${EDGELAB_PERSONAL_PROXY_SECRET:?Personal proxy key required}
+  EDGELAB_SECRET_VAULT_KEYS: ${EDGELAB_SECRET_VAULT_KEYS:?Personal encryption key required}
+  EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID: personal
+  EDGELAB_PUBLIC_ORIGIN: http://localhost:${EDGELAB_PERSONAL_PORT:-8081}
+  CORS_ORIGINS: http://localhost:${EDGELAB_PERSONAL_PORT:-8081},http://127.0.0.1:${EDGELAB_PERSONAL_PORT:-8081}
+  EDGELAB_BILLING_ENABLED: "0"
+  EDGELAB_REDIS_URL: ""
+  EDGELAB_DATASETS_ROOT: /datasets
+  EDGELAB_DATASETS_AUTO_DISCOVERY: "1"
+  EDGELAB_MARKET_DATA_IMPORT_ENABLED: "0"
+  EDGELAB_OBSERVABILITY_JSON_LOGS: "0"
+  EDGELAB_OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  EDGELAB_GOOGLE_CLIENT_SECRETS_FILE: ""
+  EDGELAB_QUANT_CAPTURE_ROOT: /var/lib/edgelab/quant-captures
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["sh", "/app/docker/start-personal-api.sh"]
+    environment: *personal-environment
+    volumes:
+      - personal-api-data:/var/lib/edgelab
+      - ./.artifacts/personal/datasets:/datasets:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  data-populator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.data_populator"]
+    # Own only the dataset folder; keep the API's data volume private to the API.
+    user: "0:0"
+    environment:
+      <<: *personal-environment
+      DATABASE_URL: sqlite:////tmp/populator.db
+      EDGELAB_MARKET_DATA_DATABASE_URL: sqlite:////tmp/market_data.db
+      EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS: ""
+      EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS: ${EDGELAB_PERSONAL_CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      EDGELAB_DATA_POPULATOR_BACKFILL_MODE: lookback
+      EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS: ${EDGELAB_PERSONAL_LOOKBACK_DAYS:-30}
+      EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS: ${EDGELAB_PERSONAL_REFRESH_SECONDS:-300}
+      EDGELAB_DATA_POPULATOR_DERIVED_TIMEFRAMES: M5,M15,M30,H1,H4,Daily
+      EDGELAB_DATA_POPULATOR_BINANCE_ARCHIVE_WORKERS: "1"
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
+    volumes:
+      - ./.artifacts/personal/datasets:/datasets
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_DEPLOYMENT_MODE: personal
+        EDGELAB_NGINX_CONFIG: docker/nginx.personal.conf.template
+    environment:
+      EDGELAB_PERSONAL_PROXY_SECRET: ${EDGELAB_PERSONAL_PROXY_SECRET:?Personal proxy key required}
+      # Only substitute our secret: preserve Nginx's $host, $uri and upgrade variables.
+      NGINX_ENVSUBST_FILTER: "^EDGELAB_PERSONAL_PROXY_SECRET$"
+    ports:
+      - "127.0.0.1:${EDGELAB_PERSONAL_PORT:-8081}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/nginx-health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  personal-api-data:

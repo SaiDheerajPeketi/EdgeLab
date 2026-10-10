@@ -18,6 +18,7 @@ import {
   buildAuthSignInHref,
   buildPricingHref,
 } from "../lib/authJourney";
+import { isPersonalMode } from "../lib/deploymentMode";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 import {
   normalizeServerUiRollout,
@@ -223,6 +224,9 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
 
   if (!hasWorkspaceAccess(session)) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
+    if (isPersonalMode() || session.user.deploymentMode === "personal") {
+      return <Navigate replace state={{ fromPath }} to={buildAuthSignInHref({ fromPath, reason: "session-expired" })} />;
+    }
     if (session.user.deploymentMode !== "beta") {
       return <Navigate replace state={{ fromPath }} to={buildPricingHref(fromPath)} />;
     }
@@ -250,9 +254,9 @@ export function AppRoutes() {
       <RouteTransitionBoundary>
         <Suspense fallback={<AppRouteFallback />}>
           <Routes>
-          <Route element={<LandingPage />} path="/" />
+          <Route element={isPersonalMode() ? <Navigate replace to="/app" /> : <LandingPage />} path="/" />
           <Route element={<Navigate replace to="/" />} path="/index.html" />
-          <Route element={<PricingPage />} path="/pricing" />
+          <Route element={isPersonalMode() ? <Navigate replace to="/app" /> : <PricingPage />} path="/pricing" />
           <Route element={<AccountPage />} path="/account" />
           <Route element={<PrivacyPage />} path="/privacy" />
           <Route element={<TermsPage />} path="/terms" />

@@ -12,6 +12,7 @@ These are engineering/operator documents for the implemented repository. Code, v
 
 ## Run and maintain
 
+- [Personal self-hosting](personal-self-hosting.md): separate local workspace, private keys, replay downloads and verified free-feed limits.
 - [Setup and deployment](setup-and-deployment.md): native, local Compose, production and efficient configurations.
 - [Configuration](configuration.md): environment ownership, defaults and runtime/build distinction.
 - [API guide](api-reference.md): route families, auth, errors, streams and ownership.

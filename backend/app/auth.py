@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.models import BetaSession, BetaUser, utcnow
+from app.personal_access import is_personal_identity
 from app.services import access_policy
 from app.services import better_auth
 
@@ -99,9 +100,12 @@ def require_billing_identity(
 
 
 def require_subscription(
-    current_user: AuthenticatedUser = Depends(require_billing_identity),
+    current_user: AuthenticatedUser = Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> AuthenticatedUser:
+    if access_policy.deployment_mode(settings) == "personal":
+        access_policy.require_workspace_user(db, current_user.id, settings)
+        return current_user
     require_billing_identity(current_user, db)
     access = access_policy.access_snapshot(db, current_user.id, settings, paid_only=True)
     db.commit()
@@ -123,6 +127,8 @@ def create_session_token(user_id: int, session_id: str, expires_at: datetime) ->
 
 def authenticate_token(db: Session, token: str) -> AuthenticatedUser:
     if token.startswith(better_auth.TOKEN_PREFIX):
+        if access_policy.deployment_mode(settings) == "personal":
+            raise _auth_error()
         identity = better_auth.request_session(token=token)
         user = db.scalar(select(BetaUser).where(BetaUser.google_subject == identity["sub"]))
         if not _verified_google_user(user):
@@ -152,6 +158,8 @@ def authenticate_token(db: Session, token: str) -> AuthenticatedUser:
 
     user = db.scalar(select(BetaUser).where(BetaUser.id == user_id))
     if user is None:
+        raise _auth_error()
+    if access_policy.deployment_mode(settings) == "personal" and not is_personal_identity(user):
         raise _auth_error()
     if access_policy.deployment_mode(settings) == "production" and not _verified_google_user(user):
         raise _auth_error()

@@ -12,7 +12,7 @@ export function SettingsDataTransfer({ compatibility = false }: { compatibility?
   const view = useRef(Symbol("data-transfer-view")).current;
   useEffect(() => transfer.attachView(view), []);
   const { fileInputRef, exportState, draft, confirmation, setConfirmation, importState, error, result, reading, pendingSaves,
-    reloadRequired, recovery, busy, restoring, draftWarning, canExport, subscriptionChecking, identityKey, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData } = transfer;
+    reloadRequired, recovery, busy, restoring, draftWarning, canExport, personal, subscriptionChecking, identityKey, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData } = transfer;
   const muted = compatibility ? "text-stone-300" : "text-[var(--text-secondary)]";
   const errorColor = compatibility ? "text-rose-300" : "text-[var(--loss-text)]";
   const secondary = compatibility ? compatibilityButton : "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-4 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--ui-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:cursor-not-allowed disabled:opacity-55";
@@ -35,7 +35,7 @@ export function SettingsDataTransfer({ compatibility = false }: { compatibility?
           {exportState === "working" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Download aria-hidden="true" className="h-4 w-4" />}
           {exportState === "working" ? "Preparing…" : "Download export"}
         </button>
-        <p id="export-subscription-requirement" className={`text-sm leading-6 ${muted}`} role="status">{canExport ? "Your subscription is active. Exports are available." : subscriptionChecking ? "Checking your subscription…" : "Data exports require an active paid subscription."} <Link className={`inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 ${compatibility ? "focus-visible:ring-cyan-300" : "text-[var(--interaction)] focus-visible:ring-[var(--ui-focus)]"}`} to="/account">Manage subscription</Link></p>
+        <p id="export-subscription-requirement" className={`text-sm leading-6 ${muted}`} role="status">{personal ? canExport ? "Your local session is active. Exports are available." : subscriptionChecking ? "Checking your local access…" : "Open your local workspace session to export data." : canExport ? "Your subscription is active. Exports are available." : subscriptionChecking ? "Checking your subscription…" : "Data exports require an active paid subscription."} <Link className={`inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 ${compatibility ? "focus-visible:ring-cyan-300" : "text-[var(--interaction)] focus-visible:ring-[var(--ui-focus)]"}`} to="/account">{personal ? "Manage local access" : "Manage subscription"}</Link></p>
         </div>
       </TransferRow>
 

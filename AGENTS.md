@@ -22,9 +22,11 @@ These instructions apply to the whole repository. Read the [documentation index]
 - Application SQL owns durable accounts, billing, preferences, trades, replay and jobs. Redis owns disposable bounded caches/admission; browser caches never establish identity, entitlement or server commit.
 - APIs mount dataset folders read-only at `/datasets`. The optional data populator writes M1/derived CSVs and its `.edgelab-data-populator-manifest.json`, with `${EDGELAB_DATA_POPULATOR_USER:-0:0}` ownership. `EDGELAB_CSV_PATH` is an explicit optional legacy replay path.
 
+- Personal Compose is an independent `edgelab-personal` project with one SQLite API, local Nginx and Binance-only history ingestion. It binds only to 127.0.0.1, leaves the API unpublished, disables forwarded-header trust, and preserves private keys under ignored `.artifacts/personal/`. Never reuse production data volumes or keys.
+
 ## Contracts to preserve
 
-- Keep API `EDGELAB_DEPLOYMENT_MODE` and browser `VITE_DEPLOYMENT_MODE` aligned. Production is the default; beta presentation and local bypass do not grant paid access. Exports require verified active **live** paid access in every mode.
+- Keep API `EDGELAB_DEPLOYMENT_MODE` and browser `VITE_DEPLOYMENT_MODE` aligned. Production is the default; beta presentation and local bypass do not grant paid access. Exports require verified active **live** paid access in production and beta. The distinct personal mode admits only its fixed local identity, with session-bound exports; do not broaden this exception to other modes or accounts.
 - Keep tenant IDs and captured account/replay generations across asynchronous work. Preserve account-data operation receipts, acknowledged storage writes and stale-response barriers. Route guards and numeric IDs are not authorization.
 - Better Auth introspection/revocation uses a fixed private service URL and distinct service key. Preserve native origin/CSRF checks and verify actual session deletion across replicas. Persisted secrets use the server keyring; supported transient browser broker credentials go only in authenticated first WebSocket messages, never URLs/logs/shares.
 - Nginx serves `${FRONTEND_PORT:-8080}` with browser `VITE_API_BASE_URL=/api`; Better Auth routes reach `auth:3002`, market routes reach `market-api:8000`, and ordinary API routes reach `api:8000`. Preserve private/error `no-store` responses and CDN bypass for private/auth/stream/export traffic.

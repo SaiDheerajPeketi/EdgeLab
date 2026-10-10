@@ -8,11 +8,11 @@ import { readPineEngineSources } from "./pine-engine.mjs";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const exactFiles = new Set([
   "LICENSE", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", ".env.example", ".dockerignore",
-  "docker-compose.yml", "docker-compose.local.yml", "docker-compose.efficient.yml",
+  "docker-compose.yml", "docker-compose.local.yml", "docker-compose.efficient.yml", "docker-compose.personal.yml", "docker/nginx.personal.conf.template",
   "frontend/package.json", "frontend/index.html", "frontend/Dockerfile", "frontend/vite.config.ts", "frontend/pineWorkerPlugin.ts",
   "frontend/tsconfig.json", "frontend/tsconfig.node.json", "frontend/tailwind.config.js", "frontend/postcss.config.js",
-  "scripts/dev.js", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",
-  "backend/scripts/start_api.sh", "backend/scripts/gunicorn_config.py", "backend/scripts/migrate_sqlite_to_database.py", "backend/scripts/seed.py", "backend/scripts/import_market_data_to_db.py", "backend/scripts/refresh_session_summaries.py",
+  "scripts/dev.js", "scripts/personal.mjs", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",
+  "backend/scripts/import_personal_feeds.py", "backend/scripts/start_api.sh", "backend/scripts/gunicorn_config.py", "backend/scripts/migrate_sqlite_to_database.py", "backend/scripts/seed.py", "backend/scripts/import_market_data_to_db.py", "backend/scripts/refresh_session_summaries.py",
   "backend/Dockerfile", "backend/Dockerfile.node", "backend/requirements.txt", "backend/requirements-dev.txt", "backend/alembic.ini", "backend/index.js", "backend/db.js",
   "backend/auth/package.json", "backend/auth/Dockerfile",
 ]);
@@ -100,6 +100,14 @@ EDGELAB_DEPLOYMENT_MODE=beta and VITE_DEPLOYMENT_MODE=beta. The local authentica
 bypass is optional and loopback-only; it does not grant paid exports. Run npm run dev.
 The UI is on port 5173 and the FastAPI service on port 8000. Supply your own dataset
 folder and configure EDGELAB_DATASETS_ROOT when market data is required.
+
+## Personal installation
+
+With Docker Compose running, execute npm run personal:start and open localhost:8081.
+This separate loopback-only installation generates private keys, uses SQLite, and
+downloads Binance crypto history for personal use. It has local sign-in and exports;
+public production/beta access still requires their configured authorization policies.
+Keys and local data live under .artifacts/personal and are never in this source offer.
 
 ## Deploy
 

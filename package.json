@@ -41,7 +41,12 @@
     "bench:e2e-capacity": "bash benchmark/run-capacity-sweep.sh",
     "market-data:import": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/import_market_data_to_db.py",
     "analytics:refresh-session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py",
-    "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py"
+    "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py",
+    "personal:start": "node scripts/personal.mjs start",
+    "personal:stop": "node scripts/personal.mjs stop",
+    "personal:logs": "node scripts/personal.mjs logs",
+    "personal:feeds": "node scripts/personal.mjs feeds",
+    "personal:check": "node scripts/personal.mjs check"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

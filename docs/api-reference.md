@@ -39,7 +39,7 @@ Public `GET /api/better-auth/get-session` and `POST /api/better-auth/sign-out` r
 
 Production enrollment is public, but protected workspace routes require a current live paid plan. Explicit beta mode requires approval within its seat cap. Exact identity-only exceptions preserve account/session inspection, recovery, billing and selected removal/revocation operations after access is lost; [`ACCESS_EXEMPT`](../backend/app/services/app_data_operations.py) defines the list. New product routes require workspace authority by default. Data export always requires verified Google identity and a live active subscription, including beta mode. A successful Stripe test purchase or developer sign-in does not grant that authority.
 
-Legacy `POST /api/auth/google/exchange` remains available when configured. Manual beta access/developer bypass are disabled in production. Developer bypass requires its flag, beta mode, local origin/CORS and a loopback request.
+Legacy `POST /api/auth/google/exchange` remains available when configured. Manual beta access/developer bypass are disabled in production. Developer bypass in beta requires its flag, local origin/CORS and a loopback request. The distinct personal mode uses the same endpoint for its fixed local identity, after validated loopback/proxy admission; only that mode permits session-bound local exports. See [personal boundary](personal-self-hosting.md).
 
 ## Errors, caching and retry behavior
 

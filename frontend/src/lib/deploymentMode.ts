@@ -1,4 +1,4 @@
-export type DeploymentMode = "beta" | "production";
+export type DeploymentMode = "beta" | "production" | "personal";
 
 function parseNumber(rawValue: string | undefined, fallback: number) {
   if (!rawValue) {
@@ -10,13 +10,18 @@ function parseNumber(rawValue: string | undefined, fallback: number) {
 }
 
 export function resolveDeploymentMode(rawValue: string | undefined): DeploymentMode {
-  return rawValue?.trim().toLowerCase() === "beta" ? "beta" : "production";
+  const mode = rawValue?.trim().toLowerCase();
+  return mode === "beta" || mode === "personal" ? mode : "production";
 }
 
 export const deploymentMode = resolveDeploymentMode(import.meta.env?.VITE_DEPLOYMENT_MODE);
 
 export function isBetaMode(mode: DeploymentMode = deploymentMode) {
   return mode === "beta";
+}
+
+export function isPersonalMode(mode: DeploymentMode = deploymentMode) {
+  return mode === "personal";
 }
 
 export function getBetaSeatState() {

@@ -4,13 +4,14 @@ from datetime import timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import select, text
 
+from app.personal_access import is_personal_identity
 from app.models import BetaUser, BillingCustomer, BillingSubscription, utcnow
 from app.services import billing
 
 
 def deployment_mode(source_settings):
     mode = getattr(source_settings, "deployment_mode", "production")
-    if mode not in {"beta", "production"}:
+    if mode not in {"beta", "production", "personal"}:
         raise HTTPException(status_code=503, detail="Deployment access policy is unavailable")
     return mode
 
@@ -54,6 +55,10 @@ def access_snapshot(db, user_id, source_settings, *, refresh=True, paid_only=Fal
     if user is None:
         raise HTTPException(status_code=401, detail="Account no longer exists")
     result = {"deployment_mode": mode, "workspace_access": False, "access_expires_at": None, "is_beta_user": mode == "beta", "plan": "none"}
+    if mode == "personal":
+        granted = is_personal_identity(user)
+        result.update(workspace_access=granted, plan="personal" if granted else "none")
+        return result
     if mode == "beta" and not paid_only:
         sync_beta(db, source_settings)
         cap = min(500, max(1, int(getattr(source_settings, "beta_seats_total", 500))))

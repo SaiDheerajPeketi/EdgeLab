@@ -7,6 +7,8 @@ from pathlib import Path
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import QueuePool
 
+from app.personal_access import validate_personal_settings
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -254,6 +256,7 @@ class Settings:
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
     public_origin: str = os.getenv("EDGELAB_PUBLIC_ORIGIN", "").strip().rstrip("/")
     deployment_mode: str = os.getenv("EDGELAB_DEPLOYMENT_MODE", "production").strip().lower()
+    personal_proxy_secret: str = os.getenv("EDGELAB_PERSONAL_PROXY_SECRET", "").strip()
     billing_enabled: bool = bool_env("EDGELAB_BILLING_ENABLED", False)
     stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "").strip()
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
@@ -406,6 +409,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         google_client_secrets_file=settings.google_client_secrets_file,
         public_origin=settings.public_origin,
         deployment_mode=settings.deployment_mode,
+        personal_proxy_secret=settings.personal_proxy_secret,
         billing_enabled=settings.billing_enabled,
         stripe_secret_key=settings.stripe_secret_key,
         stripe_webhook_secret=settings.stripe_webhook_secret,
@@ -450,3 +454,6 @@ if not settings.google_redirect_uri and settings.public_origin:
         beta_manual_access_enabled=settings.beta_manual_access_enabled,
         dev_auth_bypass_enabled=settings.dev_auth_bypass_enabled,
     )
+
+
+validate_personal_settings(settings)

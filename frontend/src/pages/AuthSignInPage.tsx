@@ -4,8 +4,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AuthJourneyShell } from "../components/auth/AuthJourneyShell";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
 import { requestDevAuthBypass } from "../lib/api";
-import { getStoredAuthSession, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
+import { getStoredAuthSession, isPersonalWorkspaceSession, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import { authDestinationFromLocation, authJourneyIssue } from "../lib/authJourney";
+import { isPersonalMode } from "../lib/deploymentMode";
 import { useBetaAuthConfig } from "../lib/useBetaAuthConfig";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 import { beginBetterAuthSignIn } from "../lib/betterAuthClient";
@@ -26,7 +27,7 @@ export function AuthSignInPage() {
   useEffect(() => {
     const owner = signInOwner.current;
     owner.active = true;
-    const retire = () => { owner.generation += 1; };
+    const retire = () => { owner.generation += 1; if (owner.active) setIsSubmitting(false); };
     const clear = (event: StorageEvent) => {
       if (event.key === null) { retire(); return; }
       if (event.key === "edgelab.auth.session.v1") {
@@ -44,6 +45,8 @@ export function AuthSignInPage() {
   const { loading, program } = useBetaProgramStatus();
   const { config, error: authConfigError, loading: authConfigLoading } = useBetaAuthConfig();
   const waitlistMode = searchParams.get("waitlist") === "1";
+  const personalMode = isPersonalMode();
+  const personalReady = personalMode && config.deployment_mode === "personal" && config.dev_auth_bypass_enabled === true;
   const betaMode = config.deployment_mode === "beta";
   const googleReady = isGoogleAuthConfigured(config);
   const seatsRemaining = program.seats_remaining;
@@ -96,21 +99,43 @@ export function AuthSignInPage() {
   };
 
   const handleDevSignIn = async () => {
-    if (!authConfigLoading && !config?.dev_auth_bypass_enabled) {
+    if (authConfigLoading || isSubmitting || !config.dev_auth_bypass_enabled || (personalMode && !personalReady)) {
       setErrorMessage("Local development sign-in is unavailable.");
       return;
     }
     setIsSubmitting(true);
     setErrorMessage(null);
+    const generation = signInOwner.current.generation;
+    const identity = getStoredAuthSession();
+    const owns = () => signInOwner.current.active && signInOwner.current.generation === generation &&
+      getStoredAuthSession()?.token === identity?.token && getStoredAuthSession()?.user.id === identity?.user.id;
     try {
       const response = await requestDevAuthBypass();
-      setStoredAuthSession(toStoredAuthSession(response.session));
-      navigate(fromPath, { replace: true });
+      if (!owns()) return;
+      const next = toStoredAuthSession(response.session);
+      if (personalMode && !isPersonalWorkspaceSession(next)) throw new Error("Local workspace access is unavailable.");
+      setStoredAuthSession(next);
+      navigate(personalMode && fromPath.startsWith("/pricing") ? "/app" : fromPath, { replace: true });
     } catch {
-      setErrorMessage("Local development sign-in is unavailable for this origin.");
-      setIsSubmitting(false);
+      if (owns()) {
+        setErrorMessage(personalMode ? "Local workspace access is unavailable. Check that your local server is running." : "Local development sign-in is unavailable for this origin.");
+        setIsSubmitting(false);
+      }
     }
   };
+
+  if (personalMode) return <AuthJourneyShell
+    title="Your personal workspace."
+    description="Open EdgeLab on this computer to replay markets, journal trades, and export your records."
+    statusLabel="Local access" statusTone={errorMessage ? "warning" : "accent"}
+  >
+    {errorMessage && <p className="mb-4 text-sm leading-6 text-amber-100" role="alert">{errorMessage}</p>}
+    <button aria-busy={isSubmitting} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+      disabled={isSubmitting || authConfigLoading || !personalReady} onClick={() => void handleDevSignIn()} type="button">
+      {isSubmitting ? "Opening workspace…" : authConfigLoading ? "Checking local access…" : "Open workspace"}<ArrowRight aria-hidden="true" size={16} />
+    </button>
+    {!authConfigLoading && (!personalReady || authConfigError) && <p className="mt-4 text-sm leading-6 text-amber-100" role="status">Local workspace access is unavailable. Check that your local server is running.</p>}
+  </AuthJourneyShell>;
 
   return (
     <AuthJourneyShell

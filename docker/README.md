@@ -6,6 +6,7 @@ Deployment choices and lifecycle commands are documented in [setup and deploymen
 
 | Files / profile | Behavior |
 | --- | --- |
+| `docker-compose.personal.yml` | Separate loopback-only project: personal identity/exports, SQLite API and Binance history downloader |
 | `docker-compose.local.yml` | Loopback frontend, one SQLite FastAPI service and a separate Better Auth service; developer beta access |
 | `docker-compose.yml` | Default split PostgreSQL/TimescaleDB stores, two poolers, Redis, auth, two API roles, ingestion, analytics and frontend |
 | Base plus `docker-compose.efficient.yml` | New-install option: both data stores on one indexed PostgreSQL server, one pooler, same API roles/workers |
@@ -23,6 +24,7 @@ Monitoring ports bind to loopback. The public Nginx route blocks `/api/observabi
 
 | Path | Purpose |
 | --- | --- |
+| `nginx.personal.conf.template`, `start-personal-api.sh` | Personal proxy key injection and Uvicorn startup with forwarded-header trust disabled |
 | `nginx.conf` | SPA hosting, API/auth proxy rules, WebSocket forwarding and public security headers |
 | `pgbouncer/` | PgBouncer image and generated runtime configuration |
 | `observability/` | Metrics, dashboards, alerts, log collection/guard, traces and database initialization |

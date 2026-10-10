@@ -4,6 +4,10 @@ EdgeLab is a trading workspace for live charts, historical replay, journaling, p
 
 Start with [setup](docs/setup-and-deployment.md), read the [architecture](docs/architecture.md), and use the [documentation index](docs/README.md) to find a topic. Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md); coding agents should also read [AGENTS.md](AGENTS.md).
 
+## Personal self-hosting
+
+Run `npm run personal:start` with Docker Compose running, then open <http://localhost:8081>. This separate loopback-only build has local sign-in, exports, SQLite storage and automatic real crypto replay history. See [personal setup and free-feed coverage](docs/personal-self-hosting.md) for optional imports, private keys and limits.
+
 ## Local preview
 
 The self-contained local installation needs Docker Compose:
@@ -24,6 +28,7 @@ Use the [disposable demo helper](backend/README.md#disposable-local-demo-data) f
 | --- | --- |
 | `docker-compose.yml` | Application PostgreSQL and market TimescaleDB, two poolers, Redis, auth, APIs, ingestion and analytics |
 | Base + `docker-compose.efficient.yml` | New-install option: one PostgreSQL writer/pooler with indexed candle history; Compose 2.24.4+ |
+| `docker-compose.personal.yml` | Personal loopback-only SQLite workspace, local exports and Binance history |
 | `docker-compose.local.yml` | Explicit development/beta SQLite installation |
 | `--profile observability` | Optional private metrics, dashboards, logs, traces and SQL exporters |
 | `--profile benchmark` | Monitoring plus capacity-test infrastructure; not a launch requirement |
@@ -44,7 +49,7 @@ Fingerprint-addressed browser assets can use a CDN. Authentication, tenant APIs,
 
 Better Auth owns Google OAuth and revocable signed sessions in production Compose. FastAPI introspects its fixed private service endpoint, binds the verified Google subject to the existing numeric application account, and enforces tenant and subscription policies. Auth sessions have their own store: local SQLite by default, or a dedicated PostgreSQL schema for shared auth replicas.
 
-Production workspace access requires verified Google identity and a current live paid subscription. Beta mode has separate approval/seat rules. **Exports require verified active live paid access in both modes.** Stripe test subscriptions, marketing variants and developer bypasses cannot grant exports. Billing management remains reachable without workspace access. Credentials and matching Stripe price IDs must be configured before live checkout is available.
+Production workspace access requires verified Google identity and a current live paid subscription. Beta mode has separate approval/seat rules. **Exports require verified active live paid access in production and beta.** The distinct loopback-only personal installation permits its fixed local account to export its own data. Stripe test subscriptions, marketing variants and developer bypasses cannot grant exports. Billing management remains reachable without workspace access. Credentials and matching Stripe price IDs must be configured before live checkout is available.
 
 `/?variant=beta` and `/pricing?variant=beta` select the retained marketing presentation only. Keep `VITE_DEPLOYMENT_MODE` aligned with `EDGELAB_DEPLOYMENT_MODE`; the server owns authorization. Details are in [backend auth/billing](backend/README.md) and [architecture](docs/architecture.md).
 

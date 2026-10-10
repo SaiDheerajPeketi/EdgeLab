@@ -2,6 +2,8 @@
 
 The React/Vite browser renders public pages and one persistent trading workspace. It uses React Router, Zustand, Lightweight Charts, themed controls, and isolated indicator workers. [Architecture](../docs/architecture.md) explains the boundaries; [feature reference](../docs/frontend-feature-reference.md) retains detailed calculation/execution caveats and browser regression pointers.
 
+The separate [personal build](../docs/personal-self-hosting.md) selects `VITE_DEPLOYMENT_MODE=personal`, opens a local workspace instead of public pricing, and refreshes server session authority before personal exports. Production and beta retain paid export checks.
+
 ## Development
 
 Use Node.js 22.13+ and install the root workspace with `npm ci`:
@@ -43,7 +45,7 @@ All `VITE_*` values are public build inputs. They cannot safely contain Stripe k
 | Variable | Meaning |
 | --- | --- |
 | `VITE_API_BASE_URL` | Same-origin API prefix, normally `/api` |
-| `VITE_DEPLOYMENT_MODE` | Presentation mode aligned with server `EDGELAB_DEPLOYMENT_MODE` |
+| `VITE_DEPLOYMENT_MODE` | Presentation mode (`production`, `beta`, `personal`) aligned with server `EDGELAB_DEPLOYMENT_MODE` |
 | `VITE_BETA_SEATS_TOTAL`, `VITE_BETA_SEATS_TAKEN` | Presentation fallbacks; server owns admission |
 
 Changing build inputs requires rebuilding. `npm run build` verifies the reviewed Pine engine, generates matching application source, runs TypeScript/Vite, then verifies the source offer again. Keep API/browser images on one checkout and update `scripts/source-release.mjs`/Docker build inputs when required runtime files change. Generated `public/source/` remains ignored and excludes secrets/customer data/internal plans.

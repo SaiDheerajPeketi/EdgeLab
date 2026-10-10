@@ -1004,8 +1004,8 @@ class WorkspaceSharePublicRead(BaseModel):
 
 
 class BetaProgramStatus(BaseModel):
-    mode: Literal["beta", "production"]
-    deployment_mode: Literal["beta", "production"]
+    mode: Literal["beta", "production", "personal"]
+    deployment_mode: Literal["beta", "production", "personal"]
     seats_total: int = Field(ge=0)
     seats_taken: int = Field(ge=0)
     seats_remaining: int = Field(ge=0)
@@ -1013,7 +1013,7 @@ class BetaProgramStatus(BaseModel):
 
 
 class BetaAuthConfig(BaseModel):
-    deployment_mode: Literal["beta", "production"]
+    deployment_mode: Literal["beta", "production", "personal"]
     auth_provider: Literal["legacy", "better-auth"] = "legacy"
     google_enabled: bool = False
     google_client_id: str | None = None
@@ -1043,11 +1043,11 @@ class BetaAuthUser(BaseModel):
     provider: Literal["email", "google"]
     approved: bool
     beta_position: int | None = None
-    deployment_mode: Literal["beta", "production"]
+    deployment_mode: Literal["beta", "production", "personal"]
     workspace_access: bool
     access_expires_at: datetime | None
     is_beta_user: bool
-    plan: Literal["beta", "pro", "none"]
+    plan: Literal["beta", "pro", "personal", "none"]
 
 
 class BetaAuthSessionRead(BaseModel):

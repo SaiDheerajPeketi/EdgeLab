@@ -3,7 +3,7 @@ import { lazy, Suspense } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { MarketingShell } from "../marketing/MarketingShell";
 import { buildMarketingCta } from "../../lib/marketingCta";
-import { isBetaMode } from "../../lib/deploymentMode";
+import { isBetaMode, isPersonalMode } from "../../lib/deploymentMode";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
 const PricingPage = lazy(() => import("../../pages/PricingPage").then((module) => ({ default: module.PricingPage })));
@@ -17,9 +17,9 @@ const NotFoundPage = lazy(() => import("../../pages/NotFoundPage").then((module)
 // Only the landing presentation is simplified; it never loads the 3D scene.
 export function CompatibilityPublicRoutes() {
   return <Suspense fallback={<p className="min-h-screen bg-edgelab-base p-6 text-edgelab-text-secondary" role="status">Opening EdgeLab…</p>}><Routes>
-    <Route element={<PublicHome />} path="/" />
+    <Route element={isPersonalMode() ? <Navigate replace to="/app" /> : <PublicHome />} path="/" />
     <Route element={<Navigate replace to="/" />} path="/index.html" />
-    <Route element={<PricingPage />} path="/pricing" />
+    <Route element={isPersonalMode() ? <Navigate replace to="/app" /> : <PricingPage />} path="/pricing" />
     <Route element={<AuthSignInRoute />} path="/auth/signin" />
     <Route element={<AuthCallbackPage />} path="/auth/callback/google" />
     <Route element={<PrivacyPage />} path="/privacy" />

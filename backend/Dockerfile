@@ -42,6 +42,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     EDGELAB_AUTH_PROVIDER=better-auth \
     EDGELAB_BETTER_AUTH_INTERNAL_URL=http://auth:3002 \
     EDGELAB_AUTH_SERVICE_KEY= \
+    EDGELAB_PERSONAL_PROXY_SECRET= \
     EDGELAB_DEPLOYMENT_MODE=production \
     EDGELAB_BILLING_ENABLED=0 \
     EDGELAB_STRIPE_MODE=test \
@@ -67,6 +68,7 @@ COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend /app/backend
+COPY docker/start-personal-api.sh /app/docker/start-personal-api.sh
 
 USER edgelab
 EXPOSE 8000

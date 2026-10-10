@@ -13,7 +13,7 @@ const INVALID_ATTRIBUTION_VALUE = /[\u0000-\u001f\u007f]/;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 160;
 
 // A marketing preview never changes authentication or paid-access deployment mode.
-export function marketingPresentationFromSearch(search: string): DeploymentMode {
+export function marketingPresentationFromSearch(search: string): "beta" | "production" {
   return new URLSearchParams(search).get("variant") === "beta" ? "beta" : "production";
 }
 
@@ -49,6 +49,8 @@ export function buildMarketingCta({
   const waitlist = forceWaitlist || (seatsRemaining != null && seatsRemaining <= 0);
   const attribution = marketingAttributionFromSearch(search);
   const destination = attribution.size > 0 ? `/app?${attribution.toString()}` : "/app";
+
+  if (mode === "personal") return { href: destination, label: "Open workspace", waitlist: false } as const;
 
   if (mode === "production") {
     return { href: attribution.size > 0 ? `/pricing?${attribution.toString()}` : "/pricing", label: "View plans", waitlist: false } as const;
