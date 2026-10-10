@@ -29,7 +29,22 @@
     "/app/reports": { "source": "frontend/src/components/ResultsPanel.tsx", "restoration": "navigation-state" },
     "/app/quant": { "source": "frontend/src/components/QuantPanel.tsx", "restoration": "panel-preferences" },
     "/app/settings": { "source": "frontend/src/components/settings/SettingsCenter.tsx", "restoration": "settings-preferences" },
-    "/app/settings/:category": { "source": "frontend/src/components/settings/SettingsCenter.tsx", "restoration": "settings-preferences" }
+    "/app/settings/:category": { "source": "frontend/src/components/settings/SettingsCenter.tsx", "restoration": "settings-preferences" },
+    "/app/accounts": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/economic-calendar": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/feedback": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/journal/finance": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/journal/playbooks": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/journal/sessions": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/journal/strategies": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/playbooks": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/position-size": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"},
+    "/app/replay-settings": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/results/calendar": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/results/notes": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/results/overview": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/results/trades": {"source": "frontend/src/App.tsx", "restoration": "navigation-state"},
+    "/app/strategies": {"source": "frontend/src/components/EdgeLabWorkspace.tsx", "restoration": "navigation-state"}
   },
   "panels": {
     "Journal": ["frontend/src/components/journal/JournalPanelManager.tsx"],

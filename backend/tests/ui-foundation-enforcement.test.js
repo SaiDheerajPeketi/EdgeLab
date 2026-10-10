@@ -155,3 +155,28 @@ test("provider and account statuses use the product language normalizer", () => 
   for (const status of ["Disconnected", "Needs attention", "Loading…", "Delayed", "Not supported"]) assert.ok(language.includes(status), `missing direct status copy ${status}`);
   assert.match(read("frontend/src/components/journal/JournalAccountsSurface.tsx"), /humanizeProductStatus\(connection\.status\)/);
 });
+
+test("every workspace destination survives a URL reload", async () => {
+  const { cleanup, module } = await bundle("frontend/src/lib/workspaceRoute.ts");
+  try {
+    const views = ["accounts", "backtest", "dashboard", "economicCalendar", "feedback", "financeTracker",
+      "globalSettings", "dayView", "live", "orderFlow", "positionSizeCalculator", "journalAccounts",
+      "journalDashboard", "journalDayView", "journalNotes", "journalReports", "journalSessions",
+      "journalSettings", "journalPlaybooks", "journalStrategies", "journalTrades", "notebook",
+      "playbooks", "reports", "sessions", "settings", "strategies", "tradeView"];
+    assert.equal(new Set(views.map(module.workspacePathForView)).size, views.length);
+    for (const view of views) assert.equal(module.workspaceViewFromPath(module.workspacePathForView(view)), view, view);
+    assert.equal(module.workspacePathForView("journal"), module.workspacePathForView("journalTrades"));
+  } finally { cleanup(); }
+});
+
+test("entity and settings navigation retains the matching deep link only", async () => {
+  const { cleanup, module } = await bundle("frontend/src/lib/workspaceRoute.ts");
+  try {
+    assert.equal(module.workspaceHrefForView("journalTrades", "#journal/trades?trade=42"), "/app/journal/trades#journal/trades?trade=42");
+    assert.equal(module.workspaceHrefForView("journalNotes", "#journal/calendar?date=2026-10-10"), "/app/journal/notes#journal/calendar?date=2026-10-10");
+    assert.equal(module.workspaceHrefForView("globalSettings", "#settings/data/export"), "/app/settings/global#settings/data/export");
+    assert.equal(module.workspaceHrefForView("live", "#journal/trades?trade=42"), "/app/live");
+    assert.equal(module.workspaceHrefForView("journalTrades", "#journal/trades-else"), "/app/journal/trades");
+  } finally { cleanup(); }
+});

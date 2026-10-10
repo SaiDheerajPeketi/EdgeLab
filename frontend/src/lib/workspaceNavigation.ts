@@ -61,8 +61,8 @@ const journalResultItems = [
 
 export const WORKSPACE_NAVIGATION_SECTIONS = [
   {
-    label: "Trade live",
-    shortLabel: "LIVE",
+    label: "Live",
+    shortLabel: "LV",
     sidebar: true,
     entries: [
       { id: "live", label: "Live markets", description: "Watch markets and live structure", icon: Activity },
@@ -72,8 +72,8 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     ],
   },
   {
-    label: `${PRODUCT_TERMS.replay} & improve`,
-    shortLabel: "REPLAY",
+    label: PRODUCT_TERMS.replay,
+    shortLabel: "RP",
     sidebar: true,
     entries: [
       { id: "sessions", label: `${PRODUCT_TERMS.replay} sessions`, description: "Start or resume deliberate practice", icon: PlaySquare },
@@ -85,8 +85,8 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     ],
   },
   {
-    label: `${PRODUCT_TERMS.journal} & review`,
-    shortLabel: "JOURNAL",
+    label: PRODUCT_TERMS.journal,
+    shortLabel: "JR",
     sidebar: true,
     entries: [
       { id: "journalSessions", label: `${PRODUCT_TERMS.journal} sessions`, description: "Capture and review live trading days", icon: PlaySquare },
@@ -100,8 +100,8 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
   },
   {
     label: "Workspace",
-    shortLabel: "SYSTEM",
-    sidebar: false,
+    shortLabel: "WS",
+    sidebar: true,
     entries: [
       { id: "globalSettings", label: `Workspace ${PRODUCT_TERMS.settings}`, description: "Manage data and workspace preferences", icon: Settings },
       { id: "feedback", label: "Feedback", description: "Share feedback with the EdgeLab team", icon: MessageSquareQuote },
@@ -114,7 +114,7 @@ export const MOBILE_PRIMARY_NAVIGATION = [
     destination: "live",
     icon: Activity,
     label: "Live",
-    matches: ["live", "positionSizeCalculator", "economicCalendar"],
+    matches: ["live", "orderFlow", "positionSizeCalculator", "economicCalendar"],
   },
   {
     destination: "sessions",

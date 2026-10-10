@@ -23,7 +23,7 @@ type Props = {
 };
 
 function sidebarItemClass(collapsed: boolean, active: boolean) {
-  return `group relative flex min-h-11 items-center rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/45 ${
+  return `group relative flex min-h-11 items-center rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${
     collapsed ? "w-11 justify-center" : "w-full gap-3 px-3 text-left"
   } ${
     active
@@ -80,12 +80,12 @@ export function Sidebar({
           {WORKSPACE_NAVIGATION_SECTIONS.filter((section) => section.sidebar).map((section) => (
             <section className="w-full" key={section.label}>
               <h2
-                className={`mb-2 flex min-h-5 items-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 ${
+                className={`mb-2 flex min-h-5 items-center text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)] ${
                   compact ? "justify-center" : "px-3"
                 }`}
                 title={compact ? section.label : undefined}
               >
-                {compact ? section.shortLabel.slice(0, 2) : section.label}
+                {compact ? section.shortLabel : section.label}
               </h2>
               <div className="grid gap-1">
                 {section.entries.map((entry) => {
@@ -106,26 +106,24 @@ export function Sidebar({
                             <Icon aria-hidden="true" size={SIDEBAR_ICON_SIZE} />
                           </span>
                           {!compact ? <span className="min-w-0 flex-1 truncate text-sm">{entry.label}</span> : null}
-                          {active ? <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-200" /> : null}
                         </button>
                         {!compact && active ? (
-                          <div className="mt-1 grid gap-1 pl-8">
+                          <div className="mt-1 grid grid-cols-2 gap-1 pl-3">
                             {entry.children.map((child) => {
                               const childActive = workspaceNavigationItemIsActive(child.id, activeView);
                               return (
                                 <button
                                   aria-current={childActive ? "page" : undefined}
-                                  className={`flex min-h-9 items-center justify-between gap-2 rounded-lg px-3 text-left text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/45 ${
+                                  className={`flex min-h-9 items-center justify-between gap-2 rounded-lg px-3 text-left text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] ${
                                     childActive
-                                      ? "bg-white/[0.07] font-semibold text-white"
-                                      : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"
+                                      ? "bg-[var(--ui-navigation-active)] font-semibold text-[var(--text-primary)]"
+                                      : "text-[var(--text-secondary)] hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)]"
                                   }`}
                                   key={child.id}
                                   onClick={() => onNavigate(child.id)}
                                   type="button"
                                 >
                                   <span className="truncate">{child.label}</span>
-                                  {childActive ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cyan-200" /> : null}
                                 </button>
                               );
                             })}
@@ -150,7 +148,6 @@ export function Sidebar({
                         <Icon aria-hidden="true" size={SIDEBAR_ICON_SIZE} />
                       </span>
                       {!compact ? <span className="min-w-0 flex-1 truncate text-sm">{entry.label}</span> : null}
-                      {active ? <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-200" /> : null}
                     </button>
                   );
                 })}

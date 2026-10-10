@@ -15,7 +15,21 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     folder_path: null, updated_at: new Date(now).toISOString(), timeframes: [{ timeframe: "1m",
       csv_path: `/fixtures/markets/${symbol}/1m.csv`, rows: 600, first_timestamp: new Date(history[0].time * 1000).toISOString(),
       last_timestamp: new Date(history.at(-1)!.time * 1000).toISOString(), imported: true, imported_at: new Date(now).toISOString() }] })) };
-  const sockets: any[] = [], events: any[] = [], storage = new Map<string, any>(), operations = new Map<string, any>(), requests: any[] = [];
+  const sockets: any[] = [], events: any[] = [], storage = new Map<string, any>(), requests: any[] = [];
+  type Receipt = { operation_id: string; method: string | null; path: string | null; status: "reserved" | "running" | "completed" | "canceled"; http_status: number | null; result: null; created_at: string; completed_at: string | null };
+  const operations = new Map<string, Receipt>();
+  let operationRevision = 0;
+  const receiptKey = (authorization: string | undefined, id: string) => `${authorization ?? ""}:${id}`;
+  // A fallback response may fail, and a navigation may interrupt a running
+  // request. Only an actual response proves completion, just as on the API.
+  page.on("response", response => {
+    const request = response.request(), headers = request.headers(), id = headers["x-edgelab-operation-id"];
+    if (!id) return;
+    const receipt = operations.get(receiptKey(headers.authorization, id));
+    if (!receipt || receipt.status !== "running" || receipt.method !== request.method() || receipt.path !== new URL(request.url()).pathname.replace(/^\/api/, "")) return;
+    Object.assign(receipt, { status: "completed", http_status: response.status(), completed_at: new Date().toISOString() });
+    operationRevision += 1;
+  });
   let release!: () => void;
   const historyGate = new Promise<void>(resolve => { release = resolve; });
   let releaseNormalized!: () => void;
@@ -57,11 +71,25 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     if (endpoint === "/billing/status") return route.fulfill({ json: { provider: "stripe", mode: "live", configured: true, workspace_access: true, subscription_access: true,
       plan: "pro", status: "active", cadence: "monthly", current_period_end: session.expires_at, verified_at: session.created_at, refresh_required: false, cancel_at_period_end: false } });
     const operation = endpoint.match(/^\/app-data\/operations\/([0-9a-f-]+)\/(reserve|recover)$/);
-    if (operation) { const [, id, action] = operation;
-      if (action === "reserve") operations.set(id, { operation_id: id, ...request.postDataJSON(), status: "reserved", http_status: null, result: null, created_at: session.created_at, completed_at: null });
-      expect(operations.has(id)).toBe(true); return route.fulfill({ json: operations.get(id) }); }
+    if (operation) { const [, id, action] = operation, key = receiptKey(request.headers().authorization, id);
+      const existing = operations.get(key);
+      if (action === "reserve") {
+        const { method, path } = request.postDataJSON() as { method: string; path: string };
+        if (existing?.method != null && (existing.method !== method || existing.path !== path)) return route.fulfill({ status: 409, json: { detail: "Operation ID is already bound to another request" } });
+        if (!existing) { operations.set(key, { operation_id: id, method, path, status: "reserved", http_status: null, result: null, created_at: new Date().toISOString(), completed_at: null }); operationRevision += 1; }
+      } else if (!existing) {
+        const time = new Date().toISOString();
+        operations.set(key, { operation_id: id, method: null, path: null, status: "canceled", http_status: null, result: null, created_at: time, completed_at: time });
+        operationRevision += 1;
+      } else if (existing.status === "reserved") { Object.assign(existing, { status: "canceled", completed_at: new Date().toISOString() }); operationRevision += 1; }
+      return route.fulfill({ json: operations.get(key) }); }
     const bound = request.headers()["x-edgelab-operation-id"];
-    if (bound) { expect(operations.get(bound)).toMatchObject({ method: request.method(), path: endpoint, status: "reserved" }); Object.assign(operations.get(bound), { status: "completed", http_status: 200, completed_at: new Date().toISOString() }); }
+    if (bound) {
+      const receipt = operations.get(receiptKey(request.headers().authorization, bound));
+      if (!receipt || receipt.method !== request.method() || receipt.path !== endpoint || receipt.status !== "reserved") return route.fulfill({ status: 409, json: { detail: "Operation is unreserved, already started, or canceled. Verify its receipt before continuing." } });
+      receipt.status = "running";
+      operationRevision += 1;
+    }
     if (endpoint === "/datasets") return route.fulfill({ json: catalog });
     const encoded = endpoint.match(/^\/app-storage\/edgelab\/(.+)$/)?.[1];
     if (encoded) { const key = decodeURIComponent(encoded); if (request.method() === "PUT") storage.set(key, structuredClone(request.postDataJSON().value));
@@ -132,5 +160,19 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     for (const socket of sockets) if (socket.url().endsWith("btcusdt@kline_5m")) socket.send(JSON.stringify(event));
   };
   const nativeReady = () => sockets.some(socket => socket.url().endsWith("btcusdt@kline_5m"));
-  return { history, events, requests, storage, emit, emitNative, nativeReady, releaseHistory: release, releaseNormalized };
+  const unfinishedAccountOperations = () => [...operations.values()].filter(receipt => receipt.status === "reserved" || receipt.status === "running").length;
+  const waitForAccountWrites = async () => {
+    let revision = operationRevision, idleSince = 0;
+    await expect.poll(async () => {
+      const markers = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("edgelab.app-data-uncertain.v1.")).length);
+      if (unfinishedAccountOperations() || markers || revision !== operationRevision) {
+        revision = operationRevision; idleSince = 0; return false;
+      }
+      idleSince ||= Date.now();
+      // Observe a full quiet cycle beyond the chart's 700ms save debounce.
+      // Interrupted/unverified writes fail this wait; they are never erased.
+      return Date.now() - idleSince >= 900;
+    }, { timeout: 15_000, intervals: [100], message: "Account writes must be confirmed before a full page navigation" }).toBe(true);
+  };
+  return { history, events, requests, storage, emit, emitNative, nativeReady, releaseHistory: release, releaseNormalized, unfinishedAccountOperations, waitForAccountWrites };
 }

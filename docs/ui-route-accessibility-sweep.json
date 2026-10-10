@@ -30,6 +30,21 @@
     "/app/reports": { "mode": "test", "path": "/app/reports" },
     "/app/quant": { "mode": "test", "path": "/app/quant" },
     "/app/settings": { "mode": "exempt", "kind": "alias", "target": "/app/settings/global", "reason": "Settings root resolves to the default global category." },
-    "/app/settings/:category": { "mode": "test", "path": "/app/settings/global" }
+    "/app/settings/:category": { "mode": "test", "path": "/app/settings/global" },
+    "/app/accounts": { "mode": "test", "path": "/app/accounts" },
+    "/app/economic-calendar": { "mode": "test", "path": "/app/economic-calendar" },
+    "/app/feedback": { "mode": "test", "path": "/app/feedback" },
+    "/app/journal/finance": { "mode": "test", "path": "/app/journal/finance" },
+    "/app/journal/playbooks": { "mode": "test", "path": "/app/journal/playbooks" },
+    "/app/journal/sessions": { "mode": "test", "path": "/app/journal/sessions" },
+    "/app/journal/strategies": { "mode": "test", "path": "/app/journal/strategies" },
+    "/app/playbooks": { "mode": "test", "path": "/app/playbooks" },
+    "/app/position-size": { "mode": "test", "path": "/app/position-size" },
+    "/app/replay-settings": { "mode": "test", "path": "/app/replay-settings" },
+    "/app/results/calendar": { "mode": "test", "path": "/app/results/calendar" },
+    "/app/results/notes": { "mode": "test", "path": "/app/results/notes" },
+    "/app/results/overview": { "mode": "test", "path": "/app/results/overview" },
+    "/app/results/trades": { "mode": "test", "path": "/app/results/trades" },
+    "/app/strategies": { "mode": "test", "path": "/app/strategies" }
   }
 }

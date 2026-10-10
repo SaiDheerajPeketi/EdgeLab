@@ -4,7 +4,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
 import { flushSync } from "react-dom";
 import { assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant } from "./lib/appDataBarrier";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -192,7 +192,7 @@ import {
   type WorkspaceShareScope,
 } from "./lib/workspaceShare";
 import type { WorkspaceView } from "./lib/workspace";
-import { workspaceViewFromPath } from "./lib/workspaceRoute";
+import { workspaceHrefForView, workspaceViewFromPath } from "./lib/workspaceRoute";
 import { rememberWindowScroll, restoreWindowScroll } from "./lib/navigationState";
 import {
   loadWorkspaceSidebarCollapsed,
@@ -338,6 +338,7 @@ const VALID_CHART_STYLES: ChartStyle[] = [
 
 export function WorkspaceApp() {
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     bars,
     barOffset,
@@ -1369,7 +1370,11 @@ export function WorkspaceApp() {
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (activeWorkspace !== "backtest" || sessionGateOpen) return;
       const target = event.target as HTMLElement | null;
+      const scrollRegion = target instanceof Element ? target.closest<HTMLElement>('[role="region"][tabindex="0"]') : null;
+      if (scrollRegion && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "PageUp", "PageDown", "Home", "End"].includes(event.key)
+        && (scrollRegion.scrollWidth > scrollRegion.clientWidth || scrollRegion.scrollHeight > scrollRegion.clientHeight)) return;
       const isTyping =
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
@@ -1489,7 +1494,7 @@ export function WorkspaceApp() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, playbackStepBars, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, stepBackward, stepForward, undoLastDrawingChange]);
+  }, [activeWorkspace, sessionGateOpen, drawingTool, isChartFullscreen, isPlaying, playbackStepBars, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, stepBackward, stepForward, undoLastDrawingChange]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
@@ -1723,6 +1728,8 @@ export function WorkspaceApp() {
   function navigateWorkspace(view: WorkspaceView) {
     rememberWindowScroll(activeWorkspace);
     setNotebookReturnTarget(null);
+    const href = workspaceHrefForView(view, window.location.hash);
+    if (window.location.pathname + window.location.hash !== href) navigate(href);
     flushSync(() => setActiveWorkspace(view));
     if (view === "sessions") {
       setPlaying(false);
@@ -3119,13 +3126,9 @@ export function WorkspaceApp() {
           ) : null}
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <Suspense fallback={<WorkspaceLoadingPanel />}>
-              <WorkspaceContextHeader
-                activeView={activeWorkspace}
-                connection={activeWorkspace === "live" ? "connected" : "local"}
-                onBack={() => navigateWorkspace("sessions")}
-                onOpenSettings={() => navigateWorkspace("globalSettings")}
-                scope={activeWorkspace === "live" ? `${activeChartPane.symbol} · ${formatChartTimeframeLabel(activeChartPane.timeframe)}` : undefined}
-              />
+              {activeWorkspace === "live" ? null : (
+                <WorkspaceContextHeader activeView={activeWorkspace} />
+              )}
               <EdgeLabWorkspace
                 activeSession={state?.session ?? null}
                 datasets={datasets}
@@ -3190,8 +3193,6 @@ export function WorkspaceApp() {
             <>
               <WorkspaceContextHeader
                 activeView="sessions"
-                connection={state?.session ? "local" : "offline"}
-                onOpenSettings={() => navigateWorkspace("globalSettings")}
                 scope={state?.session ? `${formatMarketSymbol(state.session.symbol)} · Session #${state.session.id}` : "Choose or create a replay session"}
               />
               {error && !resultSessionsLoadError && (

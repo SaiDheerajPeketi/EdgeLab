@@ -36,11 +36,14 @@ type CompatibilityGroupParity = Omit<CompatibilityRouteParity, "actionExemption"
 /** Every concrete product deep link that can be served by a compatibility renderer. */
 export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly string[]>> = Object.freeze({
   public: ["/", "/pricing", "/privacy", "/terms", "/auth/signin"],
-  shell: ["/app"],
+  shell: ["/app", "/app/accounts", "/app/economic-calendar", "/app/feedback", "/app/playbooks",
+    "/app/position-size", "/app/replay-settings", "/app/results/calendar", "/app/results/notes",
+    "/app/results/overview", "/app/results/trades", "/app/strategies"],
   journal: [
     "/app/journal", "/app/journal/dashboard", "/app/journal/accounts", "/app/journal/trades",
     "/app/journal/analytics", "/app/journal/notes", "/app/journal/calendar",
     "/app/journal/reports", "/app/journal/settings", "/app/reports",
+    "/app/journal/finance", "/app/journal/playbooks", "/app/journal/sessions", "/app/journal/strategies",
   ],
   settings: [
     "/app/settings", "/app/settings/global", "/app/settings/journal", "/app/settings/backtest",

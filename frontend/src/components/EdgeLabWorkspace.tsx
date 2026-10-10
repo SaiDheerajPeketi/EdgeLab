@@ -2843,7 +2843,7 @@ function PositionSizeCalculatorPage() {
           </div>
           <span className="status-pill h-8 px-2 text-[11px]">{accountCurrency} account</span>
         </div>
-        <div className="overflow-auto">
+        <div aria-label="Position size lot ladder" role="region" tabIndex={0} className="overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ui-focus)]">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
@@ -8007,7 +8007,7 @@ function FinanceTrackerPage({ journalAccounts }: { journalAccounts: LiveJournalA
             <MiniMetric label="Prop expenses" value={formatCompactMoney(propExpenseTotal, summaryCurrency)} />
             <MiniMetric label="Setup fees" value={formatCompactMoney(propChallengeFees, summaryCurrency)} />
           </div>
-          <div className="mt-4 overflow-auto rounded-md border border-white/10 bg-black/20">
+          <div aria-label="Income and expense history" role="region" tabIndex={0} className="mt-4 overflow-auto rounded-md border border-white/10 bg-black/20 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>

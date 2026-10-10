@@ -53,7 +53,10 @@ export function TradeLog({
       </div>
 
       <div
-        className="max-h-[476px] overflow-auto"
+        aria-label="Trade log table"
+        role="region"
+        tabIndex={0}
+        className="max-h-[476px] overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ui-focus)]"
         onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
         ref={scrollContainerRef}
       >

@@ -505,9 +505,21 @@ export async function certifyUiState(page: Page) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${density} density horizontal overflow`).toBeLessThanOrEqual(1);
       if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) {
         const undersized = await page.locator('button:visible, a[href]:visible, input:visible, select:visible, textarea:visible, [role="button"]:visible, [role="option"]:visible').evaluateAll((nodes) => nodes.filter((node) => !node.closest("[inert]")).map((node) => {
-          const rect = node.getBoundingClientRect();
-          return { height: rect.height, label: node.getAttribute("aria-label") || node.textContent?.trim()?.slice(0, 60), width: rect.width };
-        }).filter((item) => item.height < 44 || item.width < 44));
+          const inputRect = node.getBoundingClientRect();
+          const nativeChoice = node instanceof HTMLInputElement && (node.type === "checkbox" || node.type === "radio");
+          // The real associated label is the browser's activation target for a
+          // compact native choice. Never substitute an arbitrary ancestor.
+          const label = nativeChoice ? Array.from(node.labels ?? []).find(label => label.contains(node)) : null;
+          const rect = label?.getBoundingClientRect() ?? inputRect;
+          const inside = inputRect.left >= rect.left && inputRect.right <= rect.right
+            && inputRect.top >= rect.top && inputRect.bottom <= rect.bottom;
+          const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+          const centerOnscreen = x >= 0 && x < innerWidth && y >= 0 && y < innerHeight;
+          const hit = label && centerOnscreen ? document.elementFromPoint(x, y) : null;
+          const invalidLabel = label != null && (!inside || label.closest("[inert]") != null
+            || getComputedStyle(label).pointerEvents === "none" || centerOnscreen && (!hit || !label.contains(hit)));
+          return { height: rect.height, label: node.getAttribute("aria-label") || label?.textContent?.trim()?.slice(0, 60) || node.textContent?.trim()?.slice(0, 60), width: rect.width, invalidLabel };
+        }).filter((item) => item.height < 44 || item.width < 44 || item.invalidLabel));
         expect(undersized, `${density} density coarse-pointer targets below 44px`).toEqual([]);
       }
     }

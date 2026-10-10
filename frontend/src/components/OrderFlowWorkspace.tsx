@@ -52,29 +52,29 @@ export function OrderFlowWorkspace() {
   return (
     <section
       aria-labelledby="order-flow-heading"
-      className="flex min-h-full min-w-0 flex-col bg-[#080c11] text-slate-100"
+      className="flex min-h-full min-w-0 flex-col bg-[var(--ui-surface)] text-[var(--text-primary)]"
       data-order-flow-state={state}
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ui-border-subtle)] px-4 py-3 sm:px-5">
         <div className="min-w-0">
-          <h2 id="order-flow-heading" className="text-lg font-semibold tracking-[-0.02em] text-white sm:text-xl">
+          <h2 id="order-flow-heading" className="sr-only">
             Order flow
           </h2>
-          <p className="mt-1 max-w-[70ch] text-sm leading-5 text-slate-400">
+          <p className="mt-1 max-w-[70ch] text-sm leading-5 text-[var(--text-secondary)]">
             Footprint data appears only when the selected feed supplies trade-level bid and ask attribution.
           </p>
         </div>
-        <div aria-label="Order-flow source" className="flex flex-wrap items-center gap-2 text-xs tabular-nums text-slate-300">
+        <div aria-label="Order-flow source" className="flex flex-wrap items-center gap-2 text-xs tabular-nums text-[var(--text-secondary)]">
           <label className="sr-only" htmlFor="order-flow-instrument">Instrument</label>
-          <select id="order-flow-instrument" aria-label="Instrument" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !instruments.length} onChange={(event) => selectInstrument(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
+          <select id="order-flow-instrument" aria-label="Instrument" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture || !instruments.length} onChange={(event) => selectInstrument(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
             {!instruments.length ? <option value="">{fixture ? "BTCUSDT · E2E fixture" : "No normalized instruments"}</option> : instruments.map((instrument) => <option key={instrument.id} value={instrument.id}>{instrument.canonical_symbol}</option>)}
           </select>
           <label className="sr-only" htmlFor="order-flow-timeframe">Timeframe</label>
-          <select id="order-flow-timeframe" aria-label="Timeframe" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture} onChange={(event) => setIntervalSeconds(Number(event.target.value))} value={intervalSeconds}>
+          <select id="order-flow-timeframe" aria-label="Timeframe" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture} onChange={(event) => setIntervalSeconds(Number(event.target.value))} value={intervalSeconds}>
             <option value={60}>1m</option><option value={300}>5m</option><option value={900}>15m</option><option value={3600}>1h</option>
           </select>
           <label className="sr-only" htmlFor="order-flow-provider">Provider</label>
-          <select id="order-flow-provider" aria-label="Provider" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !providers.length} onChange={(event) => setProvider(event.target.value)} value={provider}>
+          <select id="order-flow-provider" aria-label="Provider" className="input-control min-h-11 w-auto max-w-full rounded-md px-2.5" disabled={fixture || !providers.length} onChange={(event) => setProvider(event.target.value)} value={provider}>
             <option value="">All providers</option>{providers.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </div>
@@ -94,16 +94,16 @@ export function OrderFlowWorkspace() {
 function LoadingState() {
   return (
     <div aria-label="Order-flow loading state" className="w-full max-w-5xl" role="status">
-      <div className="flex items-center gap-3 text-sm text-slate-300">
+      <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)]">
         <span aria-hidden="true" className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300" />
         Verifying feed capabilities and requesting trade-level aggregates…
       </div>
       <div aria-hidden="true" className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="h-72 animate-pulse rounded-xl bg-white/[0.045] sm:h-96" />
+        <div className="h-72 animate-pulse rounded-xl bg-[var(--ui-raised)] sm:h-96" />
         <div className="grid gap-3">
-          <div className="h-24 animate-pulse rounded-xl bg-white/[0.045]" />
-          <div className="h-24 animate-pulse rounded-xl bg-white/[0.045]" />
-          <div className="h-24 animate-pulse rounded-xl bg-white/[0.045]" />
+          <div className="h-24 animate-pulse rounded-xl bg-[var(--ui-raised)]" />
+          <div className="h-24 animate-pulse rounded-xl bg-[var(--ui-raised)]" />
+          <div className="h-24 animate-pulse rounded-xl bg-[var(--ui-raised)]" />
         </div>
       </div>
     </div>
@@ -118,25 +118,25 @@ function AvailableState({ detail, fixture, footprint }: { detail: string; fixtur
   const total = Number(footprint?.total_volume ?? bid + ask);
   return (
     <div className="grid w-full max-w-6xl gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]" data-order-flow-source={fixture ? "e2e-deterministic-fixture" : "persisted-provider-footprint"}>
-      <div className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0b1118]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--ui-border-subtle)] px-4 py-3">
           <div>
-            <h2 className="font-semibold text-white">Bid × ask footprint</h2>
-            <p className="mt-0.5 text-xs text-slate-400">{fixture ? "E2E deterministic fixture · never used in production" : detail}</p>
+            <h2 className="font-semibold text-[var(--text-primary)]">Bid × ask footprint</h2>
+            <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{fixture ? "E2E deterministic fixture · never used in production" : detail}</p>
           </div>
-          <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-200">{fixture ? "Test fixture" : footprint?.complete ? "Provider aggregate" : "Partial aggregate"}</span>
+          <span className="rounded-full bg-[var(--profit-soft)] px-2.5 py-1 text-xs font-medium text-[var(--profit-text)]">{fixture ? "Test fixture" : footprint?.complete ? "Provider aggregate" : "Partial aggregate"}</span>
         </div>
         <div className="overflow-x-auto p-3 sm:p-5">
           <table className="w-full border-separate border-spacing-y-1 font-mono text-[11px] tabular-nums sm:text-xs" aria-label="Order-flow price levels">
-            <thead className="text-slate-500">
+            <thead className="text-[var(--text-secondary)]">
               <tr><th className="px-3 py-2 text-right font-medium">Bid volume</th><th className="px-3 py-2 text-center font-medium">Price</th><th className="px-3 py-2 text-left font-medium">Ask volume</th></tr>
             </thead>
             <tbody>
               {displayedLevels.map((level) => (
                 <tr key={String(level.price)}>
-                  <td className="rounded-l-md bg-rose-300/10 px-3 py-3 text-right text-rose-100">{formatNumber(level.bid_volume)}</td>
-                  <th scope="row" className="bg-white/[0.035] px-3 py-3 text-center font-medium text-slate-200">{formatNumber(level.price, 8)}</th>
-                  <td className="rounded-r-md bg-cyan-300/10 px-3 py-3 text-left text-cyan-100">{formatNumber(level.ask_volume)}</td>
+                  <td className="rounded-l-md bg-[var(--loss-soft)] px-3 py-3 text-right text-[var(--loss-text)]">{formatNumber(level.bid_volume)}</td>
+                  <th scope="row" className="bg-[var(--ui-hover)] px-3 py-3 text-center font-medium text-[var(--text-primary)]">{formatNumber(level.price, 8)}</th>
+                  <td className="rounded-r-md bg-[var(--ui-selection)] px-3 py-3 text-left text-[var(--text-accent)]">{formatNumber(level.ask_volume)}</td>
                 </tr>
               ))}
             </tbody>
@@ -146,14 +146,14 @@ function AvailableState({ detail, fixture, footprint }: { detail: string; fixtur
       <aside aria-label="Order-flow summary" className="grid content-start gap-3 sm:grid-cols-3 lg:grid-cols-1">
         <Metric label="Bar delta" value={`${delta >= 0 ? "+" : "−"}${formatNumber(Math.abs(delta))}`} detail="Ask-attributed minus bid-attributed volume" />
         <Metric label="Total volume" value={formatNumber(total)} detail="Attributed and unknown trades in this aggregate" />
-        <Metric label="Provenance" value={fixture ? "E2E only" : footprint?.provider ?? "Provider"} detail={fixture ? "Synthetic values for visual regression" : `Ended ${new Date(orderFlowUtcTimestamp(footprint!.end_at)!).toLocaleString()}`} />
+        <Metric label="Source" value={fixture ? "E2E only" : footprint?.provider ?? "Provider"} detail={fixture ? "Synthetic values for visual regression" : `Ended ${new Date(orderFlowUtcTimestamp(footprint!.end_at)!).toLocaleString()}`} />
       </aside>
     </div>
   );
 }
 
 function Metric({ detail, label, value }: { detail: string; label: string; value: string }) {
-  return <div className="rounded-xl bg-white/[0.045] p-4"><div className="text-xs text-slate-400">{label}</div><div className="mt-2 text-2xl font-semibold tabular-nums text-white">{value}</div><p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p></div>;
+  return <div className="rounded-xl bg-[var(--ui-raised)] p-4"><div className="text-xs text-[var(--text-secondary)]">{label}</div><div className="mt-2 text-2xl font-semibold tabular-nums text-[var(--text-primary)]">{value}</div><p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{detail}</p></div>;
 }
 
 function StaleState({ detail, onRetry }: { detail: string; onRetry: () => void }) {
@@ -170,16 +170,16 @@ function ErrorState({ detail, onRetry }: { detail: string; onRetry: () => void }
 
 function StatePanel({ action, detail, icon: Icon, onAction, role, title, tone }: { action: string; detail: string; icon: LucideIcon; onAction: () => void; role: "alert" | "status"; title: string; tone: "amber" | "rose" | "slate" }) {
   const tones = {
-    amber: "bg-amber-300/10 text-amber-200",
-    rose: "bg-rose-300/10 text-rose-200",
-    slate: "bg-white/[0.06] text-white",
+    amber: "bg-[var(--warning-soft)] text-[var(--warning-text)]",
+    rose: "bg-[var(--loss-soft)] text-[var(--loss-text)]",
+    slate: "bg-[var(--ui-hover)] text-[var(--text-primary)]",
   } as const;
   return (
-    <div className="w-full max-w-xl rounded-xl border border-white/10 bg-[#0b1118] p-5 shadow-[0_14px_40px_rgba(0,0,0,0.24)] sm:p-7" role={role}>
+    <div className="w-full max-w-xl rounded-xl border border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] p-5 shadow-[0_14px_40px_rgba(0,0,0,0.24)] sm:p-7" role={role}>
       <div className={`grid h-11 w-11 place-items-center rounded-xl ${tones[tone]}`}><Icon aria-hidden="true" size={20} /></div>
-      <h2 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-white sm:text-2xl">{title}</h2>
-      <p className="mt-2 max-w-[62ch] text-sm leading-6 text-slate-300">{detail}</p>
-      <button className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white outline-none transition hover:bg-white/[0.1] focus-visible:ring-2 focus-visible:ring-cyan-300/70" onClick={onAction} type="button">
+      <h2 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-[var(--text-primary)] sm:text-2xl">{title}</h2>
+      <p className="mt-2 max-w-[62ch] text-sm leading-6 text-[var(--text-secondary)]">{detail}</p>
+      <button className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--ui-border-strong)] bg-[var(--ui-hover)] px-4 text-sm font-semibold text-[var(--text-primary)] outline-none transition hover:bg-[var(--ui-pressed)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]" onClick={onAction} type="button">
         <RefreshCw aria-hidden="true" size={16} />{action}
       </button>
     </div>
