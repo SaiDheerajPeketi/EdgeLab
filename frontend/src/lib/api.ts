@@ -860,6 +860,8 @@ function operationSpecification(path: string, init?: RequestInit) {
   return { method, path: normalized };
 }
 
+// Capture ownership before I/O; replacement receipts and the data barrier decide
+// whether the response can publish. An ambiguous mutation must not be retried blindly.
 async function request<T>(path: string, init?: RequestInit, replacement?: { operation: AppDataOperation; owner: ReturnType<typeof appDataOwner>; markSent: () => void }): Promise<T> {
   if (normalizedApiPath(path) === "/app-data/import" && !replacement) throw new Error("Use the validated account data import flow.");
   const access = !replacement && coordinatedPath(path) ? captureAppDataAccess() : null;

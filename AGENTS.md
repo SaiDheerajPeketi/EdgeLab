@@ -1,94 +1,76 @@
-# EdgeLab Agent Guide
+# EdgeLab agent guide
 
-## Scope
+These instructions apply to the whole repository. Read the [documentation index](docs/README.md), [architecture](docs/architecture.md) and [change map](docs/maintenance.md#change-map) as needed; source code and checked-in defaults settle conflicting descriptions.
 
-These instructions apply to the whole repository.
+## Working method
 
-## Runtime Shape
+- Inspect the smallest relevant source/test set and choose the shortest correct implementation. Favor existing patterns and targeted changes over broad refactors.
+- Prefix every shell command and every chained segment with `rtk`; use `rtk proxy` for commands without a dedicated wrapper. Prefer Graphify or compressed context when they reduce work without losing correctness.
+- Preserve user-owned changes. Stage explicit task-owned paths, not the whole working tree. Never reset another contributor's files or clean unrelated services, Docker resources or worktrees.
+- Comments explain invariants, ownership, units or non-obvious failure behavior. Do not narrate obvious code, copy environment defaults into comments or advertise internal plans in product copy.
+- Verify uncertain dependencies, schemas and behavior from source/tests. Report remaining limitations precisely. Commit each complete iteration separately after its required checks.
 
-- The primary backend is the FastAPI app in `backend/app`.
-- The primary frontend is the Vite React app in `frontend`.
-- The legacy Node API in `backend/index.js` is kept for compatibility and is exposed only through the optional `legacy-node-api` Docker Compose profile.
-- The default deploy path is Docker Compose with FastAPI behind Nginx-served static frontend assets.
-- The default Compose auth provider is Better Auth in `backend/auth`, using Node 22.13+ and an isolated `auth-data` SQLite volume. Nginx routes `/api/better-auth/*` to `auth:3002`; FastAPI uses the fixed internal service URL and distinct service key for verified Google session introspection/revocation. Keep its workspace dependency, Docker build inputs, read-only Google credentials-file mount and matching source-offer allowlist in sync. Direct development defaults to legacy auth unless explicitly enabled; local Compose selects beta with a separate developer bypass.
-- Keep API `EDGELAB_DEPLOYMENT_MODE` and browser `VITE_DEPLOYMENT_MODE` aligned. Production is the default; local Compose explicitly selects beta. Data exports require a verified live active subscription in either mode.
+## Runtime and data ownership
 
-## Files That Must Stay In Sync
+- React/Vite in `frontend` is the browser; FastAPI in `backend/app` owns application behavior. Production `api` and `market-api` run the same Python package with proxy workload partitioning.
+- Better Auth in `backend/auth` owns the Google/session protocol. Compose uses it by default; native development uses legacy auth unless explicitly enabled. Its Node runtime requires 22.13+ for the native SQLite implementation.
+- The legacy Node API in `backend/index.js` is compatibility-only and optional through `legacy-node-api`.
+- Base production Compose uses application PostgreSQL and separate Timescale candle storage through PgBouncer. `docker-compose.efficient.yml` shares indexed candle storage with application PostgreSQL for new installs; it is not a migration of existing market data. Its `!override` syntax requires Compose 2.24.4+.
+- Local Compose explicitly uses beta/development mode and separate `/var/lib/edgelab/edgelab.db` and `/var/lib/edgelab/market_data.db` SQLite files in `local-api-data`. Native defaults select loopback PostgreSQL unless explicit URLs are supplied. The native launcher does not automatically load `.env`.
+- Base Compose auth has its own `auth-data` SQLite volume; local Compose uses `local-auth-data`. Independent auth replicas require a deliberately configured direct PostgreSQL writer and dedicated schema, common signing/service keys and origin. Store switching requires a migration or re-login.
+- Application SQL owns durable accounts, billing, preferences, trades, replay and jobs. Redis owns disposable bounded caches/admission; browser caches never establish identity, entitlement or server commit.
+- APIs mount dataset folders read-only at `/datasets`. The optional data populator writes M1/derived CSVs and its `.edgelab-data-populator-manifest.json`, with `${EDGELAB_DATA_POPULATOR_USER:-0:0}` ownership. `EDGELAB_CSV_PATH` is an explicit optional legacy replay path.
 
-When changing deployment, environment variables, API routing, build commands, or persistent data paths, update all relevant files in the same change:
+## Contracts to preserve
 
-- `docker-compose.yml`
-- `.env.example`
-- `.dockerignore`
-- `backend/Dockerfile`
-- `backend/Dockerfile.node` when the legacy Node API is affected
-- `backend/auth/Dockerfile` and `backend/auth/package.json` when the Better Auth service is affected
-- `frontend/Dockerfile`
-- `docker/nginx.conf`
-- `README.md`
-- `backend/README.md`
-- `frontend/README.md`
-- `AGENTS.md` when maintenance rules change
+- Keep API `EDGELAB_DEPLOYMENT_MODE` and browser `VITE_DEPLOYMENT_MODE` aligned. Production is the default; beta presentation and local bypass do not grant paid access. Exports require verified active **live** paid access in every mode.
+- Keep tenant IDs and captured account/replay generations across asynchronous work. Preserve account-data operation receipts, acknowledged storage writes and stale-response barriers. Route guards and numeric IDs are not authorization.
+- Better Auth introspection/revocation uses a fixed private service URL and distinct service key. Preserve native origin/CSRF checks and verify actual session deletion across replicas. Persisted secrets use the server keyring; supported transient browser broker credentials go only in authenticated first WebSocket messages, never URLs/logs/shares.
+- Nginx serves `${FRONTEND_PORT:-8080}` with browser `VITE_API_BASE_URL=/api`; Better Auth routes reach `auth:3002`, market routes reach `market-api:8000`, and ordinary API routes reach `api:8000`. Preserve private/error `no-store` responses and CDN bypass for private/auth/stream/export traffic.
+- Preserve socket-address Google exchange proxy admission, JSON 429, `Retry-After` and security headers. Configured Redis admission fails closed on Redis errors; only an unset URL permits bounded process-local fallback.
+- Migrations and candle initialization precede API workers. `create_all` is not a migration of existing columns. Equal database URLs share an engine; pools, thread headroom and request queues stay bounded. Ingestion/analytics and auth migration advisory locks must span the actual shared transaction/pinned connection.
+- Pine source/override hashes and worker sandbox/nonce/message schemas are release contracts. Do not patch installed upstream packages, fabricate provider candles, leak replay future bars or claim full TradingView equivalence from local tests.
+- Observability aggregates all workers in a fresh private per-master directory, retires dead-worker live gauges and measures the full ASGI lifecycle. Preserve finite labels, redaction, bounded export queues, private monitor services and guarded Docker discovery. Never expose inspect environments or enable unsanitized trace providers.
+- Capacity/HA claims require realistic distinct accounts, full-wall SLOs, generator headroom, explicit network exclusions and independent failure-domain/failover tests. Respect shared-machine resource coordination; do not restart another task's VM or run confounded load tests.
 
-When changing Python dependencies, update `backend/requirements.txt` and confirm the backend Dockerfile still installs cleanly.
+## Coupled files and upgrade discipline
 
-When changing frontend dependencies or build behavior, update `frontend/package.json`, `package-lock.json`, and confirm `frontend/Dockerfile` still builds the production bundle.
+Update applicable files together when changing deployment, configuration, routing, persistence or builds:
 
-When changing API prefixes or proxy behavior, update `docker/nginx.conf`, frontend `VITE_API_BASE_URL` guidance, and the Docker Compose service health assumptions.
+- `docker-compose.yml`, relevant overlays including efficient/local/observability, `.env.example`, `.dockerignore` and `docker/nginx.conf`;
+- `backend/Dockerfile`, `frontend/Dockerfile`, `backend/auth/Dockerfile`, and `backend/Dockerfile.node` if legacy behavior changes;
+- runtime settings, browser public settings, startup/migration scripts and the source-release allowlist;
+- root/component READMEs, the canonical guide in `docs`, and this file when maintenance rules change.
 
-## Deployment Assumptions
+Python runtime dependency changes update `backend/requirements.txt`; development tools use the development requirements. Frontend/auth dependency changes update their workspace manifests and root `package-lock.json`. Verify native modules and production images, not just installation. Keep Better Auth browser/server, OTel SDK/exporter/instrumentation, and Pine version/manifests/overrides coordinated. Use [maintenance](docs/maintenance.md) for expand/backfill/contract, backup, rollback and dependency checks. Record significant decisions under [docs/decisions](docs/decisions/README.md).
 
-- The Docker Compose frontend publishes Nginx on `${FRONTEND_PORT:-8080}`.
-- The frontend image is built with `VITE_API_BASE_URL=/api`.
-- Nginx proxies `/api/*` to the FastAPI service at `api:8000`.
-- The exact Google exchange proxy route uses a 10 MB socket-address limit zone at 10 requests/minute with burst 3; forwarded headers must not select the admission key. Preserve JSON 429, `Retry-After: 6`, and inherited security headers when changing that route.
-- Google exchange API admission uses configured Redis for its shared 120/60-second budget and fails closed on Redis errors; an unset URL permits only a bounded process-local fallback. Compose APIs wait for Redis health.
-- FastAPI stores its SQLite database at `/var/lib/edgelab/trade_journal_v2.db` in the `api-data` named volume.
-- The default Compose deployment is dataset-root driven.
-- Dataset folders are mounted read-only at `/datasets` for the API.
-- The scheduled `data-populator` service mounts `/datasets` read-write, runs as `${EDGELAB_DATA_POPULATOR_USER:-0:0}`, updates M1 dataset CSVs, and derives configured higher-timeframe CSVs from M1 data.
-- The data populator maintains `.edgelab-data-populator-manifest.json` under the dataset root for local resume metadata.
-- The legacy single-file replay path is optional and should only be enabled with an explicit `EDGELAB_CSV_PATH`.
+## Required verification
 
-## Required Verification
-
-Run these checks before committing code or deployment changes:
+Before committing code or deployment changes run the full baseline, with `rtk` prefixes:
 
 ```bash
-npm run build
-PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
-npm test
+rtk npm run build
+rtk proxy env PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
+rtk npm test
+rtk npm run check:docs
 ```
 
-Run Graphify after code changes so the code graph stays current:
+After code changes, refresh the graph:
 
 ```bash
-graphify update .
+rtk proxy graphify update .
 ```
 
-If Docker is available, also run:
+When Docker is available, validate Compose configuration and build affected images; include changed overlays/profiles. Use the installed Compose implementation (`docker compose` or `docker-compose`) and an explicitly owned context. If Docker is unavailable, state that limitation and still run non-Docker checks. Documentation-only changes require the documentation check and focused validator tests; source comments remain code changes and use the baseline.
 
-```bash
-docker compose config
-docker compose build
-```
+Real-store regressions require disposable `EDGELAB_TEST_REDIS_URL`, `EDGELAB_TEST_POSTGRES_URL` and direct-writer `EDGELAB_TEST_AUTH_POSTGRES_URL` fixtures. Default CI can skip those tests; report skips and do not treat that run as PostgreSQL/Redis/auth-replica certification. Add relevant browser, provider/sandbox, recovery, migration or multi-worker checks when a boundary changes. Follow [validation tiers](docs/maintenance.md#validation-tiers); a build alone does not certify UX, payments, HA or cloud capacity.
 
-If Docker is unavailable in the current environment, state that limitation in the handoff and still run the non-Docker checks.
+## Git and release hygiene
 
-## Git Hygiene
+- Never commit credentials, local CSV datasets, SQLite databases, virtualenvs, generated bundles/source offers, private artifacts or the large `EURUSD_M1.csv`.
+- Prefer `codex/` names for new branches. A configured `.githooks/post-commit` hook auto-pushes commits; it is clone configuration, not a guaranteed CI release. Verify the remote after committing. Use `CODEX_AUTO_PUSH=0` only for an intentionally local commit; never force-push to conceal a failed push.
+- Build/test before interrupting service. Keep a restorable data backup, whole-image/source identity, health checks and a schema-aware rollback plan. The legacy Jenkins path has unsafe host-wide cleanup and is not the approved production release procedure.
 
-- Do not commit local data files, SQLite databases, virtualenvs, generated build output, or the large `EURUSD_M1.csv`.
-- Keep user-owned uncommitted changes separate from agent changes unless the task explicitly requires modifying those files.
-- Commit each complete feature or maintenance iteration separately.
+## Matching source offers
 
-## Matching Source Offers
-
-Pine-enabled browser builds run `scripts/source-release.mjs` before compilation and verify it afterward. Maintain its explicit runtime/build input allowlist when adding required scripts or configuration. The frontend Docker builder must receive the matching backend and Docker source inputs. Keep `frontend/public/source/` generated and ignored. Never add credentials, user records, datasets, internal planning documents or Git history to the source offer. Deploy API and browser images from the same checkout.
-
-## Production capacity maintenance
-
-Keep `docker-compose.efficient.yml` and the source-release allowlist synchronized with deployment changes. The efficient overlay is a new-install option using ordinary PostgreSQL and indexed SQL candles, existing worker defaults, full history and background ingestion/analytics; do not silently switch an existing market database. Main API migrations and candle schema initialization precede worker startup; dependent services wait for primary API health. SQL pool overflow is bounded. Market imports and analytics coordinate with PostgreSQL transaction advisory locks; do not replace them with process-local-only locks when scaling. Redis cache/admission state is intentionally disposable and bounded with noeviction; durable account/billing data belongs to SQL. Private API responses, including errors, remain no-store at the API and proxy. Capacity claims require distinct users, realistic data, endpoint/full-wall SLOs, generator headroom and explicit network/identity exclusions; never extrapolate local microbenchmarks to cloud user counts.
-
-Optional PostgreSQL Better Auth uses a dedicated schema and direct writer URL, bounded pools/statements, and a transaction advisory lock on the same pinned connection as schema migrations. Preserve native public CSRF/origin checks and confirmed cross-replica revocation; the upstream signOut success response alone does not prove deletion. Keep SQLite default behavior and explicit storage-switch/re-login guidance. Multi-node availability requires independent failure domains and survivor-load/failover tests.
-
-Observability must aggregate all Gunicorn workers using a private, fresh per-master metrics directory and dead-worker gauge cleanup. Preserve full ASGI lifecycle timing, finite method/template labels, sampled success logs, and query/value redaction. Never enable external/unsanitized trace providers. Monitor services stay optional/private; Alloy discovery is project/service-scoped, and its Docker API guard must reject unsafe endpoints and never expose actual inspect environments. Keep telemetry/cache/admission environment defaults, container forwarding, bounded retention/log rotation, source-release allowlists, rules, and operator docs synchronized.
+Pine-enabled browser builds generate `scripts/source-release.mjs` output before compilation and verify it afterward. Maintain its explicit runtime/build input allowlist and matching Docker build context when adding required inputs. Keep `frontend/public/source/` generated and ignored; never include credentials, customer records, datasets, internal planning documents or Git history. Deploy API and browser images from the same reviewed checkout.

@@ -16,6 +16,8 @@ The first viewport must show EdgeLab doing real work. Dense screens preserve the
 
 ## Foundations
 
+Workspace themes support dark, light and system preference through semantic tokens. The dark material is the default visual direction, not permission to hardcode dark colors in theme-aware controls. Apply the same layout, contrast, focus and financial meaning in each theme.
+
 - Background: `--ui-canvas`; operating surface: `--ui-surface`; inset data well: `--ui-inset`; floating and modal layers use their named elevation tokens.
 - Accent roles are interaction, selection, information, profit, loss, warning, and neutral. Purple is excluded. Strong destructive actions use `--danger-action`, `--danger-action-hover`, and `--on-danger-action`; their labels and confirmation remain explicit.
 - Instrument Sans is the interface voice. JetBrains Mono is limited to data, code, timestamps, and measurement.

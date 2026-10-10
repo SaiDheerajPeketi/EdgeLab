@@ -1,13 +1,22 @@
 # Repository scripts
 
-The scripts in this directory fall into three groups.
+Run package commands from the repository root. See [maintenance](../docs/maintenance.md) for release checks and [architecture](../docs/architecture.md) for code ownership.
 
 ## Development
 
-- `dev.js` starts FastAPI, Vite, and the compatibility Node API, reusing healthy services that are already running.
+- `dev.js` starts FastAPI, Vite and the compatibility Node API, reusing compatible healthy backends. It starts Better Auth only when `EDGELAB_AUTH_PROVIDER=better-auth` is set. Use [native setup](../docs/setup-and-deployment.md#native-development) for the preview environment; `dev:backend` is the legacy Node service.
 - `purge-vite-cache.js` is an explicit dependency-cache maintenance utility. Stop Vite first, then run `node scripts/purge-vite-cache.js` from the repository root. Production builds preserve the development cache; the normal dev command already forces dependency optimization on startup.
-- `audit-dependencies.sh` runs the Python and npm dependency audits.
+- `audit-dependencies.sh` audits npm dependencies and Python runtime requirements; it does not cover all image/OS or Python development dependencies.
 - `pine-engine.mjs` verifies the pinned PineTS source map and reviewed local source overrides, then resolves them into the isolated worker without modifying the installed package. `npm --prefix frontend run check:pine-engine` runs the integrity check; the frontend build runs it automatically. See [engine source notes](../frontend/vendor/pinets/README.md).
+
+## Builds and verification
+
+- `check-docs.mjs` validates maintained local Markdown links, anchors and fenced blocks without network access or runtime dependencies. Use `npm run check:docs`; the dedicated documentation workflow also runs its regression tests.
+
+- `source-release.mjs` creates and verifies the matching source offer from its explicit allowlist. Frontend production builds run it automatically. Build API, auth and browser from one checkout; do not manually publish generated `frontend/public/source/` or add private artifacts to the allowlist.
+- `npm ci` installs the root workspaces, including frontend and Better Auth. Use Node 22.13+ and Python 3.12 as described in [setup](../docs/setup-and-deployment.md).
+- `npm run build`, `npm test` and the backend pytest suite are release checks. GitHub's UI workflow also runs Playwright/accessibility gates; the security workflow runs dependency audits. These workflows do not deploy or prove recovery/HA behavior.
+- Database import/analytics commands and Python microbenchmarks live in `backend/scripts/`; use the root `market-data:*`, `analytics:*` and `bench:*` package scripts. Imports and analytics refreshes can write persistent stores; see [maintenance](../docs/maintenance.md) before applying them to a deployed database. HTTP stress tests require an isolated stack; see [load testing](../benchmark/README.md).
 
 ## UI contracts
 
@@ -15,7 +24,7 @@ The scripts in this directory fall into three groups.
 - `check-ui-release.mjs` checks rollout coverage and release evidence.
 - `check-ui-accessibility-certification.mjs` validates accessibility certification records.
 - `check-ui-route-accessibility-sweep.mjs` validates route-sweep evidence.
-- `check-ui-performance.mjs` enforces UI performance budgets. The isolated, on-demand Pine compiler/runtime has a separate 816,000-byte raw and 216,000-byte gzip ceiling; it is not a page route. The reviewed historical-magnifier build measured 812,718 raw bytes; its increase over the previous intrabar build is 2,896 raw bytes. Page, route and initial-load ceilings remain unchanged.
+- `check-ui-performance.mjs` measures built dependency graphs and the deferred Pine worker against the separate raw/compressed limits in [`docs/ui-performance-budgets.json`](../docs/ui-performance-budgets.json). Update reviewed budgets with actual evidence; do not copy historical byte ceilings into operating instructions.
 - `check-ui-motion.mjs` checks motion inventory and reduced-motion coverage.
 - `run-ui-accessibility-certification.mjs` runs the bounded Playwright accessibility certification.
 

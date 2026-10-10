@@ -24,10 +24,10 @@ Users switch between Live, Replay, Journal, Reports, Quant, and Settings; run on
 
 ## Capabilities and Constraints
 
-- Preserve the dark trading-terminal character, electric-cyan identity, chart plot area, expert shortcuts, and existing live/replay behavior.
+- Preserve the trading-terminal character, electric-cyan identity, chart plot area, expert shortcuts, and live/replay behavior across dark, light and system workspace themes.
 - Treat CME/tick order-flow access and external AI providers as entitled integrations with explicit unavailable states.
 - Never represent delayed, stale, partial, synthetic, or unsupported data as live verified data.
-- Broker secrets remain server-side; destructive actions require proportional confirmation.
+- Persisted broker/provider secrets remain encrypted and server-owned. Supported browser-entered transient feed credentials use authenticated first-message transport and stay out of URLs, logs and shares; destructive actions require proportional confirmation.
 - Public surfaces persuade; authenticated surfaces optimize repeated operation.
 
 ## Brand Commitments

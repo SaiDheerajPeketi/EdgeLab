@@ -1,90 +1,103 @@
 # Setup and deployment
 
-## Choose a mode
+Run commands from the repository root. Use [configuration](configuration.md) and `.env.example` for settings, [architecture](architecture.md) for service ownership, and [maintenance](maintenance.md) for release, backup and recovery procedures.
 
-- Use `docker-compose.local.yml` for one person on one machine. It is the shortest path and stores data in SQLite.
-- Use native development when editing the frontend or backend.
-- Use `docker-compose.yml` when you need the production service split, PostgreSQL, TimescaleDB, Redis, workers, or observability.
+## Choose a deployment
+
+| Choice | Intended use | Persistent stores |
+| --- | --- | --- |
+| `docker-compose.local.yml` | Single-user installation on a loopback address | SQLite application/candle databases and a separate SQLite auth volume |
+| `docker-compose.yml` | Default production service split | PostgreSQL application data, TimescaleDB candles, SQLite auth by default, dataset files |
+| Base Compose plus `docker-compose.efficient.yml` | New production installation using one indexed PostgreSQL store | Application data and candles on the same PostgreSQL server; auth remains separate |
+| Native `npm run dev` | Editing and previewing the application | Local development databases and datasets |
+| `legacy-node-api` profile | Compatibility testing of the old Node API | Separate legacy volumes |
+| `benchmark` profile / load scripts | Isolated workload measurements | Disposable benchmark fixtures; never customer data |
+
+The efficient overlay requires Docker Compose **2.24.4 or newer** for `!override`. It preserves the API service split and background workers while omitting the second database/pooler. It does not move existing candle data: migrating a split installation requires a reviewed copy/import, verification and rollback plan before changing database URLs. An explicit database URL takes precedence over host defaults; review those settings when selecting the overlay.
 
 ## Single-user Docker installation
 
-Requirements: Docker Engine or Docker Desktop with Compose v2.
+Requirements: Docker Engine or Docker Desktop with Compose v2. Keep production environment settings separate from this local installation.
 
 ```bash
-docker compose -f docker-compose.local.yml up --build -d
+EDGELAB_ENVIRONMENT=development docker compose -f docker-compose.local.yml up --build -d --wait
 ```
 
-Open <http://localhost:8080>. The web port is bound to loopback, and sign-in uses the loopback-only development bypass. Set `FRONTEND_PORT` to choose another port and `EDGELAB_DATASETS_ROOT` to mount a different dataset directory.
-
-Useful lifecycle commands:
+Open <http://localhost:8080>. Three services start: `auth`, `api` and `frontend`. The browser and API explicitly select beta mode; the API enables the loopback-only developer sign-in. The frontend port is bound to loopback. Set `FRONTEND_PORT` or `EDGELAB_DATASETS_ROOT` before startup to choose another port or dataset directory.
 
 ```bash
 docker compose -f docker-compose.local.yml logs -f
-docker compose -f docker-compose.local.yml down
-docker compose -f docker-compose.local.yml cp api:/var/lib/edgelab ./edgelab-local-backup
+docker compose -f docker-compose.local.yml stop
+docker compose -f docker-compose.local.yml start
 ```
 
-Normal `down` operations keep the `edgelab-local_local-api-data` volume. Adding `--volumes` permanently deletes the SQLite data.
+Normal `down` preserves both local data volumes. `down --volumes` deletes application and auth data. Back up both volumes and the dataset directory; stop writers before copying SQLite files so the database and any WAL files form a consistent snapshot. See [maintenance](maintenance.md) before upgrading or restoring.
 
 ## Native development
 
-Requirements: Node.js 20+, npm, Python 3.12, and a C/C++ toolchain if a Python dependency needs compilation.
+Use Node.js **22.13+**, npm and Python 3.12. The Better Auth workspace requires Node 22.13 or newer. Install a C/C++ toolchain if a dependency needs compilation.
 
 ```bash
-npm install
+npm ci
 python3.12 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
+backend/.venv/bin/pip install -r backend/requirements-dev.txt
+DATABASE_URL=sqlite:///./backend/edgelab-local.db PYTHONPATH=backend \
+  backend/.venv/bin/python -m alembic -c backend/alembic.ini upgrade head
+DATABASE_URL=sqlite:///./backend/edgelab-local.db \
+  EDGELAB_ENVIRONMENT=development EDGELAB_AUTH_PROVIDER=legacy \
+  EDGELAB_DEPLOYMENT_MODE=beta VITE_DEPLOYMENT_MODE=beta EDGELAB_DEV_AUTH_BYPASS=1 \
+  EDGELAB_JWT_SECRET=replace-with-a-private-local-development-secret npm run dev
 ```
 
-This starts FastAPI on port 8000, Vite on 5173, and the compatibility Node API on 3001. Place CSV datasets beneath `datasets/`; the folder contents are ignored by Git.
+This example deliberately selects a disposable SQLite file and migrates it before launch. For PostgreSQL, configure a reachable database and migrate with that same URL first. The launcher reads process environment, does not load `.env` automatically, and does not enable API auto-reload. Existing compatible services retain their original environment until restarted.
 
-To run only one service:
+The launcher starts FastAPI on 8000, Vite on 5173 and the compatibility Node API on 3001, reusing compatible healthy backend services. It starts Better Auth on 3002 only when `EDGELAB_AUTH_PROVIDER=better-auth` is set; configure its secrets and public origin for that path. Native development otherwise defaults to legacy auth. These preview ports and developer settings are not a production deployment.
 
-```bash
-npm run dev:python
-npm run dev:frontend
-npm run dev:backend
-```
+To launch an individual service, use `npm run dev:python`, `dev:frontend`, `dev:backend` or `dev:auth` with the required environment. Put CSV datasets beneath `datasets/`; dataset contents are ignored by Git. See [repository scripts](../scripts/README.md).
 
-## Full Compose stack
+## Production installation
 
-Copy the template and review every security-sensitive value:
+Copy the template, then configure it before starting services:
 
 ```bash
 cp .env.example .env
-docker compose up --build -d
+docker compose config --quiet
+docker compose up --build -d --wait
 ```
 
-At minimum, replace `POSTGRES_PASSWORD` and `EDGELAB_JWT_SECRET`. A production environment also requires `EDGELAB_SECRET_VAULT_KEYS` and `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID`, verified Google sign-in, and configured live Stripe subscriptions for workspace access. `EDGELAB_DEPLOYMENT_MODE` and browser build `VITE_DEPLOYMENT_MODE` both default to `production`; set both to `beta` for the optional capped beta workspace. Data exports require an active live paid subscription in either mode. Local Compose selects beta explicitly.
+Replace database, JWT, Better Auth signing and internal service-key defaults. Production startup also requires the vault keyring and active key ID. Configure the HTTPS public origin, allowed CORS origins and Google OAuth credentials/callbacks. For production workspace access, configure live Stripe billing and verified active subscriptions. Keep `EDGELAB_DEPLOYMENT_MODE` and build-time `VITE_DEPLOYMENT_MODE` aligned; both default to `production`. Data exports require an active live paid subscription in either mode. Keep the developer bypass disabled.
 
-The full stack exposes the frontend on `FRONTEND_PORT` (8080 by default). PostgreSQL, TimescaleDB, Redis, PgBouncer, the API services, the data populator, and the analytics worker start by default.
-
-The four Python services share `EDGELAB_BACKEND_IMAGE` (default `edgelab-backend:local`), so a clean Compose build produces the backend once and reuses it. Set a registry tag when a deployment pipeline pushes or pulls a prebuilt image.
-
-Add the benchmark profile for the bundled monitoring stack and k6 service:
+For a **new efficient installation**, use the same file selection for every lifecycle command:
 
 ```bash
-docker compose --profile benchmark up --build -d
+docker compose -f docker-compose.yml -f docker-compose.efficient.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.efficient.yml up --build -d --wait
 ```
 
-Use the legacy API only for compatibility testing:
+The default stack starts auth, PostgreSQL, TimescaleDB, two PgBouncer services, Redis, both FastAPI roles, data population, analytics and the frontend. Four Python roles share `EDGELAB_BACKEND_IMAGE`; build API, auth and browser inputs from the same checkout so the distributed source offer matches the release. Changing browser build variables requires rebuilding the frontend.
+
+The frontend publishes `FRONTEND_PORT` (8080 by default) on all host interfaces. Place it behind the configured HTTPS ingress and host firewall. Databases and Redis publish loopback ports; API/auth services remain internal. Persistent data is held in named volumes and the host dataset directory. Optional PostgreSQL-backed auth is configured with `BETTER_AUTH_DATABASE_URL`; changing it does not migrate an existing SQLite auth store automatically.
+
+Use `/api/health` and `/api/ready` through the frontend to verify application health/readiness after startup. Compose startup checks do not validate public DNS, HTTPS, Google callbacks, billing or a recovery procedure.
+
+## Optional services
+
+Enable private monitoring after configuring its dedicated credentials:
 
 ```bash
-docker compose --profile legacy-node-api up --build -d
+docker compose --profile observability up -d --build
 ```
 
-## Production notes
+Include the efficient overlay in that command when applicable. Follow [observability](observability.md) for private access, monitoring roles, retention and optional sampled traces. Starting the monitoring profile does not enable OTLP export by itself. The `benchmark` profile includes monitoring plus MinIO and the k6 runner; use [load testing](../benchmark/README.md) on an isolated stack. It is not needed for normal application startup.
 
-The checked-in `Jenkinsfile` deploys the full Compose stack into an existing checkout. It fetches the requested revision, rebuilds the application services, and preserves named volumes.
+The `legacy-node-api` profile adds the old Node service on `LEGACY_API_PORT` (3001 by default). It does not replace FastAPI or change the frontend's API routing.
 
-Before exposing EdgeLab publicly:
+## Upgrade, rollback and recovery
 
-- use unique database, JWT, Grafana, and vault secrets;
-- configure `EDGELAB_PUBLIC_ORIGIN`, CORS, and the Google callback URI;
-- leave `EDGELAB_DEV_AUTH_BYPASS=0`;
-- use HTTPS for the public origin and any NinjaTrader connector;
-- back up PostgreSQL, TimescaleDB, the API data volume, and the dataset directory;
-- test `docker compose config` and the application health endpoints.
+Before an upgrade, record the source revision, image identifiers, Compose file/profile selection and deployed settings. Take restorable database backups, the auth store, API persistent files, datasets and the required vault keys/secrets. Protect these backups and test restoration in isolation. Copying a running PostgreSQL data directory is not a database backup.
 
-See [deployment utilities](../deployment/README.md) for the host-capture and OAuth upload scripts.
+Build the release from one checkout, plan any schema/data migration and allow a maintenance window. Main `api` runs Alembic migrations at startup; `market-api` skips them. Reverting images does not reverse schema changes. Rollback requires a compatible schema or a tested restore of the prior data, secrets and images. Never remove named volumes as an upgrade step. See [maintenance](maintenance.md) for the operational checklist.
+
+The historical [Jenkinsfile](../Jenkinsfile) hard-resets a live checkout, stops the stack and prunes Docker resources before deployment. It does not implement a rolling release, readiness gate, backup or automatic rollback, and its explicit build list omits the auth image. Review/adapt it before relying on it for a production release; see [deployment utilities](../deployment/README.md).
+
+These Compose files describe a single-host installation. Additional containers or separate API roles do not provide independent-zone redundancy. Use [architecture](architecture.md) and [production capacity](production-capacity.md) for the measured limits and requirements for a separately tested redundant deployment.

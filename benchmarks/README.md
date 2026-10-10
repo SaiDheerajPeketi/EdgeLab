@@ -1,42 +1,26 @@
-# EdgeLab Python Benchmarks
+# Python microbenchmarks
 
-## Overview
-The `benchmarks` directory contains isolated, fast local Python scripts used for micro-benchmarking specific code paths and architectures before and after code changes.
+The executable scripts live in `backend/scripts/`. This directory is a documentation entry point. Use the backend Python 3.12 environment and repository-root package commands; argument details are in each script's parser.
 
-## Responsibilities
-- **Read-Model Validation**: Compares query execution times between legacy filtered queries and the newer indexed query paths (e.g., session summaries).
-- **Payload Sizing**: Compares full bootstrap payloads against lightweight "shell" bootstrap endpoints for first-paint optimization.
-- **Service-Level Load Testing**: Runs concurrent HTTP requests directly against single-VM or split-service setups using `asyncio` and `aiohttp`.
-
-## Architecture / How it fits into the system
-Unlike the robust `benchmark/` harness (which uses k6 and Docker), these scripts are designed to run locally in the Python environment, completely bypassing the network stack for database queries when needed, or firing rapid synthetic HTTP traffic without the overhead of containerized runner deployment.
-
-## Directory Structure
-- These scripts technically reside in `backend/scripts/` but this documentation serves to group their conceptual usage.
-- `benchmark_session_summaries.py` - Seeds temporary SQLite and tests indexed queries.
-- `benchmark_bootstrap_profiles.py` - Compares `/api/bootstrap` vs `/api/bootstrap-shell`.
-- `load_test_services.py` - Exercises the live HTTP API under concurrency.
-
-## Configuration
-Arguments are passed directly to the Python scripts via the CLI.
-
-| CLI Argument | Purpose |
+| Command | Measures |
 | --- | --- |
-| `--sessions`, `--assets` | Controls the size of the seeded temporary dataset |
-| `--iterations` | How many times to execute the function being timed |
-| `--requests` | Number of HTTP requests for the load tester |
-| `--concurrency` | Number of concurrent async workers |
-| `--frontend-url`, `--api-url` | Override target URIs |
+| `npm run bench:session-summaries` | Legacy filtered versus indexed session summaries |
+| `npm run bench:bootstrap-profiles` | Full versus shell bootstrap functions and serialized payload sizes |
+| `npm run bench:metrics-profiles` | Summary, curve and full metrics functions |
+| `npm run bench:market-data-storage` | CSV versus indexed SQLite candle reads, including cold/warm timings |
+| `backend/scripts/benchmark_hot_paths.py` | Synthetic memory-cache retention and candle-conversion output parity/timing |
 
-## Dependencies
-- **Python 3 / backend virtualenv**: These scripts use `SQLAlchemy`, `httpx` (or `aiohttp`), and other backend dependencies.
+The first four scripts create and remove temporary SQLite fixtures. They call application functions directly, bypassing HTTP, proxy, authentication and production PostgreSQL contention. The hot-path script uses synthetic data in memory; `--compare-cache-source` loads a Python module from the supplied path, so use only reviewed source. These results identify code-path costs; they do not establish server concurrency or production capacity.
 
-## Local Development
-Run the session summary microbenchmark without Docker:
 ```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py --sessions 20000 --iterations 25
+npm run bench:session-summaries -- --sessions 20000 --iterations 25
+npm run bench:bootstrap-profiles -- --assets 3 --sessions 100 --iterations 10
 ```
-Run a quick HTTP load test:
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py --requests 200 --concurrency 20
-```
+
+Record source revision, fixture size, interpreter/hardware, cache state and iteration count when comparing results. Temporary files are removed after a normal run; record outputs outside Git if needed. Review script defaults before large runs on a shared development machine.
+
+## HTTP measurements
+
+`backend/scripts/load_test_services.py` uses threaded HTTP workers. Its default `endpoints` mode runs request-count diagnostics; it does not model concurrent signed-in users or enforce the mixed workload's latency SLOs. `--workload mixed` runs a duration-based workload with distinct credentials, aligned sessions and think time.
+
+Use [load testing](../benchmark/README.md) for the Python mixed workload, k6 sweep, isolated fixture creation and cleanup. See [production capacity](../docs/production-capacity.md) for the scope of measured results and [observability](../docs/observability.md) for private runtime metrics. Never seed or stress customer databases as part of a microbenchmark.

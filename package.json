@@ -16,6 +16,7 @@
     "dev:auth": "node backend/auth/server.mjs",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
+    "check:docs": "node scripts/check-docs.mjs",
     "check:ui-inventory": "node scripts/check-ui-surface-inventory.mjs",
     "test:ui-inventory": "node --test backend/tests/ui-surface-inventory-validator.test.js",
     "check:ui-certification": "node scripts/check-ui-accessibility-certification.mjs",

@@ -1,63 +1,150 @@
-# API guide
+# API reference
 
-FastAPI's OpenAPI document is the authoritative endpoint reference. Run the backend directly and open <http://127.0.0.1:8000/docs> for searchable schemas and request examples, or fetch `/openapi.json` from the API service.
+The running FastAPI [OpenAPI document](../backend/app/main.py) is the authoritative schema reference. Access `/docs` or `/openapi.json` directly on the API service (native default <http://127.0.0.1:8000/docs>). The public Nginx frontend proxies `/api/*`, not those root-level documentation paths. Better Auth's restricted Node endpoints are described below and are outside FastAPI OpenAPI.
 
-All product routes use the `/api` prefix. The main route families are:
+See [architecture](architecture.md) for routing/storage boundaries, [configuration](configuration.md) for defaults and limits, and [maintenance](maintenance.md) for contract and migration changes.
+
+## Route families
 
 | Prefix | Responsibility |
 | --- | --- |
-| `/api/auth` | Beta access, Google OAuth, development sign-in, and sessions |
-| `/api/datasets` | Dataset catalog, settings, refresh, and refresh streaming |
-| `/api/market-data` | Historical bars and dataset metadata |
-| `/api/live` | Provider-backed live instruments, candles, and streams |
-| `/api/backtests` | Replay sessions, orders, positions, imports, and advancement |
-| `/api/journal` | Accounts, canonical trades, tags, notes, imports, and analytics |
-| `/api/broker-*` | Provider catalog, connections, synchronization, and health |
-| `/api/integration-secrets` | Encrypted provider credentials and rotation |
-| `/api/playbooks` | Trading playbooks and strategy metadata |
-| `/api/metrics` | Summary and curve data |
-| `/api/app-storage` | User-scoped application state |
-| `/api/app-data` | Account data transfer and durable operation receipts |
-| `/api/workspace-shares` | Read-only workspace sharing |
-| `/api/quant` | Quant conversations, captures, and generated artifacts |
+| `/api/auth` | Enrollment, Google exchange, account metadata, developer sign-in and revocation |
+| `/api/better-auth` | Node-owned Google redirect/callback, session inspection and sign-out |
+| `/api/billing` | Catalog, checkout, customer portal, verified status and signed webhook |
+| `/api/datasets` | Owned catalog/settings, discovery, refresh and catalog WebSocket |
+| `/api/market-data`, `/api/live` | Historical bars, provider instruments, normalized market infrastructure and live streams |
+| `/api/backtests`, `/api/trades` | Replay sessions, simulated orders/positions, advancement and replay trades |
+| `/api/journal` | Canonical accounts/trades, daily notes, tags, imports and analytics |
+| `/api/settings`, `/api/app-storage` | Owned display/preferences and application state |
+| `/api/app-data` | Portable account transfer and durable operation receipts |
+| `/api/broker-*`, `/api/integration-secrets` | Provider connections, synchronization and encrypted credentials |
+| `/api/playbooks`, `/api/metrics` | Strategy metadata and performance summaries/curves |
+| `/api/workspace-shares`, `/api/feedback` | Snapshot sharing and feedback |
+| `/api/quant` | Models, conversations, captures, jobs, artifacts and backtests |
 
-Operational endpoints:
+The same Python route set runs in `api` and `market-api`; Nginx selects the service for workload isolation. Resource IDs and client-supplied `user_id` fields never select an owner. User services apply the authenticated numeric owner; unavailable owned resources commonly return 404. Public workspace snapshots use their separate validated share-token contract.
 
-- `GET /api/health` checks the application database.
-- `GET /api/ready` checks the database and reports the visible dataset catalog.
-- `GET /api/observability/metrics` exposes Prometheus metrics on the private service network; the public Nginx entry point blocks it.
-- `GET /api/ui/rollout` returns the active UI rollout policy without exposing secrets.
+## Authentication and account access
 
-## Authentication
+User routes accept `Authorization: Bearer <EdgeLab session token>`. Compose selects Better Auth; direct Python defaults to legacy sessions unless configured. Production requires verified Google identity. Existing verified legacy JWT sessions remain supported. A configured static `EDGELAB_API_TOKEN` is only for endpoints that explicitly use that dependency; it cannot replace a user session or grant workspace/billing/export authority. Browser `VITE_*` values are public build inputs.
 
-User routes expect the EdgeLab bearer token returned by the auth flow. `EDGELAB_API_TOKEN`, when configured, protects non-user operational routes. The browser can send the same value through `VITE_API_BEARER_TOKEN`, although production deployments should prefer user-scoped sessions.
+The Better Auth sign-in flow is:
 
-The development bypass is accepted only when `EDGELAB_DEV_AUTH_BYPASS=1` and the request is loopback-local. Do not expose it through a public reverse proxy.
+1. `POST /api/better-auth/sign-in/social` selects Google redirect sign-in.
+2. Google returns to `/api/better-auth/callback/google`; the auth service verifies native state/PKCE and the nonce-bound ID token.
+3. `POST /api/auth/better-auth/exchange` presents the signed session cookie with the exact configured `Origin`. FastAPI validates it through the fixed internal auth service and returns a `ba:` bearer plus account metadata.
+4. `GET /api/auth/session` inspects current account/session access. `DELETE /api/auth/session` revokes the session.
 
-Authenticated WebSocket routes receive the user session token in their first message. Tokens are never placed in WebSocket query strings, which keeps them out of proxy access logs and browser URL diagnostics.
+Public `GET /api/better-auth/get-session` and `POST /api/better-auth/sign-out` retain native cookie/signature and origin/CSRF validation. Logout confirms server-side revocation before success; auth database failure returns retryable 503. Password signup, linking, direct ID-token login and user updates are not exposed. Better Auth failures never fall back to an independent legacy identity.
 
-## Journal day review
+Production enrollment is public, but protected workspace routes require a current live paid plan. Explicit beta mode requires approval within its seat cap. Exact identity-only exceptions preserve account/session inspection, recovery, billing and selected removal/revocation operations after access is lost; [`ACCESS_EXEMPT`](../backend/app/services/app_data_operations.py) defines the list. New product routes require workspace authority by default. Data export always requires verified Google identity and a live active subscription, including beta mode. A successful Stripe test purchase or developer sign-in does not grant that authority.
 
-`GET /api/journal/trades` accepts inclusive `start_date` and `end_date` filters in `YYYY-MM-DD` format. Bounds apply to the canonical UTC entry timestamp, independent of the source account's timezone. Combine them with `account_id`, `offset`, and `limit` (maximum 500) to page a complete day. Reversed date ranges return 422; account filters are restricted to the authenticated owner.
+Legacy `POST /api/auth/google/exchange` remains available when configured. Manual beta access/developer bypass are disabled in production. Developer bypass requires its flag, beta mode, local origin/CORS and a loopback request.
 
-For a complete history scan, request `order=id&limit=500`, then continue with `before_id` equal to the smallest ID in the previous page until a page has fewer than 500 rows. IDs are strictly descending; changing entry times or deleting records does not shift the cursor. New IDs above the first page appear on the next scan. This is a traversal of live records, not a transaction snapshot of their field values. Default `order=entry` retains entry-time/ID descending offset pagination. `before_id` must be positive and requires `order=id`; ID paging requires `offset=0`. Invalid combinations return 422.
+## Errors, caching and retry behavior
 
-`PUT /api/journal/daily-notes/{note_date}` replaces the body for the exact date and `account_id` scope. A null account stores a shared note. Bodies preserve whitespace, may be empty, and allow up to 200,000 characters. An account note does not inherit or overwrite the shared note. `GET /api/journal/daily-notes` accepts the same inclusive date range and optional exact account filter.
+All API responses forbid browser and shared-CDN caching. Existing exact `Cache-Control: no-store` contracts, including billing and receipts, remain intact. Return headers include a safe `X-Request-ID`; a recording trace can also supply `X-Trace-ID`. Incoming request IDs must use letters, digits, dot, underscore or hyphen and be at most 128 characters; others are regenerated.
 
-## Account operation recovery
+| Status | Typical meaning | Client action |
+| --- | --- | --- |
+| 400 | Invalid domain input, cursor or import references | Correct the request |
+| 401 | Missing, expired or revoked identity | Sign in again |
+| 403 | Wrong origin, missing workspace authority or paid-export entitlement | Resolve the stated access condition |
+| 404 | Unknown route or unavailable owned resource | Check the selected resource |
+| 409 | Conflicting state, busy dataset refresh, malformed stored settings or receipt state | Re-read/recover before changing state |
+| 413 | Body or account-transfer row limit exceeded | Reduce the submitted/exported data |
+| 422 | FastAPI/schema/query validation failed | Use the OpenAPI field constraints |
+| 429 | Route/auth/provider admission exhausted | Honor `Retry-After` |
+| 503 | Bounded request/pool overload or unavailable required dependency | Honor `Retry-After`; recover uncertain writes |
+| 500 / 502 | Internal failure / upstream provider failure | Preserve the request ID and assess operation state |
 
-For requests that can write portable account data, opt-in clients first send `POST /api/app-data/operations/{uuid}/reserve` with `{"method":"PUT","path":"/app-storage/edgelab/example.v1"}`. Use a canonical version 4 UUID and the decoded API path without `/api` or query parameters. The method/path bind that UUID permanently within the authenticated account. Supported scope includes account import, storage/settings, datasets, Journal, replay, playbooks, trades, broker synchronization, and Quant backtests; dataset/bootstrap/replay discovery reads are included because they can commit account rows.
+HTTP exceptions generally contain `detail` and an `error` object with numeric code/message; validation and some middleware errors use their specific `detail` schema. Clients should not assume one universal error envelope. Unhandled errors return a generic message; integration-secret validation removes submitted inputs and validation context.
 
-Send the actual request with the same bearer token and `X-EdgeLab-Operation-Id: {uuid}`. An absent, mismatched, canceled, running, or completed reservation returns 409 before invoking the handler. Repeating reservation may inspect an existing receipt; it never resets or re-executes that ID.
+Admission and SQL-pool overload use 503 with `Retry-After: 1`; configured shared quota-store failures use 503 rather than independent local quotas. Google exchange quota-store errors use `Retry-After: 5`. Nginx separately limits exchange socket addresses and returns JSON 429 with `Retry-After: 6`. Forwarded headers cannot choose those admission keys. A lost/error response is not evidence that a mutation never happened: use receipts where supported instead of blindly resending it.
 
-`POST /api/app-data/operations/{uuid}/recover` returns `canceled`, `running`, or `completed`. Recovery cancels a reserved ID or creates a canceled tombstone for an absent ID, preventing delayed reservations or requests from starting. It never cancels an already-running handler. `completed` proves the handler has ended; inspect `http_status`, and for successful account imports, the bounded `result` containing completion time and all table counts. HTTP failure or partial writes can still yield a completed receipt. A process crash or cancellation can leave `running` indefinitely; elapsed time is not evidence of completion. Stream/background work must also finish before the receipt becomes completed.
+## Paging and stream contracts
 
-Both endpoints require an approved account, are owner-scoped and return `Cache-Control: no-store`. They share a 600-call limit per account per configured rate-limit window. Receipts do not contain request bodies and are retained across account imports. Browsers with secure UUIDs and Web Locks reserve each protected request, send its bound operation header, and retain the shared lock through response-body consumption and terminal receipt verification. Existing requests without an operation header retain their current behavior.
+| Endpoint | Paging contract |
+| --- | --- |
+| `GET /api/backtests/summaries` | Default 50, maximum 200; `offset` or opaque `cursor`, optional `status`; returns `items`, `next_offset`, `next_cursor`, `has_more` |
+| `GET /api/trades/page` | Default 100, maximum 500; optional owned `session_id`, `offset` or opaque `cursor`; same page metadata |
+| `GET /api/trades` | Compatibility list; default 500, maximum 2,000, offset paging |
+| `GET /api/journal/trades` | Default 100, maximum 500; entry-time offset order or stable descending ID traversal |
+| `GET /api/market-data/bars` | Default 300, maximum 5,000; nonnegative `offset`, optional `warmup` (default 120, maximum 1,000), owned session/dataset/timeframe selection |
 
-Browser recovery checks every durable receipt under the exclusive account lock. A running, malformed, mismatched, or unavailable receipt preserves the whole batch. Once all operations are terminal, recovery discards account mirrors and drafts, records a fresh ready generation, clears markers, and requires reload. Interrupted imports persist the submitted table counts before sending; only an exact successful receipt acknowledgment can recover their success. Old browser markers without server bindings cannot be automatically cleared. Other-device/older-client fencing, scheduled-writer coordination, receipt lifecycle management, and recovery controls outside the import flow remain pending.
+Treat returned cursors as opaque and retain the same filters. For cursor traversal, send `next_cursor` with `offset=0`; stop when `has_more` is false. These are traversals of live rows, not snapshots of immutable field values. The bars response carries `offset`, `limit`, `next_offset` and bars; use its schema rather than replay-trade page assumptions.
 
-Each receipted request consumes a reservation call and a completion-check call, so the current allowance permits at most 300 such requests per configured window (60 seconds by default), shared across writing reads and mutations. High-frequency `POST /backtests/{id}/advance` and `/advance-compact` keep their existing browser shared locks and legacy markers without receipts, preserving playback throughput. Their interrupted steps cannot use automatic receipt recovery. Reservation failure prevents dispatch; completion-check failure retains an uncertain marker and pauses further writes until recovery verifies it. Raising the abuse-control limit and enabling receipts for replay advancement remain pending separate authorization; the existing limit remains unchanged.
+Authenticated WebSockets send the session token in their initial message, never a query string: dataset stream uses `authToken`, Angel One stream uses `apiToken` alongside its provider payload. Each stream rechecks session/workspace authority during delivery. Dataset stream reads the committed catalog without scanning CSV directories or creating account rows. HTTP catalog/bootstrap/replay reads can discover data and commit rows; explicit refresh scans and commits before returning. Quant SSE also rechecks access and can emit `access_revoked`. A disconnect does not authorize replaying a mutation.
 
-## Compatibility API
+## Journal and settings
 
-The Express API in `backend/index.js` exists for older clients and is available only when started directly or with the `legacy-node-api` Compose profile. New integrations should use FastAPI.
+Journal date filters use inclusive `YYYY-MM-DD` bounds against canonical UTC entry timestamps, independent of account timezone. Reversed ranges return 422. For a complete trade traversal, request `order=id&limit=500&offset=0`, then set `before_id` to the previous page's smallest ID until fewer than 500 rows are returned. `before_id` must be positive and requires ID order; ID order forbids a nonzero offset. Default `order=entry` sorts entry time/ID descending. New higher IDs appear in the next scan.
+
+`GET /api/journal/trades/{trade_id}` restores the canonical review, notes, tags, screenshots and executions. `PUT /api/journal/daily-notes/{note_date}` replaces the exact date/account body; null account denotes the shared note, not inheritance. Bodies preserve whitespace, allow an empty value and have a 200,000-character bound.
+
+Settings mutations preserve unrelated stored fields and retry conditional concurrent updates:
+
+| Endpoint | Contract |
+| --- | --- |
+| `PATCH /api/journal/settings` | Merge capture defaults into `edgelab/live-journal.v1`; preserve records; return acknowledged storage |
+| `GET/PATCH /api/settings/chart` | Read preset/active name together; merge validated partial edits into `Settings default` and activate atomically |
+| `POST /api/settings/chart/templates` | Save, delete or activate an owned template; reject absent activation targets |
+| `POST /api/settings/chart/presets` | Validated drawing/Fibonacci save/delete; maximum 36/24, with no automatic eviction |
+| `PATCH /api/settings/preferences` | Merge only submitted density/diagnostic-sharing fields in `edgelab/settings-center.v1` |
+| `/api/app-storage/{namespace}/{key}` | Owner-scoped generic storage; drawing/Fibonacci preset writes must use their dedicated endpoint |
+
+Chart updates retain preset order, hidden settings and unknown metadata; candle body aliases stay synchronized without replacing independent border/wick colors. Malformed stored bundles return 409 rather than being overwritten. Notebook templates continue to use `edgelab/notebook-template.v1` through generic storage.
+
+## Account data transfer
+
+`GET /api/app-data/export` returns `app: "edgelab"`, `version: 1`, `exported_at` and supported owner-scoped tables. It checks the total row limit before materializing data and requires live paid export authority. It never claims a write receipt.
+
+`POST /api/app-data/import` requires explicit `app`, `version` and `tables`; optional `exported_at` is metadata. It atomically replaces all 23 supported portable tables. Omitted tables become empty, so this is a full restore, not a partial merge. Supported records cover dataset catalog/settings, application storage, playbooks, replay sessions/orders/positions/trades/executions/notes, and canonical journal accounts/trades/executions/tags/notes/screenshots/import diagnostics/checkpoints/daily notes. The exact allowlist is [`APP_DATA_TABLES`](../backend/app/api/routes.py).
+
+IDs are preserved after distinct-positive-ID, reference and cross-owner checks. The server overwrites submitted owner IDs; retained broker-account references must belong to that owner. Authentication, operation receipts, billing, broker/integration credentials, AI service tables, CSVs and SQL candle rows are excluded. Derived summaries are cleared; restored dataset timeframes are marked not imported until candles are rebuilt. Failed inserts roll back the replacement without logging submitted values.
+
+The default body limit is 25 MiB and transfer limit is 100,000 rows. Before import, quiesce pending account writes; after acknowledgment, discard browser mirrors/drafts before rehydrating. Portable export is not an operational backup of every service or credential.
+
+## Durable operation recovery
+
+Opt-in clients reserve a version-4 UUID through `POST /api/app-data/operations/{uuid}/reserve`, for example:
+
+```json
+{"method":"PUT","path":"/app-storage/edgelab/example.v1"}
+```
+
+Use the decoded API path without `/api` or query parameters. Method/path bind the ID permanently within the account. Send the actual request with the same bearer and `X-EdgeLab-Operation-Id: <uuid>`. An absent, mismatched, canceled, running or completed reservation returns 409 before the handler runs; reserving again never resets or re-executes an ID. Reservation requires workspace access. Receipt admission checks authority before claiming protected work.
+
+`POST /api/app-data/operations/{uuid}/recover` is owner-scoped and available for recovery after workspace access is lost. It returns:
+
+| State | Meaning |
+| --- | --- |
+| `canceled` | Unstarted work is fenced; an absent ID receives a tombstone blocking delayed reserve/send |
+| `running` | The handler or response/background work may still be active; recovery cannot cancel it |
+| `completed` | Work has ended; inspect `http_status` to distinguish success/failure |
+
+A canceled request/process crash can leave a running receipt indefinitely; elapsed time does not prove completion. Completed errors can include partial writes. Successful imports retain only completion time and table counts. Receipts/tombstones survive imports without time-based expiry and contain no request body.
+
+Reservation/recovery share 600 calls per owner per configured rate window (default 60 seconds) and return `Cache-Control: no-store`. One reservation plus completion check therefore permits at most 300 such operations per window. The browser holds its shared account lock through body consumption and terminal verification; uncertain receipts retain recovery markers. Exact successful import counts are required for automatic import-success recovery. High-frequency replay `advance`/`advance-compact` keep legacy markers/locks without receipts to preserve playback throughput. Older clients, other devices and scheduled writers are not globally fenced; receipt lifecycle and broader writer coordination remain future work.
+
+## Billing
+
+Billing is disabled until configured. `GET /api/billing/catalog` reports availability. Verified-owner `POST /api/billing/checkout` accepts `{"plan":"pro","cadence":"monthly"}` or annual cadence; `POST /api/billing/portal` accepts no customer ID or return URL. `GET /api/billing/status` reconciles provider state. Prices must be active recurring USD 2,900 cents monthly or 29,000 cents annually, interval count one, without a trial.
+
+`POST /api/billing/webhook` verifies the raw Stripe signature for the pinned `2026-09-30.endive` API version. Event IDs are durably deduplicated; account-locked reconciliation reads current provider subscriptions rather than trusting delivery order. Checkout success URLs confer no entitlement. Workspace/export access needs a live provider snapshot newer than five minutes; failed refreshes cannot extend it. Refunds require explicit coordination with cancellation.
+
+Test/live keys, prices, objects and customers cannot cross modes. Anonymous sandbox `rkcs_` keys are accepted only in test mode; they do not unlock production workspace or exports. See [sandbox guide](stripe-sandbox.md). Billing admission uses shared configured Redis quotas and fails closed on its outage; process-local concurrency caps and owner/global window budgets return retry guidance without caching refusals.
+
+## Operational endpoints
+
+| Endpoint | What it proves |
+| --- | --- |
+| `GET /api/health` | Application SQL checkout and `SELECT 1` succeed; it is database-backed, not a dependency-free liveness check |
+| `GET /api/ready` | Same SQL check plus visible dataset directory/CSV counts; it does not validate every file/provider |
+| `GET /api/ui/rollout` | Effective public rollout policy, without secret configuration |
+| `GET /api/observability/metrics` | Private Prometheus scrape; excluded from admission and request traffic metrics; 404 when disabled |
+| Auth service `GET /health` | Auth session-table probe succeeds and the service is not draining |
+
+Nginx blocks the public metrics endpoint. Keep API/collector ports private; the scrape endpoint does not implement user authentication. Health/readiness use separately bounded immediate admission, so a busy response can indicate overload. Neither health response certifies Google/Stripe/provider reachability, backup recovery or failover. See [observability](observability.md) and [maintenance](maintenance.md).
+
+The compatibility Express API in `backend/index.js` is available only when started directly or through its explicit Compose profile. New integrations should use FastAPI.

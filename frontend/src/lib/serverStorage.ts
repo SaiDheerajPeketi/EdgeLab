@@ -1,3 +1,6 @@
+// This cache is an account-scoped UI projection, not a server commit receipt.
+// Per-key queues preserve write order; the replacement barrier settles and retires
+// the captured owner so an old acknowledgment cannot repopulate a new account.
 import { getAppStorageItem, putAppStorageItem, type AppStorageItem } from "./api";
 import { getStoredAuthSession } from "./authSession";
 import { appDataLegacyMigrationAllowed, appDataSessionKey, assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant, type AppDataAccess } from "./appDataBarrier";

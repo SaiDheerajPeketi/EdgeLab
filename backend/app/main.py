@@ -1,3 +1,9 @@
+"""Compose the shared API package used by primary and market worker services.
+
+Nginx partitions traffic between deployments; routes here keep the same auth,
+transaction and error contracts regardless of which worker handles a request.
+"""
+
 import logging
 from collections import deque
 from contextlib import asynccontextmanager
@@ -45,6 +51,8 @@ if market_data_engine is not engine:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     validate_vault_startup(settings.environment)
+    # The container startup script migrates before forking; create_all alone
+    # cannot upgrade changed columns in an existing production database.
     init_db()
     init_market_data_db()
     if tracing_status.enabled:

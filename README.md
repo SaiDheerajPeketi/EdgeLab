@@ -1,141 +1,90 @@
 # EdgeLab
 
-EdgeLab is a local-first trading workspace for market replay, charting, trade journaling, and performance review. It combines a React client with a FastAPI backend and can run as a small SQLite installation or as a multi-service PostgreSQL/TimescaleDB stack.
+EdgeLab is a trading workspace for live charts, historical replay, journaling, performance review, and editable indicators. The browser is React/Vite; the primary API is FastAPI. Production Compose uses PostgreSQL, Redis, Better Auth, and background workers behind Nginx. The smaller local Compose installation explicitly uses SQLite.
 
-The native Pine editor uses PineTS 0.11.0 with reviewed local source patches under AGPL-3.0-only; EdgeLab's original code uses the same licence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md) and [reproducible engine build](frontend/vendor/pinets/README.md). Distribution or service deployments of Pine-enabled builds must offer complete matching application source, including changes and build scripts. The chart editor supports original EdgeLab DSL and experimental native Pine v5/v6 indicators and strategy tests; PineTS results are not guaranteed to match TradingView.
+Start with [setup](docs/setup-and-deployment.md), read the [architecture](docs/architecture.md), and use the [documentation index](docs/README.md) to find a topic. Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md); coding agents should also read [AGENTS.md](AGENTS.md).
 
-Historical Pine indicators and strategy tests can use actual loaded intrabar candles and calculate higher-timeframe values from complete loaded UTC intraday candles, preserving custom inputs and source. Intrabar requests support first/last values and chronological arrays, including tuple arrays and gaps; replay runs use only source candles available at the current cursor. Supported static dependent requests preserve values calculated on the original chart, including nested function calls; dynamic requests reevaluate supported inner contexts. On Binance live charts, evaluated script requests automatically acquire owned secondary feeds. Remote updates affect requested data; only actual primary chart updates calculate the main script or advance its strategy broker. Input changes and study removal retire the owned connections. Exchange session/calendar requests and complete TradingView parity remain unavailable or unverified.
+## Local preview
 
-The editor's community catalog preserves 29 original GPL-3.0 studies by Alex Orekhov (everget), with commit, source hash and licence records. Four originals use Pine v6; the other 25 have separate reviewed Pine v5 derivatives, while their originals remain available to inspect and download. Catalog refreshes preserve immutable revisions and explicitly select the reviewed revision, including older pinned archives. Saved scripts and chart copies retain their own source. See [catalog maintenance](scripts/README.md#pine-community-catalog).
-
-Pine-enabled browser builds generate a matching application source download at `/source/`, available from the public footer, settings and Pine editor. The archive captures current frontend/backend code, locked dependencies, verified original Pine inputs and overrides, build scripts and deployment configuration, with file checksums and build/run instructions. Post-build verification refuses a source offer if input files changed during compilation. Credentials, trading records, market datasets, Git history, generated bundles and internal planning documents are excluded. Rebuild the API and browser from the same checkout when deploying this source offer.
-
-Native Pine `ticker.heikinashi()` requests derive OHLC from owned standard candles at the requested timeframe, including lower-timeframe arrays and independently owned live Binance markets. Aggregation precedes the transform; live replacements recalculate the forming bar from prior history. Volume and timestamps remain those of the real candles, and strategy fills still use standard chart prices. The first loaded transformed open is seeded with `(open + close) / 2`; older TradingView history may produce different opens. Other nonstandard chart transforms and session/adjustment feeds remain unavailable.
-
-Native Pine `plot()` supports its sixteen current arguments, including solid, dashed and dotted line styles and diamond step lines. Custom inputs, source-first visibility, offsets and chart placement remain intact. Connected paths keep dash patterns visible at narrow bar spacing; area fills remain continuous. Line spacing, phase origins and diamond geometry use local canvas metrics, without verified TradingView pixel equivalence.
-
-Native Pine `plotarrow` renders up/down arrows from signed numeric signals, with custom minimum/maximum pixel heights, directional colors, offsets and source-first `show_last`. Zero and missing values draw no arrow. Length uses the absolute signal relative to its full retained snapshot with a minimum-height floor; this normalization, defaults and pixel geometry are local policies, without verified TradingView equivalence.
-
-Native Pine `plotchar` signals support Unicode characters, separate text, bar conditions, absolute prices, offsets and pane-edge placement. Omitted characters use a star; multi-character strings display their first Unicode codepoint while preserving the native source output. Character fonts, sizes and omitted colors use local defaults; exact TradingView glyph and pixel parity is not guaranteed.
-
-Native Pine signal shapes include crosses, diamonds and flags alongside circles, squares, triangles, arrows and labels. Pane-top and pane-bottom signals follow their bars horizontally while staying at the pane edge and leaving price autoscale unchanged. Shape dimensions, text metrics and edge spacing use local canvas rules; exact TradingView pixels are not guaranteed.
-
-Native Pine tables render their latest cells at nine fixed pane positions, including separate panes and `force_overlay`. Custom inputs, automatic or percentage sizing, merged cells, colors, text formatting and tooltips are supported. Tables own no time or price data and do not alter chart scaling. Active scripts are limited to nine tables and 4,096 allocated cells; individual text/tooltip strings are limited to 4,096 characters, with a shared 1 MB metadata limit. Browser font/padding metrics, merge-only automatic sizing and table layering use local policies; TradingView pixel equivalence and its bottom-panel table view are not provided.
-
-Native Pine price and time inputs have draggable chart handles. One price/time pair sharing a unique inline row and group moves together; changes apply on release. Confirmed inputs are reviewed before adding a script, and cancelled chart selections leave the saved script unchanged. Date/time fields display explicit UTC with millisecond precision. Chart time picks use loaded candles; a separate-pane price is entered numerically before its first add, then moved on that pane's actual scale.
-
-## What is here
-
-- Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.
-- Manual replay with market, limit, and stop orders, risk controls, partial exits, and session reports.
-- A trade journal with accounts, imports, broker synchronization, notes, reviews, and analytics.
-- Dataset discovery and scheduled market-data population for forex and crypto.
-- Optional Redis caching, background analytics, telemetry, and a legacy Node API.
-
-Journal settings support capture defaults and reusable note templates in both the modern and compatibility interfaces. Defaults merge into existing journal data, and successful saves require a server acknowledgment; private drafts and pending saves survive interface changes.
-
-Chart and Appearance settings expose nine staged display/palette controls in both interfaces. Apply preserves hidden options and other presets while saving and activating `Settings default` atomically for the next workspace load. Density saves independently after server confirmation; Appearance reset affects density only.
-
-Account and Privacy settings share current-session revocation and confirmed diagnostic-sharing preferences across both interfaces. Global shows actual interface/browser regional values; AI availability comes from the account’s server model catalog, with explicit offline-fixture and failure states.
-
-Stripe billing provides server-created subscription Checkout and Customer Portal sessions, signed webhook reconciliation, and account-scoped billing status. It defaults to disabled test mode; credentials belong only on the API. The launch catalog is EdgeLab Pro at USD $29/month or $290/year, with no trial. Provider prices must match the configured plan before checkout can open. See [billing setup](backend/README.md#stripe-billing).
-
-Beta checkout requires current approved workspace access within the seat cap. The server checks eligibility before provider work and again after persisting the checkout attempt. Verified production buyers can start their first subscription, and billing status and account management remain available after workspace access is lost.
-
-Production mode accepts verified Google accounts and requires a current live paid subscription for workspace APIs and streams. Data exports require that subscription in both production and beta mode. `/pricing` shows the validated server catalog, monthly/yearly choice and hosted Stripe checkout; success returns check provider status rather than grant access. `/account` remains available for billing management and sign-out without workspace access. Set both `EDGELAB_DEPLOYMENT_MODE` and `VITE_DEPLOYMENT_MODE` to `beta` for the optional capped beta workspace; the local Compose file selects beta explicitly. Live checkout remains unavailable until merchant credentials and matching provider prices are configured.
-
-Legacy beta accounts without a Google identity can verify their exact email through Gmail or Google Workspace and retain their history; first verification revokes older sessions. Existing accounts using third-party email without Google ownership authority require separate mailbox recovery. Verification alone does not grant a paid subscription.
-
-Better Auth 1.7.7 owns Google OAuth and revocable signed sessions in the default Compose deployment. Its isolated `auth-data` SQLite volume is separate from account and trading data. FastAPI checks each Better Auth bearer against the service and binds the provider's verified Google subject to the existing numeric account, preserving subscriptions and history. Existing verified legacy sessions remain valid during migration. Public authentication supports the Google authorization-code flow only; account linking, password signup and generic profile changes are not exposed.
-
-Set `EDGELAB_PUBLIC_ORIGIN` to the exact HTTPS origin, create distinct random `BETTER_AUTH_SECRET` and `EDGELAB_AUTH_SERVICE_KEY` values of at least 32 characters, and supply Google credentials through environment variables or the read-only `deployment/google-oauth-client.json` file. Register **`<public-origin>/api/better-auth/callback/google`** as the Google redirect URI. Missing Google credentials leave sign-in unavailable; they do not select a legacy fallback. External Google account sign-in still needs a deployment check with your credentials. See [auth setup](backend/README.md#better-auth).
-
-Google code exchange has separate admission limits before provider work. Nginx limits the exact `/api/auth/google/exchange` path to 10 requests per minute per connecting socket address, with a burst of three and JSON 429 responses with `Retry-After: 6`. Clients behind a NAT or upstream proxy share that address budget; forwarded headers do not change the key. The API also shares 120 admissions per 60 seconds through configured Redis, or uses one bounded process-local counter when Redis is unset, with at most eight concurrent exchanges per process. Configured Redis failure returns 503 with `Retry-After: 5`; concurrency refusal returns 429 with `Retry-After: 1`. Compose waits for Redis health before APIs start. These fixed limits require no new environment variables.
-
-Billing admission uses the same Redis URL with separate quotas: 30 subscription refreshes and six combined checkout/portal requests per verified account per minute, within 600 total admissions. Stale workspace and export verification shares the refresh budget; fresh verified access needs no extra provider request. Configured Redis failure refuses new billing work, while an unset URL uses bounded process memory. Each API process permits eight concurrent billing operations, at most two per account. Retryable refusals include `Retry-After`; expired verification never grants workspace or export access. Public prices use cached reads and one nonblocking provider refresh per process.
-
-## Quick start
-
-The smallest supported installation needs only Docker:
+The self-contained local installation needs Docker Compose:
 
 ```bash
-docker compose -f docker-compose.local.yml up --build -d
+EDGELAB_ENVIRONMENT=development docker compose -f docker-compose.local.yml up -d --build
 ```
 
-Open <http://localhost:8080>. This mode uses a single FastAPI container, SQLite, local developer sign-in, and the CSV files under `datasets/`. Application data lives in a Docker volume and survives normal container restarts.
+Open <http://localhost:8080>. Its three services are `frontend`, `api`, and `auth`. It selects beta mode, local developer sign-in, separate application/market SQLite files, and persistent named volumes. This is a development installation, not a public production configuration. Add CSV datasets below `datasets/`; they are not committed.
 
-Production images keep test-only Python packages out of the runtime, precompress browser assets during the build, and reuse one backend image across the API and worker services.
+For native development, install Node.js 22.13+ and Python 3.12, then follow the [explicit native environment](docs/setup-and-deployment.md#native-development). Vite normally listens on <http://127.0.0.1:5173> and FastAPI on <http://127.0.0.1:8000>. `npm run dev` reuses existing compatible servers and does not load `.env` automatically or enable API auto-reload. An unset `DATABASE_URL` selects PostgreSQL, not SQLite.
 
-Add datasets beneath `datasets/`, then refresh the catalog from the application. Generated market data is intentionally not committed.
+Use the [disposable demo helper](backend/README.md#disposable-local-demo-data) for populated UI inspection. Keep demo ports, database, and browser identity separate from the normal workspace. Synthetic data and developer identities do not grant paid access.
 
-## Development
+## Production deployment
 
-Use Node.js 22.13 or newer and Python 3.12:
+| Configuration | Storage and purpose |
+| --- | --- |
+| `docker-compose.yml` | Application PostgreSQL and market TimescaleDB, two poolers, Redis, auth, APIs, ingestion and analytics |
+| Base + `docker-compose.efficient.yml` | New-install option: one PostgreSQL writer/pooler with indexed candle history; Compose 2.24.4+ |
+| `docker-compose.local.yml` | Explicit development/beta SQLite installation |
+| `--profile observability` | Optional private metrics, dashboards, logs, traces and SQL exporters |
+| `--profile benchmark` | Monitoring plus capacity-test infrastructure; not a launch requirement |
+| `--profile legacy-node-api` | Compatibility Node API; not the primary product backend |
+
+For a new efficient installation:
 
 ```bash
-npm install
-python3.12 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
+docker compose -f docker-compose.yml -f docker-compose.efficient.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.efficient.yml up -d --build
 ```
 
-The frontend runs at <http://127.0.0.1:5173>, FastAPI at <http://127.0.0.1:8000>, and the optional compatibility API at <http://127.0.0.1:3001>.
+Configure unique secrets, Google OAuth, HTTPS/public origin, billing, dataset mounts and backups first. Changing an existing storage topology requires a deliberate data migration; the overlay does not move data. See [deployment](docs/setup-and-deployment.md), [configuration](docs/configuration.md), [upgrade and rollback](docs/maintenance.md), and [measured capacity](docs/production-capacity.md). A Compose restart policy does not provide independent-zone redundancy.
 
-Direct development retains legacy auth unless `EDGELAB_AUTH_PROVIDER=better-auth` is exported. For Better Auth, configure the two secrets and `BETTER_AUTH_URL=http://localhost:5173`, align `EDGELAB_PUBLIC_ORIGIN`, then run `node --env-file=.env scripts/dev.js`; the auth service listens on loopback port 3002. `.env` is not loaded by `npm run dev` itself. Local Compose supplies isolated development secrets and enables the loopback beta bypass; paid exports still require a verified active live subscription.
+Fingerprint-addressed browser assets can use a CDN. Authentication, tenant APIs, streams, exports and observability must stay private or uncached as appropriate. Deploy the browser and APIs from the same reviewed checkout.
 
-A fresh local Vite preview can show the redesigned landing page while the API is offline. Saved rollout settings still take precedence, and workspace data requires the backend. See [frontend development](frontend/README.md) for the local preview policy.
+## Identity and access
 
-## Verification
+Better Auth owns Google OAuth and revocable signed sessions in production Compose. FastAPI introspects its fixed private service endpoint, binds the verified Google subject to the existing numeric application account, and enforces tenant and subscription policies. Auth sessions have their own store: local SQLite by default, or a dedicated PostgreSQL schema for shared auth replicas.
+
+Production workspace access requires verified Google identity and a current live paid subscription. Beta mode has separate approval/seat rules. **Exports require verified active live paid access in both modes.** Stripe test subscriptions, marketing variants and developer bypasses cannot grant exports. Billing management remains reachable without workspace access. Credentials and matching Stripe price IDs must be configured before live checkout is available.
+
+`/?variant=beta` and `/pricing?variant=beta` select the retained marketing presentation only. Keep `VITE_DEPLOYMENT_MODE` aligned with `EDGELAB_DEPLOYMENT_MODE`; the server owns authorization. Details are in [backend auth/billing](backend/README.md) and [architecture](docs/architecture.md).
+
+## Charts and Pine
+
+The chart workspace includes studies, drawings, multi-pane layouts, order-flow views, replay controls and editable scripts. EdgeLab's original DSL and the experimental native Pine v5/v6 path are distinct engines. Native Pine supports custom inputs, historical strategy tests, and persistent received-update execution on supported Binance live contexts. This does not establish complete TradingView compatibility or identical fills, calendars, pixels or provider ticks.
+
+The community catalog preserves original source, license, commit and hash records alongside reviewed derivatives and immutable revisions. Original implementations of familiar indicator formulas are not redistributed TradingView built-in source. See [frontend feature reference](docs/frontend-feature-reference.md), [reviewed Pine engine](frontend/vendor/pinets/README.md), and [catalog maintenance](scripts/README.md#pine-community-catalog).
+
+## Verification and maintenance
 
 ```bash
+npm ci
+npm run check:docs
 npm run build
 PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
 npm test
 sh scripts/audit-dependencies.sh
-docker compose config
-docker compose -f docker-compose.local.yml config
 ```
 
-The UI regression workflow uses Node.js 22 and the same backend virtual environment as local development. It runs the full JavaScript and Python suites after the production build, then checks production Pine instrument sizing, per-entry exits, public fallback routes, and the existing UI gates. Provider-boundary fixtures verify checkout navigation without charging a merchant account.
+Real Redis/PostgreSQL/auth-storage gates need isolated fixture URLs; otherwise those tests can skip. UI, provider, deployment, recovery and capacity checks are separate tiers. Use [maintenance](docs/maintenance.md#validation-tiers) for the required change-to-check mapping. [Observability](docs/observability.md) documents bounded metrics, safe logs/traces, private monitoring and measured resource cost.
+
+The tracked post-commit hook is opt-in per clone: `rtk git config --local core.hooksPath .githooks`. It automatically pushes commits without force, and preserves detached commits on a separate branch. Use `CODEX_AUTO_PUSH=0` for an intentional local-only commit. Read the [Git workflow](CONTRIBUTING.md#git-workflow) before enabling it.
 
 ## Repository map
 
-| Path | Purpose |
+| Path | Responsibility |
 | --- | --- |
-| `frontend/` | React/Vite application |
-| `backend/app/` | FastAPI application and services |
-| `backend/alembic/` | Database migrations |
-| `datasets/` | Local CSV dataset root; contents are ignored |
-| `docker/` | Nginx, PgBouncer, and observability configuration |
-| `e2e/` | Playwright tests and their reviewed visual baselines |
-| `benchmark/` | k6 capacity tests |
-| `scripts/` | Development and UI-quality tooling |
+| `frontend/src/` | Routes, workspace UI, chart/runtime adapters, browser state and workers |
+| `backend/app/` | API composition, schemas, auth, tenant models and domain services |
+| `backend/auth/` | Better Auth client-facing and private service boundary |
+| `backend/alembic/` | Application database migration history |
+| `backend/scripts/` | Import, migration, demo and performance utilities |
+| `docker/` | Nginx, PgBouncer and private monitoring configuration |
+| `datasets/` | Ignored portable market CSV inputs |
+| `e2e/` | Playwright interaction/accessibility/visual gates |
+| `benchmark/`, `benchmarks/` | Different documented benchmark workflows |
+| `scripts/` | Development, source-offer, catalog and quality tooling |
+| `docs/` | Architecture, contracts, operating guides and recorded evidence |
 
-## Documentation
+## License and source offer
 
-- [Setup and deployment](docs/setup-and-deployment.md)
-- [Architecture](docs/architecture.md)
-- [Configuration](docs/configuration.md)
-- [API guide](docs/api-reference.md)
-- [Backend development](backend/README.md)
-- [Frontend development](frontend/README.md)
-- [Deployment utilities](deployment/README.md)
-- [Security policy](SECURITY.md)
-
-Machine-readable UI inventories and certification records under `docs/` are test inputs. Keep them in sync with UI changes; they are not end-user documentation.
-
-For temporary UI inspection with populated accounts, trades, notes, replay reviews and synthetic market history, use the [disposable local demo data](backend/README.md#disposable-local-demo-data) helper. Run its API/frontend on separate ports; it does not seed the normal workspace or grant paid access.
-
-## Efficient global deployment
-
-For a new VM installation, `docker compose -f docker-compose.yml -f docker-compose.efficient.yml up -d --build` selects one PostgreSQL server/pooler and indexed SQL market history. Existing worker defaults, background ingestion, analytics and full history remain enabled. The proxy uses Nginx 1.30.5 with current map/regex security fixes. The existing default split-database deployment is preserved; switching an existing market store requires a deliberate data migration. See [production capacity and operations](docs/production-capacity.md) for measured workload limits, region latency, CDN rules, costs and recovery requirements.
-
-Shared PostgreSQL authentication is available through `BETTER_AUTH_DATABASE_URL` for independent application/auth replicas. SQLite remains the single-node default. Use one direct writer endpoint, an isolated schema and identical signing/service keys and public origin on every auth instance; moving storage requires an explicit session migration or re-login. See the capacity report for failure-domain and standby requirements.
-
-### Automatic Git push
-
-Enable the tracked post-commit hook once per clone with `rtk git config --local core.hooksPath .githooks`. It pushes each completed commit to the branch upstream, without force. Detached commits are preserved under `codex/preserve-detached-<commit>`. A failed push keeps the local commit and reports the failure. Set `CODEX_AUTO_PUSH=0` only for an intentional local validation commit; `RTK_BIN` can select the installed RTK executable.
-
-## Production monitoring
-
-See [observability and runtime configuration](docs/observability.md) for worker-aggregated metrics, safe request logs and traces, optional private monitoring, alerts, retention, and operating bounds. Browser assets remain CDN-cacheable; private API data and monitoring endpoints must not be publicly cached or exposed.
+Original EdgeLab code and the reviewed PineTS integration use AGPL-3.0-only. Read [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md), and [SECURITY.md](SECURITY.md). Pine-enabled builds generate `/source/` with matching application/build inputs and checksums, then verify them after compilation. Preserve the engine integrity manifest and complete source offer when upgrading or distributing. Credentials, customer data, datasets, internal planning documents, Git history and generated bundles must never enter that archive.

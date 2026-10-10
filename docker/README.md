@@ -1,41 +1,39 @@
 # Docker infrastructure
 
-EdgeLab ships two Compose files.
+Deployment choices and lifecycle commands are documented in [setup and deployment](../docs/setup-and-deployment.md). Service ownership is described in [architecture](../docs/architecture.md); upgrades and data recovery belong in [maintenance](../docs/maintenance.md).
 
-## Single-user stack
+## Compose choices
 
-`docker-compose.local.yml` runs two containers:
+| Files / profile | Behavior |
+| --- | --- |
+| `docker-compose.local.yml` | Loopback frontend, one SQLite FastAPI service and a separate Better Auth service; developer beta access |
+| `docker-compose.yml` | Default split PostgreSQL/TimescaleDB stores, two poolers, Redis, auth, two API roles, ingestion, analytics and frontend |
+| Base plus `docker-compose.efficient.yml` | New-install option: both data stores on one indexed PostgreSQL server, one pooler, same API roles/workers |
+| `observability` | Optional private Prometheus, Grafana, Loki, Alloy, Tempo, guarded Docker log access and database exporters |
+| `benchmark` | Monitoring plus MinIO and a k6 runner for isolated tests |
+| `legacy-node-api` | Optional compatibility Node API with separate volumes |
 
-- `api`: FastAPI with SQLite and local developer sign-in.
-- `frontend`: the built React application served by Nginx.
+The efficient overlay needs Compose 2.24.4+ for `!override`; it excludes the unused Timescale exporter from normal monitoring. It does not migrate a split installation's candles or change auth storage. Use the same Compose files on every lifecycle operation and verify explicit database URL overrides.
 
-The API database files live in a named volume. The host dataset directory is mounted read-only at `/datasets`.
+Nginx routes `/api/better-auth/*` to auth, dataset/market-data routes to `market-api`, and other product API routes to `api`. Local Compose aliases its one API as `market-api`. Both production API roles use the same FastAPI image; only main `api` runs Alembic migrations. API, auth and browser builds must come from the same checkout for the matching source offer.
 
-## Full stack
-
-`docker-compose.yml` runs PostgreSQL, TimescaleDB, two PgBouncer instances, Redis, two FastAPI service roles, the data populator, the analytics worker, and the Nginx frontend.
-
-Nginx sends dataset and market-data requests to `market-api` and other API requests to `api`. Both roles use `backend/Dockerfile`; only the main API runs migrations.
-
-Optional profiles:
-
-- `benchmark`: Prometheus, Grafana, Loki, Promtail, Tempo, database exporters, MinIO, and k6.
-- `legacy-node-api`: the compatibility Node/SQLite API.
+Monitoring ports bind to loopback. The public Nginx route blocks `/api/observability/metrics`; collectors use private API connections. Metrics are enabled by default, while traces require an explicit collector endpoint. Follow [observability](../docs/observability.md) for credentials, access, retention and configurable cost controls.
 
 ## Files
 
 | Path | Purpose |
 | --- | --- |
-| `nginx.conf` | SPA hosting, API proxy rules, and WebSocket forwarding |
+| `nginx.conf` | SPA hosting, API/auth proxy rules, WebSocket forwarding and public security headers |
 | `pgbouncer/` | PgBouncer image and generated runtime configuration |
-| `observability/` | Prometheus, Grafana, Loki, Promtail, Tempo, and database setup |
+| `observability/` | Metrics, dashboards, alerts, log collection/guard, traces and database initialization |
 
-## Validate changes
+## Review deployment changes
 
 ```bash
-docker compose -f docker-compose.local.yml config
-docker compose config
+docker compose -f docker-compose.local.yml config --quiet
+docker compose config --quiet
+docker compose -f docker-compose.yml -f docker-compose.efficient.yml --profile observability config --quiet
 docker compose build
 ```
 
-Deployment variables and required secrets are described in [configuration](../docs/configuration.md).
+Configuration validation does not test migrations, backups, public authentication or failover. These are single-host templates; no automatic high availability is configured. Required secrets and environment controls are in [configuration](../docs/configuration.md) and `.env.example`.

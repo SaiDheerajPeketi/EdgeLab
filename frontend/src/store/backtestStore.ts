@@ -1250,7 +1250,8 @@ let replayGeneration = 0;
 let hydratedReplayGeneration: number | null = null;
 let activeReplayOwner: ReplayOwner | null = null;
 let replayPauseSync: { generation: number; task: Promise<void> } | null = null;
-// Entries retain only unresolved local writes and release after settlement.
+// Serialize unresolved writes per account/session to preserve server cursor order.
+// Generation checks retire stale publications; entries release after settlement.
 const replayMutationTails = new Map<string, Promise<void>>();
 const replayMutationCounts = new Map<string, number>();
 const deletingReplaySessions = new Set<string>();
