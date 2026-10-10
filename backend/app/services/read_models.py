@@ -13,6 +13,8 @@ from typing import TypeVar
 
 from fastapi import HTTPException
 
+from app.observability import http_metrics, number_env
+
 try:
     import redis
 except Exception:  # pragma: no cover - optional dependency
@@ -30,9 +32,11 @@ class CacheEntry:
 
 
 # Production normally uses shared Redis; keep the per-worker fallback bounded.
-MEMORY_CACHE_MAX_ENTRIES = 256
+MEMORY_CACHE_MAX_ENTRIES = number_env("EDGELAB_MEMORY_CACHE_MAX_ENTRIES", 256, 1, 10000, integer=True)
 REDIS_CACHE_NAMESPACE = "edgelab:read-model:v1:"
-REDIS_INVALIDATION_BATCH_SIZE = 256
+REDIS_INVALIDATION_BATCH_SIZE = number_env("EDGELAB_REDIS_INVALIDATION_BATCH_SIZE", 256, 1, 1000, integer=True)
+REDIS_TIMEOUT_SECONDS = number_env("EDGELAB_REDIS_CACHE_TIMEOUT_SECONDS", 0.25, 0.01, 5)
+CACHE_FAILURE_LOG_INTERVAL_SECONDS = number_env("EDGELAB_CACHE_FAILURE_LOG_INTERVAL_SECONDS", 30, 1, 3600)
 
 # Expiring random generations cannot reset to an earlier value after expiry.
 REDIS_LOAD_GENERATION = """
@@ -153,9 +157,11 @@ class RedisReadModelCache:
         self._failure_log_lock = Lock()
 
     def _report_failure(self) -> None:
+        if http_metrics.enabled:
+            http_metrics.cache_operations.labels("error").inc()
         with self._failure_log_lock:
             now = monotonic()
-            if now - self._last_failure_log_at >= 30:
+            if now - self._last_failure_log_at >= CACHE_FAILURE_LOG_INTERVAL_SECONDS:
                 logger.warning("Redis read-model cache unavailable; using uncached reads")
                 self._last_failure_log_at = now
 
@@ -181,6 +187,8 @@ class RedisReadModelCache:
         except redis.exceptions.RedisError:
             self._report_failure()
             return loader()
+        if http_metrics.enabled:
+            http_metrics.cache_operations.labels("hit" if raw is not None else "miss").inc()
         if raw is not None:
             payload = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
             if deserializer is not None:
@@ -249,8 +257,8 @@ def build_read_model_cache_backend(redis_url: str):
         client = redis.from_url(
             redis_url,
             decode_responses=True,
-            socket_connect_timeout=0.25,
-            socket_timeout=0.25,
+            socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+            socket_timeout=REDIS_TIMEOUT_SECONDS,
         )
         return RedisReadModelCache(client)
     except Exception:

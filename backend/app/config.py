@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import math
 import os
@@ -47,6 +47,24 @@ def float_env(name: str, default: float) -> float:
         return default
 
 
+def _bounded_number(name: str, value, minimum, maximum, *, integer=False):
+    description = "an integer" if integer else "a finite number"
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or (integer and not isinstance(value, int))
+            or not minimum <= value <= maximum or not math.isfinite(value)):
+        raise ValueError(f"{name} must be {description} between {minimum} and {maximum}")
+    return value
+
+
+def _bounded_number_env(name: str, default, minimum, maximum, *, integer=False):
+    try:
+        value = (int if integer else float)(os.getenv(name, str(default)))
+    except ValueError:
+        description = "an integer" if integer else "a finite number"
+        raise ValueError(f"{name} must be {description} between {minimum} and {maximum}") from None
+    return _bounded_number(name, value, minimum, maximum, integer=integer)
+
+
 def optional_path_env(name: str) -> Path | None:
     raw_value = os.getenv(name, "").strip()
     if not raw_value:
@@ -90,11 +108,11 @@ def default_market_data_database_url() -> str:
 
 def database_connect_args(database_url: str) -> dict[str, object]:
     if database_url.startswith("sqlite"):
-        return {"check_same_thread": False, "timeout": 60}
+        return {"check_same_thread": False, "timeout": _bounded_number_env("EDGELAB_DB_SQLITE_LOCK_TIMEOUT_SECONDS", 60, 0, 300)}
     if database_url.startswith("postgresql+psycopg"):
         return {
             "prepare_threshold": None,
-            "connect_timeout": max(int_env("EDGELAB_DB_CONNECT_TIMEOUT_SECONDS", 10), 1),
+            "connect_timeout": _bounded_number_env("EDGELAB_DB_CONNECT_TIMEOUT_SECONDS", 10, 1, 120, integer=True),
         }
     return {}
 
@@ -103,17 +121,44 @@ def database_engine_options(database_url: str) -> dict[str, object]:
     options: dict[str, object] = {"pool_pre_ping": True}
     if not database_url.startswith("sqlite"):
         options.update(
-            pool_recycle=1800,
-            pool_size=max(int_env("EDGELAB_DB_POOL_SIZE", 5), 1),
-            max_overflow=max(int_env("EDGELAB_DB_POOL_MAX_OVERFLOW", 10), 0),
-            pool_timeout=max(float_env("EDGELAB_DB_POOL_TIMEOUT_SECONDS", 5.0), 0.1),
+            pool_recycle=_bounded_number_env("EDGELAB_DB_POOL_RECYCLE_SECONDS", 1800, 1, 86400, integer=True),
+            pool_size=_bounded_number_env("EDGELAB_DB_POOL_SIZE", 5, 1, 1000, integer=True),
+            max_overflow=_bounded_number_env("EDGELAB_DB_POOL_MAX_OVERFLOW", 10, 0, 1000, integer=True),
+            pool_timeout=_bounded_number_env("EDGELAB_DB_POOL_TIMEOUT_SECONDS", 5.0, 0.1, 60),
         )
     return options
 
 
-def database_request_admission_limits(db_engine, configured_limit: int = 0, *, thread_tokens: float) -> tuple[int | None, int]:
-    if configured_limit < 0:
-        raise ValueError("EDGELAB_HTTP_REQUEST_LIMIT must be zero (automatic) or positive")
+@dataclass(frozen=True)
+class RequestAdmissionConfig:
+    queue_wait_seconds: float = 0.25
+    queue_depth: int = 0
+    probe_budget: int = 2
+    validation_thread_reserve: int = 8
+    sql_checkout_multiplier: int = 2
+
+    def __post_init__(self):
+        _bounded_number("EDGELAB_HTTP_QUEUE_WAIT_SECONDS", self.queue_wait_seconds, 0, 5)
+        _bounded_number("EDGELAB_HTTP_QUEUE_DEPTH", self.queue_depth, 0, 1024, integer=True)
+        _bounded_number("EDGELAB_HTTP_PROBE_BUDGET", self.probe_budget, 0, 32, integer=True)
+        _bounded_number("EDGELAB_HTTP_VALIDATION_THREAD_RESERVE", self.validation_thread_reserve, 1, 256, integer=True)
+        _bounded_number("EDGELAB_HTTP_SQL_CHECKOUT_MULTIPLIER", self.sql_checkout_multiplier, 1, 8, integer=True)
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            queue_wait_seconds=_bounded_number_env("EDGELAB_HTTP_QUEUE_WAIT_SECONDS", 0.25, 0, 5),
+            queue_depth=_bounded_number_env("EDGELAB_HTTP_QUEUE_DEPTH", 0, 0, 1024, integer=True),
+            probe_budget=_bounded_number_env("EDGELAB_HTTP_PROBE_BUDGET", 2, 0, 32, integer=True),
+            validation_thread_reserve=_bounded_number_env("EDGELAB_HTTP_VALIDATION_THREAD_RESERVE", 8, 1, 256, integer=True),
+            sql_checkout_multiplier=_bounded_number_env("EDGELAB_HTTP_SQL_CHECKOUT_MULTIPLIER", 2, 1, 8, integer=True),
+        )
+
+
+def database_request_admission_limits(db_engine, configured_limit: int = 0, *, thread_tokens: float,
+                                      admission_config: RequestAdmissionConfig | None = None) -> tuple[int | None, int]:
+    _bounded_number("EDGELAB_HTTP_REQUEST_LIMIT", configured_limit, 0, 10000, integer=True)
+    tuning = admission_config if admission_config is not None else RequestAdmissionConfig()
     pool = db_engine.pool
     if isinstance(pool, QueuePool) and pool.size() > 0 and pool._max_overflow >= 0:
         if db_engine.dialect.name == "sqlite" and configured_limit == 0:
@@ -126,12 +171,12 @@ def database_request_admission_limits(db_engine, configured_limit: int = 0, *, t
         # leaves eight free; small limiters retain at least one where possible.
         if math.isfinite(thread_tokens):
             tokens = max(1, int(thread_tokens))
-            reserve = min(8, max(1, tokens // 5))
+            reserve = min(tuning.validation_thread_reserve, max(1, tokens // 5))
             request_budget = max(1, tokens - reserve)
         else:
-            request_budget = 2 * capacity + 2
-        probe_limit = min(2, capacity, request_budget - 1)
-        safe_limit = min(2 * capacity, request_budget - probe_limit)
+            request_budget = tuning.sql_checkout_multiplier * capacity + tuning.probe_budget
+        probe_limit = min(tuning.probe_budget, capacity, request_budget - 1)
+        safe_limit = min(tuning.sql_checkout_multiplier * capacity, request_budget - probe_limit)
         limit = min(configured_limit or safe_limit, safe_limit)
         return limit, probe_limit
     # Static/Null/unbounded pools have no finite checkout queue to starve.
@@ -282,7 +327,8 @@ class Settings:
         "EDGELAB_MAX_REQUEST_BODY_BYTES",
         25 * 1024 * 1024,
     )
-    http_request_limit: int = int_env("EDGELAB_HTTP_REQUEST_LIMIT", 0)
+    http_request_limit: int = field(default_factory=lambda: _bounded_number_env("EDGELAB_HTTP_REQUEST_LIMIT", 0, 0, 10000, integer=True))
+    request_admission: RequestAdmissionConfig = field(default_factory=RequestAdmissionConfig.from_env)
     quant_capture_root: Path = Path(
         os.getenv("EDGELAB_QUANT_CAPTURE_ROOT", BACKEND_ROOT / "data" / "quant-captures")
     )
@@ -327,10 +373,7 @@ class Settings:
         "OTEL_EXPORTER_OTLP_HEADERS",
         "",
     ).strip()
-    otel_trace_sample_ratio: float = float_env(
-        "EDGELAB_OTEL_TRACE_SAMPLE_RATIO",
-        0.1,
-    )
+    otel_trace_sample_ratio: float = _bounded_number_env("EDGELAB_OTEL_TRACE_SAMPLE_RATIO", 0.1, 0, 1)
     beta_seats_total: int = int_env("EDGELAB_BETA_SEATS_TOTAL", 500)
     beta_manual_access_enabled: bool = bool_env(
         "EDGELAB_BETA_MANUAL_ACCESS_ENABLED",
@@ -384,6 +427,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         data_populator_crypto_symbols=settings.data_populator_crypto_symbols,
         max_request_body_bytes=settings.max_request_body_bytes,
         http_request_limit=settings.http_request_limit,
+        request_admission=settings.request_admission,
         max_app_data_rows=settings.max_app_data_rows,
         bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
         dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,

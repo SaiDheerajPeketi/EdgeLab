@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import database_connect_args, database_engine_options, settings
@@ -12,14 +12,8 @@ connect_args = database_connect_args(settings.database_url)
 engine = create_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
 
 
-if settings.database_url.startswith("sqlite"):
-    @event.listens_for(engine, "connect")
-    def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA busy_timeout = 60000")
-        cursor.close()
-
-
+# sqlite connect(timeout=...) already sets PRAGMA busy_timeout; do not override
+# the operator-selected lock deadline after the driver opens a connection.
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

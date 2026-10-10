@@ -25,6 +25,8 @@ from app.observability import (
     RequestContextMiddleware,
     configure_logging,
     configure_tracing,
+    http_metrics,
+    telemetry_config,
 )
 from app.services.integration_secrets import validate_vault_startup
 
@@ -35,7 +37,9 @@ configure_logging(
     service_name=settings.otel_service_name or "edgelab-api",
 )
 logger = logging.getLogger(__name__)
-http_metrics = HttpMetricsRegistry()
+http_metrics.instrument_pool(engine, "primary")
+if market_data_engine is not engine:
+    http_metrics.instrument_pool(market_data_engine, "market")
 
 
 @asynccontextmanager
@@ -45,8 +49,7 @@ async def lifespan(_: FastAPI):
     init_market_data_db()
     if tracing_status.enabled:
         logger.info(
-            "OpenTelemetry tracing enabled for %s",
-            tracing_status.exporter_endpoint,
+            "OpenTelemetry tracing enabled",
         )
     else:
         logger.info("OpenTelemetry tracing disabled: %s", tracing_status.reason)
@@ -63,30 +66,54 @@ PRIVATE_API_HEADERS = {
 class RequestAdmissionMiddleware:
     """Admit work before it can occupy threads waiting for database checkouts."""
 
-    def __init__(self, app: ASGIApp, max_requests: int = 0, db_engine=None) -> None:
+    def __init__(self, app: ASGIApp, max_requests: int = 0, db_engine=None, admission_config=None,
+                 metrics: HttpMetricsRegistry | None = None) -> None:
         self.app = app
+        tuning = admission_config if admission_config is not None else settings.request_admission
         thread_tokens = anyio.to_thread.current_default_thread_limiter().total_tokens
         self.limit, self.probe_limit = database_request_admission_limits(
-            db_engine if db_engine is not None else engine, max_requests, thread_tokens=thread_tokens,
+            db_engine if db_engine is not None else engine, max_requests,
+            thread_tokens=thread_tokens, admission_config=tuning,
         )
         self.active_requests = 0
         self.active_probes = 0
-        self.queue_limit = self.limit or 0
+        self.queue_limit = tuning.queue_depth or self.limit or 0
+        self.queue_wait_seconds = tuning.queue_wait_seconds
         self.waiting_requests: deque[anyio.Event] = deque()
+        self.metrics = metrics if metrics is not None and metrics.enabled and self.limit is not None else None
+        self._metric_gauges = {}
+        self._metric_values = {}
+        if self.metrics:
+            for state, value in (("request", self.limit), ("probe", self.probe_limit), ("queue", self.queue_limit)):
+                self.metrics.admission_limit.labels(state).set(value)
+                gauge = self.metrics.admission_active.labels(state)
+                gauge.set(0)
+                self._metric_gauges[state], self._metric_values[state] = gauge, 0
+
+    def _record_state(self) -> None:
+        if self.metrics:
+            for state, value in (("request", self.active_requests), ("probe", self.active_probes),
+                                 ("queue", len(self.waiting_requests))):
+                if self._metric_values[state] != value:
+                    self._metric_gauges[state].set(value)
+                    self._metric_values[state] = value
 
     async def _admit_request(self, *, wait: bool) -> bool:
         # Checking/reserving never awaits: new arrivals cannot overtake waiters.
         if self.active_requests < self.limit and not self.waiting_requests:
             self.active_requests += 1
+            self._record_state()
             return True
-        if not wait or len(self.waiting_requests) >= self.queue_limit:
+        if not wait or self.queue_wait_seconds == 0 or len(self.waiting_requests) >= self.queue_limit:
             return False
         waiter = anyio.Event()
         self.waiting_requests.append(waiter)
+        self._record_state()
+        queued_at = anyio.current_time()
         admitted = False
         try:
             # Waiting uses only the event loop, preserving worker thread reserves.
-            with anyio.move_on_after(0.25) as timeout:
+            with anyio.move_on_after(self.queue_wait_seconds) as timeout:
                 await waiter.wait()
             admitted = not timeout.cancel_called and anyio.current_time() < timeout.deadline
             return admitted
@@ -97,6 +124,9 @@ class RequestAdmissionMiddleware:
                     self._release_request()
             else:
                 self.waiting_requests.remove(waiter)
+            if self.metrics:
+                self.metrics.queue_wait.observe(anyio.current_time() - queued_at)
+            self._record_state()
 
     def _release_request(self) -> None:
         if self.waiting_requests:
@@ -104,6 +134,7 @@ class RequestAdmissionMiddleware:
             self.waiting_requests.popleft().set()
         else:
             self.active_requests -= 1
+        self._record_state()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = scope.get("path", "")
@@ -119,9 +150,12 @@ class RequestAdmissionMiddleware:
             admitted = self.active_probes < self.probe_limit
             if admitted:
                 self.active_probes += 1
+                self._record_state()
         else:
             admitted = await self._admit_request(wait=not probe_path)
         if not admitted:
+            if self.metrics:
+                self.metrics.admission_rejected.labels("probe_busy" if probe_path else "request_busy").inc()
             await JSONResponse(status_code=503, content={"detail": "Service busy. Try again shortly."},
                                headers={**PRIVATE_API_HEADERS, "Retry-After": "1"})(scope, receive, send)
             return
@@ -131,6 +165,7 @@ class RequestAdmissionMiddleware:
         finally:
             if probe:
                 self.active_probes -= 1
+                self._record_state()
             else:
                 self._release_request()
 
@@ -211,7 +246,7 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     max_body_size=settings.max_request_body_bytes,
 )
-app.add_middleware(RequestAdmissionMiddleware, max_requests=settings.http_request_limit)
+app.add_middleware(RequestAdmissionMiddleware, max_requests=settings.http_request_limit, metrics=http_metrics)
 
 app.add_middleware(
     CORSMiddleware,
@@ -284,6 +319,8 @@ def sanitize_secret_validation_errors(
 
 @app.exception_handler(DatabasePoolTimeout)
 async def database_pool_timeout_handler(request: Request, exc: DatabasePoolTimeout) -> JSONResponse:
+    if http_metrics.enabled:
+        http_metrics.pool_timeouts.inc()
     return JSONResponse(
         status_code=503,
         content={"detail": "Service busy. Try again shortly."},
@@ -293,11 +330,12 @@ async def database_pool_timeout_handler(request: Request, exc: DatabasePoolTimeo
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled API error")
+    request_id = request.scope.get("edgelab.request_id")
+    logger.exception("Unhandled API error", extra={"request_id": request_id})
     detail = "Internal server error"
     return JSONResponse(
         status_code=500,
-        headers=PRIVATE_API_HEADERS,
+        headers={**PRIVATE_API_HEADERS, **({"X-Request-ID": request_id} if request_id else {})},
         content={
             "detail": detail,
             "error": {
@@ -310,6 +348,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/api/observability/metrics", include_in_schema=False)
 def observability_metrics() -> PlainTextResponse:
+    if not telemetry_config.metrics_enabled:
+        raise HTTPException(404, "Not found")
     return PlainTextResponse(
         http_metrics.render(),
         media_type=PROMETHEUS_CONTENT_TYPE,

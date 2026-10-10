@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.config import database_request_admission_limits
+from app.config import RequestAdmissionConfig, database_request_admission_limits
 from app.main import PRIVATE_API_HEADERS, RequestAdmissionMiddleware
 
 
@@ -33,7 +33,7 @@ def test_limits_use_actual_pool_and_preserve_sqlite_defaults(monkeypatch, tmp_pa
         assert database_request_admission_limits(postgres, thread_tokens=2) == (1, 0)
         assert database_request_admission_limits(postgres, thread_tokens=1) == (1, 0)
         assert database_request_admission_limits(postgres, thread_tokens=float("inf")) == (30, 2)
-        with pytest.raises(ValueError, match="zero.*positive"):
+        with pytest.raises(ValueError, match="EDGELAB_HTTP_REQUEST_LIMIT"):
             database_request_admission_limits(postgres, -1, thread_tokens=40)
         with pytest.raises(ValueError, match="thread budget.*positive"):
             database_request_admission_limits(postgres, thread_tokens=0)
@@ -41,6 +41,32 @@ def test_limits_use_actual_pool_and_preserve_sqlite_defaults(monkeypatch, tmp_pa
         pooled.dispose()
         static.dispose()
         postgres.dispose()
+
+
+def test_tuned_admission_budgets_stay_inside_actual_pool_and_thread_limits():
+    postgres = create_engine("postgresql+psycopg://fixture:fixture@127.0.0.1/fixture", pool_size=5, max_overflow=10)
+    try:
+        tuning = RequestAdmissionConfig(probe_budget=4, validation_thread_reserve=4, sql_checkout_multiplier=4)
+        assert database_request_admission_limits(postgres, thread_tokens=40, admission_config=tuning) == (32, 4)
+        assert database_request_admission_limits(postgres, 1000, thread_tokens=40, admission_config=tuning) == (32, 4)
+        assert database_request_admission_limits(postgres, 5, thread_tokens=40, admission_config=tuning) == (5, 4)
+        assert database_request_admission_limits(postgres, thread_tokens=2, admission_config=tuning) == (1, 0)
+        many_probes = RequestAdmissionConfig(probe_budget=32)
+        assert database_request_admission_limits(postgres, thread_tokens=40, admission_config=many_probes) == (17, 15)
+        no_probes = RequestAdmissionConfig(probe_budget=0, sql_checkout_multiplier=1)
+        assert database_request_admission_limits(postgres, thread_tokens=40, admission_config=no_probes) == (15, 0)
+    finally:
+        postgres.dispose()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("queue_wait_seconds", float("nan")), ("queue_wait_seconds", float("inf")),
+    ("queue_depth", -1), ("queue_depth", 0.5), ("probe_budget", -1),
+    ("validation_thread_reserve", 0), ("sql_checkout_multiplier", 0),
+])
+def test_explicit_admission_configuration_cannot_bypass_safe_bounds(field, value):
+    with pytest.raises(ValueError, match="EDGELAB_HTTP_"):
+        RequestAdmissionConfig(**{field: value})
 
 
 def test_sync_response_validation_finishes_with_tiny_thread_and_sql_pools(tmp_path):
@@ -264,7 +290,8 @@ def test_admission_queue_is_fifo_bounded_and_borrows_no_worker_threads(tmp_path)
         engine.dispose()
 
 
-def test_admission_queue_timeout_is_bounded_and_removes_waiter(tmp_path):
+@pytest.mark.parametrize("queue_wait", [0, 0.05, 0.25, 0.4])
+def test_admission_queue_timeout_is_bounded_and_removes_waiter(tmp_path, queue_wait):
     engine = create_engine(f"sqlite:///{tmp_path / 'timeout.db'}", pool_size=1, max_overflow=0)
 
     async def run():
@@ -277,14 +304,15 @@ def test_admission_queue_timeout_is_bounded_and_removes_waiter(tmp_path):
             await release.wait()
             await JSONResponse({"ok": True})(request_scope, receive, send)
 
-        admission = RequestAdmissionMiddleware(app, max_requests=1, db_engine=engine)
+        admission = RequestAdmissionMiddleware(app, max_requests=1, db_engine=engine,
+                                              admission_config=RequestAdmissionConfig(queue_wait_seconds=queue_wait))
         active = asyncio.create_task(response_call(admission, scope()))
         try:
             await asyncio.wait_for(entered.wait(), 0.1)
             loop = asyncio.get_running_loop()
             started = loop.time()
-            denied = await asyncio.wait_for(response_call(admission, scope()), 0.5)
-            assert 0.20 <= loop.time() - started < 0.5
+            denied = await asyncio.wait_for(response_call(admission, scope()), queue_wait + 0.2)
+            assert max(0, queue_wait - 0.01) <= loop.time() - started < queue_wait + 0.2
             assert denied[0]["status"] == 503
             assert dict(denied[0]["headers"])[b"retry-after"] == b"1"
             assert calls == [True]
@@ -296,6 +324,45 @@ def test_admission_queue_timeout_is_bounded_and_removes_waiter(tmp_path):
         finally:
             release.set()
             await asyncio.gather(active, return_exceptions=True)
+
+    try:
+        asyncio.run(run())
+    finally:
+        engine.dispose()
+
+
+def test_configured_queue_depth_accepts_more_waiters_without_raising_active_cap(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'depth.db'}", pool_size=1, max_overflow=0)
+
+    async def run():
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+
+        async def app(request_scope, receive, send):
+            assert admission.active_requests == 1
+            calls.append(request_scope["path"])
+            if request_scope["path"] == "/api/first":
+                entered.set()
+                await release.wait()
+            await JSONResponse({"ok": True})(request_scope, receive, send)
+
+        admission = RequestAdmissionMiddleware(app, max_requests=1, db_engine=engine,
+                                              admission_config=RequestAdmissionConfig(queue_depth=2))
+        requests = [asyncio.create_task(response_call(admission, scope("/api/first")))]
+        try:
+            await asyncio.wait_for(entered.wait(), 0.1)
+            for number in (1, 2):
+                requests.append(asyncio.create_task(response_call(admission, scope(f"/api/waiter{number}"))))
+                await wait_for_queued(admission, number)
+            assert (await asyncio.wait_for(response_call(admission, scope("/api/overflow")), 0.1))[0]["status"] == 503
+            assert calls == ["/api/first"]
+            release.set()
+            assert all(response[0]["status"] == 200 for response in await asyncio.gather(*requests))
+            assert calls == ["/api/first", "/api/waiter1", "/api/waiter2"]
+            assert admission.active_requests == 0 and not admission.waiting_requests
+        finally:
+            release.set()
+            await asyncio.gather(*requests, return_exceptions=True)
 
     try:
         asyncio.run(run())

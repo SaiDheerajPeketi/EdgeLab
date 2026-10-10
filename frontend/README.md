@@ -388,3 +388,7 @@ Cloudflare can cache fingerprinted `/assets/*` while proxying `/api/*` to the VM
 The production proxy image uses Nginx 1.30.5, including the map/regex security fixes documented in the official advisory. Validate the configuration and HTTP/cache behavior when upgrading it.
 
 Auth replicas use the optional shared PostgreSQL writer while browser callbacks/cookies remain on the same public origin. A load balancer must remove unhealthy/draining nodes; it must not cache session or logout responses. Failed database revocation is reported as retryable failure rather than successful logout.
+
+## Production monitoring
+
+See [observability and runtime configuration](../docs/observability.md) for worker-aggregated metrics, safe request logs and traces, optional private monitoring, alerts, retention, and operating bounds. Browser assets remain CDN-cacheable; private API data and monitoring endpoints must not be publicly cached or exposed.

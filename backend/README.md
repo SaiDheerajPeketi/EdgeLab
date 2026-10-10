@@ -142,3 +142,7 @@ Share the exact signing/service keys, Google configuration and public origin acr
 ### Stripe sandbox testing
 
 Temporary anonymous Stripe sandboxes can exercise fake monthly/yearly purchases before merchant activation. Matching restricted keys are accepted; anonymous rkcs keys are test-only. Provider mode checks and the live subscription requirement for exports remain enforced. See [sandbox setup and verified behavior](../docs/stripe-sandbox.md).
+
+## Production monitoring
+
+See [observability and runtime configuration](../docs/observability.md) for worker-aggregated metrics, safe request logs and traces, optional private monitoring, alerts, retention, and operating bounds. Browser assets remain CDN-cacheable; private API data and monitoring endpoints must not be publicly cached or exposed.

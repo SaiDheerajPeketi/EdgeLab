@@ -7,7 +7,8 @@ services:
   pgbouncer-timescaledb:
     profiles: [timescale]
   timescaledb-exporter:
-    profiles: [timescale-observability]
+    # Compose merges ordinary profile lists; explicitly exclude it from monitoring.
+    profiles: !override [timescale-observability]
   pgbouncer-postgres:
     environment:
       # Preserve the combined server-connection budget of the two default poolers.

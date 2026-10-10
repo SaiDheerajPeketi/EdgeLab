@@ -1,3 +1,34 @@
+x-runtime-tuning: &runtime-tuning
+  EDGELAB_HTTP_QUEUE_WAIT_SECONDS: ${EDGELAB_HTTP_QUEUE_WAIT_SECONDS:-0.25}
+  EDGELAB_HTTP_QUEUE_DEPTH: ${EDGELAB_HTTP_QUEUE_DEPTH:-0}
+  EDGELAB_HTTP_PROBE_BUDGET: ${EDGELAB_HTTP_PROBE_BUDGET:-2}
+  EDGELAB_HTTP_VALIDATION_THREAD_RESERVE: ${EDGELAB_HTTP_VALIDATION_THREAD_RESERVE:-8}
+  EDGELAB_HTTP_SQL_CHECKOUT_MULTIPLIER: ${EDGELAB_HTTP_SQL_CHECKOUT_MULTIPLIER:-2}
+  EDGELAB_DB_POOL_RECYCLE_SECONDS: ${EDGELAB_DB_POOL_RECYCLE_SECONDS:-1800}
+  EDGELAB_DB_SQLITE_LOCK_TIMEOUT_SECONDS: ${EDGELAB_DB_SQLITE_LOCK_TIMEOUT_SECONDS:-60}
+  EDGELAB_MIGRATION_MAX_ATTEMPTS: ${EDGELAB_MIGRATION_MAX_ATTEMPTS:-12}
+  EDGELAB_MIGRATION_RETRY_SECONDS: ${EDGELAB_MIGRATION_RETRY_SECONDS:-5}
+  EDGELAB_METRICS_BASE_DIR: ${EDGELAB_METRICS_BASE_DIR:-/tmp}
+  EDGELAB_METRICS_ENABLED: ${EDGELAB_METRICS_ENABLED:-1}
+  EDGELAB_HTTP_LATENCY_BUCKETS: ${EDGELAB_HTTP_LATENCY_BUCKETS:-0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10}
+  EDGELAB_HTTP_LOG_SAMPLE_RATIO: ${EDGELAB_HTTP_LOG_SAMPLE_RATIO:-0.1}
+  EDGELAB_HTTP_SLOW_REQUEST_SECONDS: ${EDGELAB_HTTP_SLOW_REQUEST_SECONDS:-1}
+  EDGELAB_OTEL_MAX_QUEUE_SIZE: ${EDGELAB_OTEL_MAX_QUEUE_SIZE:-2048}
+  EDGELAB_OTEL_MAX_BATCH_SIZE: ${EDGELAB_OTEL_MAX_BATCH_SIZE:-512}
+  EDGELAB_OTEL_SCHEDULE_DELAY_MS: ${EDGELAB_OTEL_SCHEDULE_DELAY_MS:-5000}
+  EDGELAB_OTEL_SHUTDOWN_TIMEOUT_SECONDS: ${EDGELAB_OTEL_SHUTDOWN_TIMEOUT_SECONDS:-5}
+  EDGELAB_OTEL_EXPORT_TIMEOUT_SECONDS: ${EDGELAB_OTEL_EXPORT_TIMEOUT_SECONDS:-5}
+  EDGELAB_MEMORY_CACHE_MAX_ENTRIES: ${EDGELAB_MEMORY_CACHE_MAX_ENTRIES:-256}
+  EDGELAB_REDIS_INVALIDATION_BATCH_SIZE: ${EDGELAB_REDIS_INVALIDATION_BATCH_SIZE:-256}
+  EDGELAB_REDIS_CACHE_TIMEOUT_SECONDS: ${EDGELAB_REDIS_CACHE_TIMEOUT_SECONDS:-0.25}
+  EDGELAB_CACHE_FAILURE_LOG_INTERVAL_SECONDS: ${EDGELAB_CACHE_FAILURE_LOG_INTERVAL_SECONDS:-30}
+
+x-log-limits: &log-limits
+  driver: json-file
+  options:
+    max-size: ${EDGELAB_CONTAINER_LOG_MAX_SIZE:-10m}
+    max-file: ${EDGELAB_CONTAINER_LOG_MAX_FILES:-3}
+
 # Build API and browser from the same checkout so /source/ matches both applications.
 x-backend-image: &backend-image
   image: ${EDGELAB_BACKEND_IMAGE:-edgelab-backend:local}
@@ -35,6 +66,7 @@ services:
       retries: 6
     stop_grace_period: ${EDGELAB_AUTH_STOP_GRACE_PERIOD:-45s}
     restart: unless-stopped
+    logging: *log-limits
   postgres:
     image: postgres:16-alpine
     command:
@@ -60,6 +92,7 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - type: bind
@@ -99,6 +132,7 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_PGBOUNCER_POSTGRES_PORT:-6432}:6432"
     restart: unless-stopped
+    logging: *log-limits
 
   timescaledb:
     image: timescale/timescaledb:2.16.1-pg16
@@ -125,6 +159,7 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_TIMESCALE_PORT:-5433}:5432"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
       - type: bind
@@ -164,6 +199,7 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_PGBOUNCER_TIMESCALE_PORT:-6433}:6432"
     restart: unless-stopped
+    logging: *log-limits
 
   redis:
     image: redis:7-alpine
@@ -178,6 +214,7 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_REDIS_PORT:-6379}:6379"
     restart: unless-stopped
+    logging: *log-limits
 
   minio:
     profiles:
@@ -191,16 +228,19 @@ services:
       - "127.0.0.1:${EDGELAB_MINIO_PORT:-9000}:9000"
       - "127.0.0.1:${EDGELAB_MINIO_CONSOLE_PORT:-9001}:9001"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - minio-data:/data
 
   prometheus:
-    profiles:
-      - benchmark
-    image: prom/prometheus:v2.54.1
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_PROMETHEUS_IMAGE:-prom/prometheus:v3.15.0}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${EDGELAB_PROMETHEUS_RETENTION_TIME:-7d}
+      - --storage.tsdb.retention.size=${EDGELAB_PROMETHEUS_RETENTION_SIZE:-2GB}
+      - --web.enable-remote-write-receiver
     depends_on:
       api:
         condition: service_started
@@ -209,133 +249,147 @@ services:
     ports:
       - "127.0.0.1:${EDGELAB_PROMETHEUS_PORT:-9090}:9090"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
-      - type: bind
-        source: ./docker/observability/prometheus.yml
-        target: /etc/prometheus/prometheus.yml
-        read_only: true
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
 
   grafana:
-    profiles:
-      - benchmark
-    image: grafana/grafana:11.1.4
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_GRAFANA_IMAGE:-grafana/grafana:13.2.3}
+    entrypoint: ["/bin/sh", "/etc/edgelab/grafana-start.sh"]
     depends_on:
       prometheus:
         condition: service_started
     environment:
       GF_SECURITY_ADMIN_USER: ${EDGELAB_GRAFANA_ADMIN_USER:-edgelab}
-      GF_SECURITY_ADMIN_PASSWORD: ${EDGELAB_GRAFANA_ADMIN_PASSWORD:-edgelab}
+      GF_SECURITY_ADMIN_PASSWORD: ${EDGELAB_GRAFANA_ADMIN_PASSWORD:-}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     ports:
       - "127.0.0.1:${EDGELAB_GRAFANA_PORT:-3000}:3000"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
-      - type: bind
-        source: ./docker/observability/grafana/provisioning/datasources/prometheus.yml
-        target: /etc/grafana/provisioning/datasources/prometheus.yml
-        read_only: true
-      - type: bind
-        source: ./docker/observability/grafana/provisioning/datasources/loki.yml
-        target: /etc/grafana/provisioning/datasources/loki.yml
-        read_only: true
-      - type: bind
-        source: ./docker/observability/grafana/provisioning/datasources/tempo.yml
-        target: /etc/grafana/provisioning/datasources/tempo.yml
-        read_only: true
-      - type: bind
-        source: ./docker/observability/grafana/provisioning/dashboards/dashboards.yml
-        target: /etc/grafana/provisioning/dashboards/dashboards.yml
-        read_only: true
-      - type: bind
-        source: ./docker/observability/grafana/dashboards
-        target: /etc/grafana/provisioning/dashboards/json
-        read_only: true
+      - ./docker/observability/grafana-start.sh:/etc/edgelab/grafana-start.sh:ro
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
 
   loki:
-    profiles:
-      - benchmark
-    image: grafana/loki:3.1.1
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_LOKI_IMAGE:-grafana/loki:3.7.8}
     command:
       - -config.file=/etc/loki/config.yml
+      - -config.expand-env=true
+    environment:
+      EDGELAB_LOKI_RETENTION: ${EDGELAB_LOKI_RETENTION:-168h}
     ports:
       - "127.0.0.1:${EDGELAB_LOKI_PORT:-3100}:3100"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
-      - type: bind
-        source: ./docker/observability/loki-config.yml
-        target: /etc/loki/config.yml
-        read_only: true
+      - ./docker/observability/loki-config.yml:/etc/loki/config.yml:ro
       - loki-data:/loki
 
-  promtail:
-    profiles:
-      - benchmark
-    image: grafana/promtail:3.1.1
+  # Only this narrowly filtered proxy has the host socket. A read-only socket
+  # mount alone does not prevent Docker API writes.
+  docker-log-proxy:
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_DOCKER_LOG_PROXY_IMAGE:-haproxy:3.2.25-alpine}
+    user: "0:0"
+    entrypoint: ["haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      EDGELAB_LOG_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    networks: [docker-logs]
+    restart: unless-stopped
+    logging: *log-limits
+    volumes:
+      - ./docker/observability/docker-log-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  alloy:
+    user: "473:473"
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_ALLOY_IMAGE:-grafana/alloy:v1.20.1}
     command:
-      - -config.file=/etc/promtail/config.yml
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    environment:
+      EDGELAB_LOG_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
     depends_on:
       loki:
         condition: service_started
+      docker-log-proxy:
+        condition: service_started
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [default, docker-logs]
     restart: unless-stopped
+    logging: *log-limits
     volumes:
-      - type: bind
-        source: ./docker/observability/promtail.yml
-        target: /etc/promtail/config.yml
-        read_only: true
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-        read_only: true
-      - promtail-data:/tmp/promtail
+      - ./docker/observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
 
   tempo:
-    profiles:
-      - benchmark
-    image: grafana/tempo:2.5.0
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_TEMPO_IMAGE:-grafana/tempo:2.10.8}
     command:
       - -config.file=/etc/tempo/config.yml
+      - -config.expand-env=true
+    environment:
+      EDGELAB_TEMPO_RETENTION: ${EDGELAB_TEMPO_RETENTION:-24h}
     ports:
       - "127.0.0.1:${EDGELAB_TEMPO_PORT:-3200}:3200"
       - "127.0.0.1:${EDGELAB_TEMPO_OTLP_HTTP_PORT:-4318}:4318"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
-      - type: bind
-        source: ./docker/observability/tempo.yml
-        target: /etc/tempo/config.yml
-        read_only: true
+      - ./docker/observability/tempo.yml:/etc/tempo/config.yml:ro
       - tempo-data:/var/tempo
 
   postgres-exporter:
-    profiles:
-      - benchmark
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_POSTGRES_EXPORTER_IMAGE:-quay.io/prometheuscommunity/postgres-exporter:v0.20.1}
     depends_on:
       postgres:
         condition: service_healthy
     command:
-      - --collector.stat_statements
       - --collector.database
     environment:
-      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-edgelab}:${POSTGRES_PASSWORD:-edgelab}@postgres:5432/${POSTGRES_DB:-edgelab}?sslmode=disable
+      DATA_SOURCE_URI: ${EDGELAB_POSTGRES_EXPORTER_URI:-postgres:5432/${POSTGRES_DB:-edgelab}?sslmode=disable}
+      DATA_SOURCE_USER: ${EDGELAB_MONITOR_DATABASE_USER:-edgelab_monitor}
+      DATA_SOURCE_PASS: ${EDGELAB_MONITOR_DATABASE_PASSWORD:-}
     ports:
       - "127.0.0.1:${EDGELAB_POSTGRES_EXPORTER_PORT:-9187}:9187"
     restart: unless-stopped
+    logging: *log-limits
 
   timescaledb-exporter:
-    profiles:
-      - benchmark
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    profiles: [observability, benchmark]
+    image: ${EDGELAB_POSTGRES_EXPORTER_IMAGE:-quay.io/prometheuscommunity/postgres-exporter:v0.20.1}
     depends_on:
       timescaledb:
         condition: service_healthy
     command:
-      - --collector.stat_statements
       - --collector.database
     environment:
-      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-edgelab}:${POSTGRES_PASSWORD:-edgelab}@timescaledb:5432/${POSTGRES_DB:-edgelab}?sslmode=disable
+      DATA_SOURCE_URI: ${EDGELAB_TIMESCALE_EXPORTER_URI:-timescaledb:5432/${POSTGRES_DB:-edgelab}?sslmode=disable}
+      DATA_SOURCE_USER: ${EDGELAB_MONITOR_DATABASE_USER:-edgelab_monitor}
+      DATA_SOURCE_PASS: ${EDGELAB_MONITOR_DATABASE_PASSWORD:-}
     ports:
       - "127.0.0.1:${EDGELAB_TIMESCALE_EXPORTER_PORT:-9188}:9187"
     restart: unless-stopped
+    logging: *log-limits
 
   api:
     <<: *backend-image
@@ -347,6 +401,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      <<: *runtime-tuning
       DATABASE_URL: ${DATABASE_URL:-}
       EDGELAB_DB_POOL_SIZE: ${EDGELAB_DB_POOL_SIZE:-5}
       EDGELAB_DB_POOL_MAX_OVERFLOW: ${EDGELAB_DB_POOL_MAX_OVERFLOW:-10}
@@ -432,6 +487,7 @@ services:
       start_period: 60s
     stop_grace_period: ${EDGELAB_API_STOP_GRACE_PERIOD:-45s}
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - api-data:/var/lib/edgelab
       - type: bind
@@ -455,6 +511,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      <<: *runtime-tuning
       DATABASE_URL: ${DATABASE_URL:-}
       EDGELAB_DB_POOL_SIZE: ${EDGELAB_DB_POOL_SIZE:-5}
       EDGELAB_DB_POOL_MAX_OVERFLOW: ${EDGELAB_DB_POOL_MAX_OVERFLOW:-10}
@@ -529,6 +586,7 @@ services:
       start_period: 60s
     stop_grace_period: ${EDGELAB_API_STOP_GRACE_PERIOD:-45s}
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - api-data:/var/lib/edgelab
       - type: bind
@@ -552,6 +610,7 @@ services:
         condition: service_healthy
     user: "${EDGELAB_DATA_POPULATOR_USER:-0:0}"
     environment:
+      <<: *runtime-tuning
       DATABASE_URL: ${DATABASE_URL:-}
       EDGELAB_DB_POOL_SIZE: ${EDGELAB_DB_POOL_SIZE:-5}
       EDGELAB_DB_POOL_MAX_OVERFLOW: ${EDGELAB_DB_POOL_MAX_OVERFLOW:-10}
@@ -588,6 +647,7 @@ services:
       OTEL_SERVICE_NAME: edgelab-data-populator
       OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - type: bind
         source: ${EDGELAB_DATASETS_ROOT:-./datasets}
@@ -602,6 +662,7 @@ services:
       pgbouncer-postgres:
         condition: service_healthy
     environment:
+      <<: *runtime-tuning
       DATABASE_URL: ${DATABASE_URL:-}
       EDGELAB_DB_POOL_SIZE: ${EDGELAB_DB_POOL_SIZE:-5}
       EDGELAB_DB_POOL_MAX_OVERFLOW: ${EDGELAB_DB_POOL_MAX_OVERFLOW:-10}
@@ -624,6 +685,7 @@ services:
       OTEL_SERVICE_NAME: edgelab-analytics-worker
       OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     restart: unless-stopped
+    logging: *log-limits
 
   frontend:
     build:
@@ -646,6 +708,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     restart: unless-stopped
+    logging: *log-limits
 
   legacy-api:
     profiles:
@@ -660,6 +723,7 @@ services:
     ports:
       - "${LEGACY_API_PORT:-3001}:3001"
     restart: unless-stopped
+    logging: *log-limits
     volumes:
       - legacy-api-data:/app/backend/data
       - legacy-uploads:/app/backend/uploads
@@ -685,5 +749,11 @@ volumes:
   loki-data:
   legacy-api-data:
   legacy-uploads:
-  promtail-data:
+  alloy-data:
+  prometheus-data:
+  grafana-data:
   tempo-data:
+
+networks:
+  docker-logs:
+    internal: true

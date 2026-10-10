@@ -1,0 +1,102 @@
+# Local evaluation only. No external notification destination is configured.
+groups:
+  - name: edgelab-availability
+    rules:
+      - alert: EdgeLabMonitoringTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Monitoring target {{ $labels.instance }} is unavailable'
+          description: 'Check container health, private DNS/connectivity, and scrape limits before trusting missing data.'
+      - alert: EdgeLabApiDiscoveryMissing
+        expr: absent(up{job="edgelab-api",service="api"}) or absent(up{job="edgelab-api",service="market-api"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'An API service has no discovered monitoring targets'
+          description: 'Check Compose service replicas and DNS; absence does not mean zero traffic.'
+      - alert: EdgeLabDatabaseUnavailable
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Database monitoring cannot connect at {{ $labels.instance }}'
+          description: 'Check database health and the dedicated monitor role credentials/permissions.'
+      - alert: EdgeLabApiErrors
+        expr: sum by (service) (rate(edgelab_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum by (service) (rate(edgelab_http_requests_total[5m])), 0.01) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} has more than 5% server errors'
+          description: 'Inspect route error counts, admission rejections, SQL pool usage, and Redis failures.'
+      - alert: EdgeLabApiLatency
+        expr: histogram_quantile(0.95, sum by (service, le) (rate(edgelab_http_request_duration_seconds_bucket[5m]))) > 2 and on (service) sum by (service) (rate(edgelab_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} request p95 exceeds two seconds'
+          description: 'Check route latency and database pressure before increasing worker or pool limits.'
+      - alert: EdgeLabLogsDropped
+        expr: sum(increase(loki_write_dropped_entries_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Alloy is dropping application logs'
+          description: 'Check Loki availability, ingestion limits, and collector retry failures.'
+      - alert: EdgeLabAlertEvaluationFailed
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Prometheus cannot evaluate one or more local alerts'
+          description: 'Check rule errors and query limits; alert visibility may be incomplete.'
+
+      - alert: EdgeLabAdmissionPressure
+        expr: sum by (service) (rate(edgelab_admission_rejected_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} is rejecting work under load'
+          description: 'Inspect queue depth and pool usage; retain thread reserves when tuning capacity.'
+      - alert: EdgeLabPoolSaturation
+        expr: sum by (service, store) (edgelab_db_pool_checked_out) / sum by (service, store) (edgelab_db_pool_capacity) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} database pool {{ $labels.store }} is saturated'
+          description: 'Inspect slow routes, long queries, and checkout timeout rates before increasing SQL connections.'
+      - alert: EdgeLabRedisCacheFailures
+        expr: sum by (service) (rate(edgelab_cache_operations_total{outcome="error"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} has Redis read-model failures'
+          description: 'Reads can fall back to SQL; failed shared invalidations return retryable errors. Check Redis memory, network and availability.'
+      - alert: EdgeLabTraceExportFailures
+        expr: sum by (service) (rate(edgelab_trace_export_batches_total{outcome="failure"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} cannot export trace batches'
+          description: 'Check collector availability and credentials; request execution does not wait for exports.'
+
+      - alert: EdgeLabDatabaseDiscoveryMissing
+        expr: absent(up{job="edgelab-postgres",store="postgres-exporter"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Primary SQL monitoring has no discovered target'
+          description: 'Check exporter startup, private DNS and monitor-role configuration.'

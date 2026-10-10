@@ -13,7 +13,7 @@ ingester:
 
 compactor:
   compaction:
-    block_retention: 24h
+    block_retention: ${EDGELAB_TEMPO_RETENTION:-24h}
 
 storage:
   trace:
@@ -26,8 +26,13 @@ storage:
 metrics_generator:
   storage:
     path: /var/tempo/generator
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
 
 overrides:
   defaults:
     metrics_generator:
       processors: [service-graphs, span-metrics]
+
+usage_report:
+  reporting_enabled: false

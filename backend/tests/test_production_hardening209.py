@@ -68,16 +68,17 @@ def test_compose_credentials_are_escaped_for_both_stores(monkeypatch):
     assert default_market_data_database_url() == "sqlite:///explicit.db"
 
 
-def test_pool_and_connect_deadlines_bound_invalid_negative_values(monkeypatch):
-    monkeypatch.setenv("EDGELAB_DB_POOL_SIZE", "-2")
-    monkeypatch.setenv("EDGELAB_DB_POOL_MAX_OVERFLOW", "-1")
-    monkeypatch.setenv("EDGELAB_DB_POOL_TIMEOUT_SECONDS", "-3")
-    monkeypatch.setenv("EDGELAB_DB_CONNECT_TIMEOUT_SECONDS", "0")
-    opts = database_engine_options("postgresql+psycopg://example/db")
-    assert opts["pool_size"] == 1
-    assert opts["max_overflow"] == 0
-    assert opts["pool_timeout"] == 0.1
-    assert database_connect_args("postgresql+psycopg://example/db")["connect_timeout"] == 1
+def test_pool_and_connect_deadlines_reject_invalid_negative_values(monkeypatch):
+    for name, value, action in [
+        ("EDGELAB_DB_POOL_SIZE", "-2", database_engine_options),
+        ("EDGELAB_DB_POOL_MAX_OVERFLOW", "-1", database_engine_options),
+        ("EDGELAB_DB_POOL_TIMEOUT_SECONDS", "-3", database_engine_options),
+        ("EDGELAB_DB_CONNECT_TIMEOUT_SECONDS", "0", database_connect_args),
+    ]:
+        with monkeypatch.context() as context:
+            context.setenv(name, value)
+            with pytest.raises(ValueError, match=name):
+                action("postgresql+psycopg://example/db")
     assert database_engine_options("sqlite:///test.db") == {"pool_pre_ping": True}
 
 

@@ -135,3 +135,7 @@ Shared PostgreSQL authentication is available through `BETTER_AUTH_DATABASE_URL`
 ### Automatic Git push
 
 Enable the tracked post-commit hook once per clone with `rtk git config --local core.hooksPath .githooks`. It pushes each completed commit to the branch upstream, without force. Detached commits are preserved under `codex/preserve-detached-<commit>`. A failed push keeps the local commit and reports the failure. Set `CODEX_AUTO_PUSH=0` only for an intentional local validation commit; `RTK_BIN` can select the installed RTK executable.
+
+## Production monitoring
+
+See [observability and runtime configuration](docs/observability.md) for worker-aggregated metrics, safe request logs and traces, optional private monitoring, alerts, retention, and operating bounds. Browser assets remain CDN-cacheable; private API data and monitoring endpoints must not be publicly cached or exposed.

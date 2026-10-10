@@ -2,16 +2,13 @@ import json
 import logging
 
 import anyio
-from fastapi import Request
 from starlette.responses import JSONResponse
 
 import app.observability as observability
 
 
 def test_request_context_middleware_preserves_request_id_header():
-    middleware = observability.RequestContextMiddleware(app=None)
-    request = Request(
-        {
+    scope = {
             "type": "http",
             "method": "GET",
             "path": "/ping",
@@ -28,15 +25,19 @@ def test_request_context_middleware_preserves_request_id_header():
             "root_path": "",
             "app": None,
         }
-    )
 
-    async def call_next(_request: Request):
-        return JSONResponse({"ok": True})
+    async def app(scope, receive, send):
+        await JSONResponse({"ok": True})(scope, receive, send)
 
-    response = anyio.run(middleware.dispatch, request, call_next)
+    messages = []
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(message):
+        messages.append(message)
 
-    assert response.status_code == 200
-    assert response.headers[observability.REQUEST_ID_HEADER] == "req-123"
+    anyio.run(observability.RequestContextMiddleware(app), scope, receive, send)
+    assert messages[0]["status"] == 200
+    assert dict(messages[0]["headers"])[b"x-request-id"] == b"req-123"
 
 
 def test_json_log_formatter_renders_structured_payload():
