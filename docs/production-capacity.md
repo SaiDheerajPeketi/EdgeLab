@@ -22,7 +22,7 @@ Do not switch an existing split candle store by changing a hostname alone: back 
 
 These are [DigitalOcean list prices](https://www.digitalocean.com/pricing/droplets), checked 10 October 2026, for compute alone. They exclude backups, redundant databases, extra storage/egress, monitoring and taxes. Shared CPU has variable availability; select dedicated CPU when steady tail latency matters. The 4-vCPU candidate is an engineering starting point, not a certified capacity claim. No cloud resources were purchased or deployed.
 
-A VM with Compose has fewer orchestration components to operate at launch. Kubernetes becomes useful for required availability and deployment automation after shared-state behavior is proven; it does not by itself increase request capacity. Better Auth currently uses one persistent SQLite service and cannot be cloned across independent pods. Horizontal auth scaling requires a supported shared database and new session/revocation tests. Add API replicas only within the database/pooler and auth-service capacity budgets.
+A VM with Compose has fewer orchestration components to operate at launch. Kubernetes becomes useful for required availability and deployment automation after shared-state behavior is proven; it does not by itself increase request capacity. Better Auth supports optional shared PostgreSQL storage through BETTER_AUTH_DATABASE_URL with an isolated schema, bounded pools and serialized startup migrations. The default SQLite store is limited to one auth node; independent replicas use the same direct writer endpoint, signing/service keys and public origin. Switching existing SQLite storage requires an explicit migration or re-login. The local capacity sweep below uses the default SQLite auth profile; no PostgreSQL-auth or multi-node throughput is inferred from it. Add API replicas only within the database/pooler and auth-service capacity budgets.
 
 
 ## Redundancy and replicas
@@ -47,7 +47,7 @@ The capacity results below measure an isolated Docker stack on an Apple M4 Pro h
 
 The synthetic dataset contains 150 distinct identities, 100 replay sessions and 1,000 closed trades per identity; three assets with three timeframe CSVs of 2,000 bars each. One M1 chart series per user is imported into SQL (300,000 total candles). Full catalog density and large historical imports are not represented by this fixture. A single fixture import took 14.67 seconds; this is an observed setup duration, not an import-capacity guarantee.
 
-Each user loops through frontend HTML, bootstrap shell/full bootstrap, catalog, session summaries, trades, metrics summary/curves, chart metadata and 300 bars, with a one-second pause per iteration. Each load hold is 30 seconds. Endpoint and aggregate SLOs are P95 below 750ms, P99 below 1,500ms and errors below 1%. The Python histogram has 1% logarithmic buckets, so percentiles are approximate. No registered-user limit is inferred from concurrent request loops.
+Each user loops through frontend HTML, bootstrap shell/full bootstrap, catalog, session summaries, trades, metrics summary/curves, chart metadata and 300 bars, with a one-second pause per iteration. The initial sweep uses 30-second holds; conservative operating points receive separate 120-second confirmations. Endpoint and aggregate SLOs are P95 below 750ms, P99 below 1,500ms and errors below 1%. The Python histogram has 1% logarithmic buckets, so percentiles are approximate. No registered-user limit is inferred from concurrent request loops.
 
 Native Better Auth signed tokens are verified through the actual internal HTTP session service and SQLite store on every protected request. Matching synthetic verified identities and short fresh paid leases exercise production access SQL. External Google login, expired-lease Stripe reconciliation, checkout and provider failures are excluded. API/auth have no external egress during these trials. Synthetic leases are created only in the isolated fixture, expire within 240 seconds, and add no application bypass.
 
@@ -55,15 +55,24 @@ The generator runs on the same physical host outside the guest. Container CPU/me
 
 ## Results
 
-The final sweep is still running on the fixed Nginx 1.30.5 image. Short-hold observations so far are recorded below; they are not deployment capacity guarantees.
+The pre-admission-fix sweep used Nginx 1.30.5 and the consolidated database fixture. All four 120-second confirmations below passed every endpoint SLO with zero errors.
 
-| Shared guest CPU budget | Short passing load | Throughput | Aggregate P95 / P99 | Higher-load result |
-| --- | ---: | ---: | ---: | --- |
-| 2 CPUs | 25 users | 159.60 requests/s | 158.34 / 252.75 ms | 50 passes once but fails repeated trials; 100 has 8.05% transport errors. |
-| 4 CPUs | 50 users | 279.13 requests/s | 213.41 / 327.37 ms | 100 fails endpoint tails/errors despite aggregate errors below 1%. |
+| Shared guest CPU budget | Concurrent test users | Requests/s | Aggregate P95 / P99 | Mean CPU |
+| --- | ---: | ---: | ---: | ---: |
+| 2 CPUs | 10 | 82.37 | 45.65 / 74.33 ms | 54.5% |
+| 2 CPUs | 25 | 156.85 | 139.12 / 211.30 ms | 96.5% |
+| 4 CPUs | 25 | 204.00 | 45.19 / 86.29 ms | 63.5% |
+| 8 CPUs | 50 | 268.47 | 238.10 / 311.48 ms | 46.3% |
 
-At these passing loads, mean stack CPU is already 94.2% and 87.9% of the two-/four-CPU budgets respectively. Repeated full-bootstrap traffic is intentionally heavy; sustained lower-load confirmations, eight-CPU and modeled-network trials are required before selecting an operating target. The earlier old-proxy baseline is a comparison of proxy releases on the same consolidated fixture, not a split-database/cloud/HA benchmark.
+The two-CPU 25-user point leaves almost no CPU reserve. Conservative comparison points are 10/25/50 users for the 2/4/8-CPU profiles, subject to the excluded background/write workloads. Peak stack working set across trials was 2.025 GiB; raw container usage including file cache reached 2.580 GiB. Guest OS memory is excluded, RAM remained fixed, and no small-RAM/cloud server capacity is certified.
 
+The 30-second sweep failed at 100 users on all CPU tiers. Two CPUs also failed repeat 50-user trials despite an initial pass. At eight CPUs, a diagnostic 100-user reproduction produced 20.47% transport timeouts while consuming only 1.11 CPU cores on average. PostgreSQL had no active queries at two snapshots, but 25 then 29 idle transactions remained held by application clients; PgBouncer had no waiting clients. This supports application thread/pool contention rather than a CPU-only limit. Exact Python stacks were unavailable, so the observed failure cause is an evidence-backed inference.
+
+The new API admission boundary limits ordinary PostgreSQL HTTP requests to actual per-worker pool capacity minus two reserved health slots, before synchronous dependencies and response validation run. With the default pool this permits 13 ordinary requests and two bounded probes per worker. Excess work receives immediate private 503/Retry-After responses; there is no admission backlog. Unit tests reproduce validation with tiny thread/SQL pools and check cleanup on streaming, disconnects, cancellation and exceptions. Post-fix capacity and recovery checks are tracked separately; pre-fix numbers must not be presented as final admission throughput.
+
+A four-CPU 50-user modeled-network comparison passed with 0/100/200 ms added per-request delay: 263.23/201.13/147.72 requests/s, P95 245.31/257.83/320.92 ms, and no errors. This is a client-side delay model, not a measured geographical network. A two-generator comparison at that passing point differed by 2.46%, providing no evidence of a single-generator bottleneck. Other generator comparisons with a failed reference are invalid.
+
+Against the earlier old-proxy baseline on the same consolidated fixture, common passing 30-second points changed by -1.25% to +5.16% throughput with no SLO regression. This only compares those passing samples; it does not prove parity for full-history imports, split databases, PostgreSQL auth, HA or cloud deployment.
 
 ## Safety and recovery
 
@@ -81,4 +90,4 @@ Market candles are still stored per account, so SQL candle storage scales with u
 
 ## Verification
 
-Required release build, Python/JavaScript tests, Graphify and Docker configuration/image builds passed. Actual PostgreSQL/PgBouncer tests cover competing imports, shared uncommitted assets/rollback and analytics lock release. Actual Redis tests cover Lua expiry, recovery and real wire error behavior, without flushing unrelated keys. See [benchmark instructions](../benchmark/README.md) and [earlier hot-path measurements](production-performance.md) for reproduction and scope.
+The clean release build, 1,308 Python tests, 2,283 JavaScript tests, Graphify and Docker configuration/image builds passed, with real PostgreSQL/PgBouncer and Redis integration checks. Six PostgreSQL auth tests cover concurrent cold migrations, Google callback transfer between replicas, signed-session sharing/revocation, failed logout without false success, readiness timeouts and migration recovery. Actual PostgreSQL/PgBouncer tests cover competing imports, shared uncommitted assets/rollback and analytics lock release. Actual Redis tests cover Lua expiry, recovery and real wire error behavior, without flushing unrelated keys. See [benchmark instructions](../benchmark/README.md) and [earlier hot-path measurements](production-performance.md) for reproduction and scope.

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy.engine import URL
+from sqlalchemy.pool import QueuePool
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -107,6 +108,21 @@ def database_engine_options(database_url: str) -> dict[str, object]:
             pool_timeout=max(float_env("EDGELAB_DB_POOL_TIMEOUT_SECONDS", 5.0), 0.1),
         )
     return options
+
+
+def database_request_admission_limits(db_engine, configured_limit: int = 0) -> tuple[int | None, int]:
+    if configured_limit < 0:
+        raise ValueError("EDGELAB_HTTP_REQUEST_LIMIT must be zero (automatic) or positive")
+    pool = db_engine.pool
+    if isinstance(pool, QueuePool) and pool.size() > 0 and pool._max_overflow >= 0:
+        if db_engine.dialect.name == "sqlite" and configured_limit == 0:
+            return None, 0
+        capacity = pool.size() + pool._max_overflow
+        safe_limit = max(1, capacity - 2)
+        limit = min(configured_limit or safe_limit, safe_limit)
+        return limit, min(2, capacity - limit)
+    # Static/Null/unbounded pools have no finite checkout queue to starve.
+    return configured_limit or None, 0
 
 
 @dataclass(frozen=True)
@@ -253,6 +269,7 @@ class Settings:
         "EDGELAB_MAX_REQUEST_BODY_BYTES",
         25 * 1024 * 1024,
     )
+    http_request_limit: int = int_env("EDGELAB_HTTP_REQUEST_LIMIT", 0)
     quant_capture_root: Path = Path(
         os.getenv("EDGELAB_QUANT_CAPTURE_ROOT", BACKEND_ROOT / "data" / "quant-captures")
     )
@@ -353,6 +370,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         data_populator_forex_symbols=settings.data_populator_forex_symbols,
         data_populator_crypto_symbols=settings.data_populator_crypto_symbols,
         max_request_body_bytes=settings.max_request_body_bytes,
+        http_request_limit=settings.http_request_limit,
         max_app_data_rows=settings.max_app_data_rows,
         bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
         dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,

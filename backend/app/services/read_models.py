@@ -202,7 +202,8 @@ class RedisReadModelCache:
     def _remove_keys(self, keys) -> None:
         # UNLINK frees payloads off the Redis request thread; keep each command bounded.
         if self._client is None:
-            return
+            raise HTTPException(503, "Cache synchronization unavailable. Try again shortly.",
+                                headers={"Retry-After": "1", "Cache-Control": "no-store"})
         try:
             remove = getattr(self._client, "unlink", self._client.delete)
             batch = []
@@ -227,7 +228,8 @@ class RedisReadModelCache:
 
     def invalidate_prefix(self, prefix: str) -> None:
         if self._client is None:
-            return
+            raise HTTPException(503, "Cache synchronization unavailable. Try again shortly.",
+                                headers={"Retry-After": "1", "Cache-Control": "no-store"})
         # Retire admitted loaders first, then remove their previously published data.
         # Both scans are bounded; a loader admitted after the write reads fresh storage.
         self._remove_keys(self._client.scan_iter(match=f"{REDIS_CACHE_NAMESPACE}generation:{prefix}*"))

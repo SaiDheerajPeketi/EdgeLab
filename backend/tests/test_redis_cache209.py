@@ -92,7 +92,11 @@ def test_invalid_cache_configuration_remains_uncached(monkeypatch):
     cache = read_models.build_read_model_cache_backend("invalid")
     assert cache.get_or_load("owner", 60, lambda: "first") == "first"
     assert cache.get_or_load("owner", 60, lambda: "second") == "second"
-    cache.clear()
+    for operation in (lambda: cache.invalidate_key("owner"), lambda: cache.invalidate_prefix("owner"), cache.clear):
+        with pytest.raises(HTTPException) as error:
+            operation()
+        assert error.value.status_code == 503
+        assert error.value.headers == {"Retry-After": "1", "Cache-Control": "no-store"}
 
 
 @pytest.mark.parametrize("reply", [None, [0, 10], [1, -1], [1, 61], [True, 10]])

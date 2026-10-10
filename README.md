@@ -129,3 +129,5 @@ For temporary UI inspection with populated accounts, trades, notes, replay revie
 ## Efficient global deployment
 
 For a new VM installation, `docker compose -f docker-compose.yml -f docker-compose.efficient.yml up -d --build` selects one PostgreSQL server/pooler and indexed SQL market history. Existing worker defaults, background ingestion, analytics and full history remain enabled. The proxy uses Nginx 1.30.5 with current map/regex security fixes. The existing default split-database deployment is preserved; switching an existing market store requires a deliberate data migration. See [production capacity and operations](docs/production-capacity.md) for measured workload limits, region latency, CDN rules, costs and recovery requirements.
+
+Shared PostgreSQL authentication is available through `BETTER_AUTH_DATABASE_URL` for independent application/auth replicas. SQLite remains the single-node default. Use one direct writer endpoint, an isolated schema and identical signing/service keys and public origin on every auth instance; moving storage requires an explicit session migration or re-login. See the capacity report for failure-domain and standby requirements.

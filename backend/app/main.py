@@ -13,7 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.routes import router
 from app.api.billing import router as billing_router
-from app.config import settings
+from app.config import database_request_admission_limits, settings
 from app.db import engine, init_db
 from app.market_data_db import init_market_data_db, market_data_engine
 from app.observability import (
@@ -56,6 +56,46 @@ PRIVATE_API_HEADERS = {
     "CDN-Cache-Control": "no-store",
     "Cloudflare-CDN-Cache-Control": "no-store",
 }
+
+
+class RequestAdmissionMiddleware:
+    """Admit work before it can occupy threads waiting for database checkouts."""
+
+    def __init__(self, app: ASGIApp, max_requests: int = 0, db_engine=None) -> None:
+        self.app = app
+        self.limit, self.probe_limit = database_request_admission_limits(db_engine if db_engine is not None else engine, max_requests)
+        self.active_requests = 0
+        self.active_probes = 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        if (scope["type"] != "http" or self.limit is None or
+                not (path == "/api" or path.startswith("/api/")) or path == "/api/observability/metrics"):
+            await self.app(scope, receive, send)
+            return
+        # Database-backed health checks use bounded reserved capacity. An
+        # unlimited liveness bypass could itself occupy every worker thread.
+        probe = path in {"/api/health", "/api/ready"} and self.probe_limit > 0
+        active = self.active_probes if probe else self.active_requests
+        limit = self.probe_limit if probe else self.limit
+        # No await between checking and reserving: each worker's event loop
+        # admits atomically, with no queued admission tasks or worker threads.
+        if active >= limit:
+            await JSONResponse(status_code=503, content={"detail": "Service busy. Try again shortly."},
+                               headers={**PRIVATE_API_HEADERS, "Retry-After": "1"})(scope, receive, send)
+            return
+        if probe:
+            self.active_probes += 1
+        else:
+            self.active_requests += 1
+        try:
+            # Hold admission through validation, streaming and DB dependency cleanup.
+            await self.app(scope, receive, send)
+        finally:
+            if probe:
+                self.active_probes -= 1
+            else:
+                self.active_requests -= 1
 
 
 class PrivateAPICacheMiddleware:
@@ -134,6 +174,7 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     max_body_size=settings.max_request_body_bytes,
 )
+app.add_middleware(RequestAdmissionMiddleware, max_requests=settings.http_request_limit)
 
 app.add_middleware(
     CORSMiddleware,
