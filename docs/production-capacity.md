@@ -51,28 +51,48 @@ Each user loops through frontend HTML, bootstrap shell/full bootstrap, catalog, 
 
 Native Better Auth signed tokens are verified through the actual internal HTTP session service and SQLite store on every protected request. Matching synthetic verified identities and short fresh paid leases exercise production access SQL. External Google login, expired-lease Stripe reconciliation, checkout and provider failures are excluded. API/auth have no external egress during these trials. Synthetic leases are created only in the isolated fixture, expire within 240 seconds, and add no application bypass.
 
-The generator runs on the same physical host outside the guest. Container CPU/memory and generator CPU are sampled; a two-process comparison checks one generator constraint. A separate physical generator, real TLS/HTTP2 clients, geographical paths, packet loss, provider hardware and disk limits remain untested. Background ingestion, analytics sweeps, writes, exports, live sockets and broker/provider calls are excluded from the seven-service read sweep. Retain headroom and run those workloads before launch certification.
+The generator runs on the same physical host outside the guest. Container CPU/memory and generator CPU are sampled; an earlier pre-fix two-process comparison checked one generator constraint. A separate physical generator, real TLS/HTTP2 clients, geographical paths, packet loss, provider hardware and disk limits remain untested. Background ingestion, analytics sweeps, writes, exports, live sockets and broker/provider calls are excluded from the seven-service read sweep. Retain headroom and run those workloads before launch certification.
 
 ## Results
 
-The pre-admission-fix sweep used Nginx 1.30.5 and the consolidated database fixture. All four 120-second confirmations below passed every endpoint SLO with zero errors.
+The final queued-admission runtime matches commit 7670530 exactly. All three 120-second confirmations below passed every endpoint SLO with zero errors, rejections or transport timeouts. Requests/s counts successful responses rather than inflating throughput with rejected attempts.
 
-| Shared guest CPU budget | Concurrent test users | Requests/s | Aggregate P95 / P99 | Mean CPU |
+| Shared guest CPU budget | Concurrent test users | Successful requests/s | Aggregate P95 / P99 | Mean stack CPU |
 | --- | ---: | ---: | ---: | ---: |
-| 2 CPUs | 10 | 82.37 | 45.65 / 74.33 ms | 54.5% |
-| 2 CPUs | 25 | 156.85 | 139.12 / 211.30 ms | 96.5% |
-| 4 CPUs | 25 | 204.00 | 45.19 / 86.29 ms | 63.5% |
-| 8 CPUs | 50 | 268.47 | 238.10 / 311.48 ms | 46.3% |
+| 2 CPUs | 10 | 82.08 | 45.20 / 70.02 ms | 50.4% |
+| 4 CPUs | 25 | 202.92 | 49.43 / 102.20 ms | 62.1% |
+| 8 CPUs | 50 | 289.54 | 207.14 / 279.19 ms | 49.2% |
 
-The two-CPU 25-user point leaves almost no CPU reserve. Conservative comparison points are 10/25/50 users for the 2/4/8-CPU profiles, subject to the excluded background/write workloads. Peak stack working set across trials was 2.025 GiB; raw container usage including file cache reached 2.580 GiB. Guest OS memory is excluded, RAM remained fixed, and no small-RAM/cloud server capacity is certified.
+Against the same pre-admission-fix 120-second comparison points, successful throughput changed by -0.35%, -0.53% and +7.85%. No error or endpoint SLO regression was observed at these tested points. Single repeated holds are observations, not statistical proof of equivalent performance for all workloads. An earlier two-CPU 25-user point used 96.5% CPU and is excluded from the conservative operating points.
 
-The 30-second sweep failed at 100 users on all CPU tiers. Two CPUs also failed repeat 50-user trials despite an initial pass. At eight CPUs, a diagnostic 100-user reproduction produced 20.47% transport timeouts while consuming only 1.11 CPU cores on average. PostgreSQL had no active queries at two snapshots, but 25 then 29 idle transactions remained held by application clients; PgBouncer had no waiting clients. This supports application thread/pool contention rather than a CPU-only limit. Exact Python stacks were unavailable, so the observed failure cause is an evidence-backed inference.
+The API bounds active ordinary PostgreSQL HTTP requests using both actual per-worker SQL pool capacity and AnyIO thread tokens, before synchronous dependencies run. With 15 SQL slots and 40 thread tokens it permits 30 ordinary requests and two bounded probes, reserving eight tokens for validation/cleanup. A FIFO queue holds at most another 30 ordinary requests per worker for up to 250ms without borrowing worker threads. Queue overflow/timeouts return private 503/Retry-After; saturated probes reject immediately. Cancellation, timeout, streaming and exception tests verify slot release and FIFO transfer.
 
-The new API admission boundary limits ordinary PostgreSQL HTTP requests using both actual per-worker SQL pool capacity and AnyIO thread tokens, before synchronous dependencies and response validation run. With 15 SQL slots and 40 thread tokens it permits 30 ordinary requests and two bounded probes while reserving eight tokens for response validation/cleanup. A FIFO admission queue holds at most another 30 ordinary requests per worker for up to 250ms, without borrowing worker threads. Queue saturation/timeouts receive private 503/Retry-After responses; health probes reject immediately when their separate capacity is exhausted. Unit tests reproduce validation with tiny thread/SQL pools, demonstrate that a short queued checkout can complete, and check cleanup on streaming, disconnects, cancellation and exceptions. Post-fix capacity and recovery checks are tracked separately; pre-fix numbers must not be presented as final admission throughput.
+Earlier immediate-rejection candidates rejected normal 50-user bursts. The final queue eliminates those rejections in the measured normal holds while keeping overload finite:
 
-A four-CPU 50-user modeled-network comparison passed with 0/100/200 ms added per-request delay: 263.23/201.13/147.72 requests/s, P95 245.31/257.83/320.92 ms, and no errors. This is a client-side delay model, not a measured geographical network. A two-generator comparison at that passing point differed by 2.46%, providing no evidence of a single-generator bottleneck. Other generator comparisons with a failed reference are invalid.
+| Eight-CPU probe | Duration | Successful requests/s | Errors | Aggregate P95 / P99 |
+| --- | ---: | ---: | ---: | ---: |
+| 100 test users | 30s | 341.57 | 133 controlled 503s / 10,443 attempts (1.274%) | 473.08 / 600.68 ms |
+| Immediate return to 50 users | 30s | 271.68 | Zero on every endpoint | 263.01 / 340.66 ms |
 
-Against the earlier old-proxy baseline on the same consolidated fixture, common passing 30-second points changed by -1.25% to +5.16% throughput with no SLO regression. This only compares those passing samples; it does not prove parity for full-history imports, split databases, PostgreSQL auth, HA or cloud deployment.
+There were no transport timeouts, OOMs or container restarts. The 100-user probe exceeds the error SLO and establishes overload behavior, not a supported operating capacity. Recovery followed without an intentional idle delay.
+
+Across the final main and latency runs, peak seven-service working set was 1.743 GiB; raw container memory including file cache reached 2.252 GiB. Sampled stack CPU peaked at 5.200 cores. Guest OS memory is excluded, guest RAM remained 9.69 GiB at every tier, and no small-RAM/cloud capacity is certified. Normal identity-encoded response bodies consumed about 2.434/6.025/8.606 MB/s at the 2/4/8-CPU points; browser compression, real bandwidth and billing egress differ.
+
+Final-image network modeling used a separate 30-second four-CPU, 25-user trial at each delay. All endpoints passed with zero errors:
+
+| Added client-side delay per request | Successful requests/s | Aggregate P95 / P99 |
+| --- | ---: | ---: |
+| 0ms | 191.75 | 91.60 / 140.52 ms |
+| 100ms | 109.33 | 169.76 / 231.10 ms |
+| 200ms | 77.88 | 257.83 / 324.13 ms |
+
+These simulate added request latency; they do not measure geographical paths, TLS/HTTP2, packet loss, bandwidth limits or CDN hit rates. Closed-loop users perform sequential requests, so added delay lowers offered load and throughput. Cloudflare can shorten static delivery, while authenticated API operations still need the origin round trip. Place the primary API/database near the main audience and measure real regional paths before assigning global latency targets.
+
+The final generator peaked at 0.256 process-CPU core and 231 MiB RSS. An earlier passing pre-fix two-generator comparison differed by 2.46%; no final split-generator trial was performed, so low generator CPU alone is not certified generator headroom. CPU sets were restored, health checks passed and no load-generator process remained.
+
+Before admission protection, an eight-CPU 100-user diagnostic produced 20.47% transport timeouts despite consuming only 1.11 CPU cores. PostgreSQL had no active queries at two snapshots, but 25 then 29 idle transactions remained held by application clients; PgBouncer had no waiting clients. This supports application thread/pool contention rather than a CPU-only limit. Exact Python stacks were unavailable, so the failure cause is an evidence-backed inference. The final queue and validation-thread reserve address this observed failure path; broader write/background/provider and HA behavior remain outside the read sweep.
+
+Both final run provenance checks match the committed runtime digest 878b56e6c42c43920798ba34009ae021cbbe236301d813f63478594766b6538c. This fingerprint covers backend/app Python files, backend/auth top-level MJS files, start_api.sh and nginx.conf; the release frontend build separately verified its matching application source offer. Measured image IDs were API/market 02d2de304fb2, frontend 557fc5f8d5ec and auth d7b9618736ed. Private credential-free evidence retains endpoint tails, resource samples and exact immutable IDs; preceding checkout HEAD values are recorded as context, not mistaken for the later copied/committed runtime.
 
 ## Safety and recovery
 
