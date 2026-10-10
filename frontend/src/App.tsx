@@ -1521,7 +1521,7 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     function syncNativeFullscreen() {
-      if (document.fullscreenElement === chartShellRef.current) {
+      if (chartShellRef.current && document.fullscreenElement === chartShellRef.current) {
         setIsChartFullscreen(true);
         return;
       }

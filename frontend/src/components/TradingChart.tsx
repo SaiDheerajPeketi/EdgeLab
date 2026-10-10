@@ -3567,7 +3567,7 @@ export function TradingChart({
         <div className="min-w-0">
           <div className="min-w-0 flex-1">
             {chartSettings.title && (
-              <div className="chart-title-summary flex items-center gap-3">
+              <div aria-label="Chart summary" className="chart-title-summary flex items-center gap-3" role="region" tabIndex={0}>
                 <div aria-hidden="true" className="chart-symbol-badge grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
                   {symbolBadge(symbol)}
                 </div>
@@ -3624,7 +3624,7 @@ export function TradingChart({
               />
             )}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
-              <div className="chart-study-row">
+              <div aria-label="Indicator values" className="chart-study-row" role="region" tabIndex={0}>
                 {overlayIndicatorPills.slice(0, 5).map((indicator) => (
                   <button
                     className={`chart-study-pill ${renderedSelectedIndicatorId === indicator.id ? "chart-study-pill-active" : ""}`}
@@ -4478,7 +4478,7 @@ function OhlcvStrip({
   const hasVolume = hasRenderableVolume(candle);
 
   return (
-    <div aria-label="Data Window" className="chart-ohlcv-row" data-ui-panel="data-window" role="region">
+    <div aria-label="Data Window" className="chart-ohlcv-row" data-ui-panel="data-window" role="region" tabIndex={0}>
       <span className="chart-ohlcv-time">
         {candle ? formatChartDateTime(candle.timestamp, chartSettings) : "No candle"}
       </span>

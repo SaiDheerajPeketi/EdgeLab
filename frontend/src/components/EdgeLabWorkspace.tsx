@@ -2417,25 +2417,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
 
         <div className="order-1 grid min-w-0 gap-4 2xl:order-2">
           <FeatureCard className="overflow-hidden p-0">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-xl font-semibold text-white">{selectedLiveSymbol?.label || selectedSymbol || "No symbol selected"}</h2>
-                  <span className="status-pill h-7 px-2 text-[10px]">{selectedSourceLabel}</span>
-                </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  {selectedFeed === "binance"
-                    ? "Live candlesticks and 24h ticker from Binance public market data."
-                    : selectedFeed === "dukascopy"
-                      ? "Dukascopy cross-asset candles for forex, commodities, indices, equities, and ETFs."
-                      : "Angel One SmartAPI stream for Indian equities, indices, derivatives, commodities, and currency markets."}
-                </p>
-              </div>
-              <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
-                {selectedTicker ? `${formatLivePrice(selectedTicker.last)}${feedIssue ? " · last verified" : ""}` : "--"}
-              </div>
-            </div>
-            <div className="px-4 pt-3">
+            <div className="px-4 pt-3 empty:hidden">
               <LiveFeedHealthSurface
                 connectionStatus={connectionStatus}
                 feedError={feedError}
@@ -4837,8 +4819,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
       ref={chartStudioRef}
     >
       {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
+      <div data-live-chart-header="true" className="flex min-w-0 flex-col gap-2 border-b border-white/10 px-4 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:py-3">
+        <div data-live-chart-metadata="true" className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:thin] [&>*]:shrink-0 sm:flex-wrap sm:overflow-visible sm:whitespace-normal">
           <strong className="truncate text-[var(--text-primary)]">{editorSymbol}</strong>
           <span className="text-[var(--text-secondary)]">{editorRoute.focused ? "Trade review" : editorUsesNativeFeed ? "Binance" : editorRoute.primary ? selectedSourceLabel : "Market data"}</span>
           <span className="text-[var(--text-secondary)]" role="status">
@@ -4850,18 +4832,18 @@ const LiveChartStudio = memo(function LiveChartStudio({
           {editorRoute.primary && <span className={`text-xs ${changeTone}`}>{tickerChangeLabel}</span>}
           <span className="text-xs text-[var(--text-secondary)]">{formatChartTimeframeLabel(activeChartPane.timeframe)}</span>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {!chartToolsOpen && !chartSettingsPanelOpen && <button className="control-button h-9 px-3 text-xs" onClick={() => openIndicatorEditor()} type="button">
+        <div data-live-chart-actions="true" className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:thin] sm:flex-wrap sm:justify-end sm:overflow-visible">
+          {!chartToolsOpen && !chartSettingsPanelOpen && <button className="control-button h-11 shrink-0 px-3 text-xs sm:h-9" onClick={() => openIndicatorEditor()} type="button">
             <FileText aria-hidden="true" size={14} />Editor
           </button>}
-          <button className={`control-button h-9 px-3 text-xs ${chartToolsOpen ? "workspace-tab-active" : ""}`} onClick={() => {
+          <button className={`control-button h-11 shrink-0 px-3 text-xs sm:h-9 ${chartToolsOpen ? "workspace-tab-active" : ""}`} onClick={() => {
             setChartSettingsPanelOpen(false);
             setChartToolsOpen((value) => !value);
           }} type="button">
             <SlidersHorizontal size={14} />
             Tools
           </button>
-          <button className={`control-button h-9 px-3 text-xs ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => {
+          <button className={`control-button h-11 shrink-0 px-3 text-xs sm:h-9 ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => {
             setChartToolsOpen(false);
             setChartSettingsPanelOpen(true);
             setChartSettingsOpenSignal((value) => value + 1);
@@ -4869,11 +4851,11 @@ const LiveChartStudio = memo(function LiveChartStudio({
             <Settings size={14} />
             Settings
           </button>
-          <button className={`control-button h-9 px-3 text-xs ${layersPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => setLayersPanelOpen((value) => !value)} type="button">
+          <button className={`control-button h-11 shrink-0 px-3 text-xs sm:h-9 ${layersPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => setLayersPanelOpen((value) => !value)} type="button">
             <LayersIcon />
             Layers
           </button>
-          <button className="control-button h-9 px-3 text-xs" onClick={toggleFullscreen} type="button">
+          <button className="control-button h-11 shrink-0 px-3 text-xs sm:h-9" onClick={toggleFullscreen} type="button">
             {isFullscreen ? <Minimize2 aria-hidden="true" size={14} /> : <Maximize2 aria-hidden="true" size={14} />}
             {isFullscreen ? "Exit" : "Full Screen"}
           </button>

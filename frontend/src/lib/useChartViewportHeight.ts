@@ -30,10 +30,12 @@ export function useChartViewportHeight(frameRef: RefObject<HTMLDivElement | null
     const navigation = document.querySelector<HTMLElement>('nav[aria-label="Primary workspace"]');
     if (navigation) observer?.observe(navigation);
     window.addEventListener("resize", schedule);
+    document.addEventListener("fullscreenchange", schedule);
     window.visualViewport?.addEventListener("resize", schedule);
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
+      document.removeEventListener("fullscreenchange", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
       if (scheduled !== null) cancelAnimationFrame(scheduled);
       frame.style.removeProperty("--chart-price-height");
