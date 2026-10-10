@@ -6,6 +6,36 @@ type OrderFlowRouteState = "loading" | "available" | "stale" | "unsupported" | "
 
 const TEST_STATE_KEY = "edgelab.ui-test.order-flow-state";
 
+/** SQLite API timestamps without an offset are UTC, never browser-local time. */
+export function orderFlowUtcTimestamp(value: unknown): number | undefined {
+  if (typeof value !== "string" || value.length > 40) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})?$/.exec(value);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute, second, , offset] = match;
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
+  calendar.setUTCHours(Number(hour), Number(minute), Number(second), 0);
+  if (calendar.getUTCFullYear() !== Number(year) || calendar.getUTCMonth() !== Number(month) - 1
+      || calendar.getUTCDate() !== Number(day) || calendar.getUTCHours() !== Number(hour)
+      || calendar.getUTCMinutes() !== Number(minute) || calendar.getUTCSeconds() !== Number(second)) return undefined;
+  const timestamp = Date.parse(offset ? value : `${value}Z`);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+export function latestOrderFlowFootprint(footprints: readonly MarketFootprint[], now: number) {
+  let footprint: MarketFootprint | null = null;
+  let latestEnd = -Infinity;
+  for (const item of footprints) {
+    const start = orderFlowUtcTimestamp(item.start_at);
+    const end = orderFlowUtcTimestamp(item.end_at);
+    if (start === undefined || end === undefined || end <= start) {
+      throw new Error("The footprint provider returned an invalid UTC timestamp.");
+    }
+    if (end > latestEnd) { footprint = item; latestEnd = end; }
+  }
+  return { footprint, stale: !Number.isFinite(now) || now - latestEnd > 10 * 60_000 };
+}
+
 const levels = [
   { ask: 142, bid: 61, price: "68,145.00" },
   { ask: 96, bid: 73, price: "68,144.50" },
@@ -116,7 +146,7 @@ function AvailableState({ detail, fixture, footprint }: { detail: string; fixtur
       <aside aria-label="Order-flow summary" className="grid content-start gap-3 sm:grid-cols-3 lg:grid-cols-1">
         <Metric label="Bar delta" value={`${delta >= 0 ? "+" : "−"}${formatNumber(Math.abs(delta))}`} detail="Ask-attributed minus bid-attributed volume" />
         <Metric label="Total volume" value={formatNumber(total)} detail="Attributed and unknown trades in this aggregate" />
-        <Metric label="Provenance" value={fixture ? "E2E only" : footprint?.provider ?? "Provider"} detail={fixture ? "Synthetic values for visual regression" : `Ended ${new Date(footprint!.end_at).toLocaleString()}`} />
+        <Metric label="Provenance" value={fixture ? "E2E only" : footprint?.provider ?? "Provider"} detail={fixture ? "Synthetic values for visual regression" : `Ended ${new Date(orderFlowUtcTimestamp(footprint!.end_at)!).toLocaleString()}`} />
       </aside>
     </div>
   );
@@ -205,12 +235,11 @@ function useOrderFlowRouteState() {
       if (provider !== effectiveProvider) setProvider(effectiveProvider);
       const footprints = await listMarketFootprints(instrument.id, { intervalSeconds, limit: 500, provider: effectiveProvider || null, signal: request.controller.signal });
       if (!ownsRequest()) return;
-      const footprint = footprints.reduce<MarketFootprint | null>((latest, item) => !latest || Date.parse(item.end_at) > Date.parse(latest.end_at) ? item : latest, null);
+      const { footprint, stale } = latestOrderFlowFootprint(footprints, Date.now());
       if (!footprint) {
         setModel({ detail: `${instrument.canonical_symbol} has no persisted ${formatInterval(intervalSeconds)} footprints${provider ? ` from ${provider}` : ""}. Configure a trade-level provider with aggressor-side attribution, then backfill or stream trades.`, footprint: null, state: "unsupported" });
         return;
       }
-      const stale = Date.now() - Date.parse(footprint.end_at) > 10 * 60_000;
       setModel({ detail: `${footprint.provider} · persisted ${formatInterval(footprint.interval_seconds)} aggregate · ${footprint.complete ? "complete" : "contains provider gaps"}`, footprint, state: stale ? "stale" : "available" });
     }).catch((error: unknown) => {
       if (!ownsRequest() || (error instanceof DOMException && error.name === "AbortError")) return;

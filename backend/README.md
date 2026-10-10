@@ -106,3 +106,13 @@ The browser build generates `/source/` with the matching frontend/backend applic
 `POST /api/settings/chart/templates` accepts save, delete, and activate commands for the authenticated owner. The template list and selection commit in one transaction with conditional retries, preserving unrelated presets and unknown metadata. Malformed stored bundles require recovery, and activating a missing template is rejected.
 
 `POST /api/settings/chart/presets` accepts authenticated drawing or Fibonacci save/delete commands. Strict preset validation and conditional transaction retries preserve unrelated presets, reject malformed stored collections, and enforce limits of 36 drawing or 24 Fibonacci presets without automatic eviction. Generic `PUT /api/app-storage/edgelab/{key}` rejects these two preset keys; explicit app-data import retains its replacement semantics.
+
+### Disposable local demo data
+
+For UI inspection, create an isolated preview with:
+
+    rtk proxy env PYTHONPATH=backend backend/.venv/bin/python backend/scripts/local_preview_data.py --directory /tmp/edgelab-demo-new
+
+The destination must not exist. The script creates only that directory, a fresh SQLite database, deep synthetic BTCUSDT/EURUSD/ES candle datasets, demo journal accounts/trades/notes, replay reviews, local settings and synthetic offline BTCUSDT trades with derived Order Flow footprints. All sample trades carry a Demo data tag. It creates no subscription, Stripe customer or broker order. The emitted preview.json supplies the existing local beta/auth/data/UI environment settings; start a separate API using those values on port 8001 and a separate Vite development frontend on port 5174 with VITE_API_BASE_URL=http://localhost:8001/api and VITE_DEPLOYMENT_MODE=beta. Provide a fresh EDGELAB_JWT_SECRET for this disposable API.
+
+Open http://localhost:5174/auth/signin?preview=demo and select Local development sign-in. The dev-only Demo data banner remains through that browser session. Keep the normal API/frontend ports untouched; discard the isolated directory when inspection is finished. Order Flow is a synthetic stored snapshot; its normal freshness checks still apply. Live charts continue using their external feeds. Paid exports retain the normal subscription requirement.

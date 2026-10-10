@@ -15,7 +15,7 @@ export function chartCandleLogical(scale: LogicalScale, time: number): number | 
 
 export function recentChartLogicalRange(latest: number, width: number): LogicalRange | null {
   if (!Number.isFinite(latest) || !Number.isFinite(width) || width <= 1) return null;
-  const span = Math.min(320, Math.max(96, Math.round(width / 6)));
+  const span = Math.min(180, Math.max(48, Math.round(width / 10)));
   const to = latest + 8;
   // Short histories retain real whitespace, rather than stretching a few candles.
   return { from: (to - span) as Logical, to: to as Logical };

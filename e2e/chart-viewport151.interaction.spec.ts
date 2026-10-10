@@ -76,8 +76,8 @@ function usefulLatest(chart: Chart) {
   expect(last.x).toBeGreaterThan(0); expect(last.x).toBeLessThan(chart.plot.width);
   expect(chart.logical.to - last.logical).toBeCloseTo(8, 6);
   const span = chart.logical.to - chart.logical.from;
-  expect(span).toBeGreaterThanOrEqual(96 - 1e-6); expect(span).toBeLessThanOrEqual(320 + 1e-6);
-  expect(span).toBeCloseTo(Math.min(320, Math.max(96, Math.round(chart.plot.width / 6))), 6);
+  expect(span).toBeGreaterThanOrEqual(48 - 1e-6); expect(span).toBeLessThanOrEqual(180 + 1e-6);
+  expect(span).toBeCloseTo(Math.min(180, Math.max(48, Math.round(chart.plot.width / 10))), 6);
 }
 async function updated(page: Page, count: number, close: number, pane = 0) {
   await expect.poll(async () => { const chart = await readChart(page, pane); return chart.rows.length === count && chart.rows.at(-1)?.close === close; }).toBe(true);

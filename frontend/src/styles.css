@@ -2562,7 +2562,7 @@ button:disabled {
   }
 
   .chart-pane-layout-single .chart-stage-header {
-    min-height: 9rem;
+    min-height: 0;
   }
 
   /* Short windows reserve vertical space for market data; tool strips remain keyboard scrollable. */
@@ -2887,7 +2887,7 @@ button:disabled {
     @apply relative h-full min-h-[568px] overflow-hidden bg-[#0b1017];
   }
 
-  /* A full price overview fits the screen; additional studies stay below it. */
+  /* Preserve a readable price plot; additional studies stay below it. */
   .chart-pane-layout-single .chart-stage,
   .chart-fullscreen-shell .chart-pane-layout-single .chart-stage {
     display: block;
@@ -2897,7 +2897,7 @@ button:disabled {
 
   .chart-pane-layout-single .chart-frame,
   .chart-fullscreen-shell .chart-pane-layout-single .chart-frame {
-    height: var(--chart-price-height, clamp(160px, 45dvh, 860px));
+    height: var(--chart-price-height, clamp(320px, 55dvh, 860px));
     min-height: 0;
   }
 
@@ -2908,7 +2908,7 @@ button:disabled {
 
   .chart-pane-layout-single .drawing-rail,
   .chart-fullscreen-shell .chart-pane-layout-single .drawing-rail {
-    height: var(--chart-price-height, clamp(160px, 45dvh, 860px));
+    height: var(--chart-price-height, clamp(320px, 55dvh, 860px));
     min-height: 0;
     overflow-y: auto;
   }

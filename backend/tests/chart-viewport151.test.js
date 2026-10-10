@@ -90,10 +90,10 @@ test('style recreation restore is retained across same-owner data arrivals', () 
 });
 
 test('current reset preserves real spacing and whitespace for short and long histories', () => {
-  assert.deepEqual(viewport.recentChartLogicalRange(0, 300), { from: -88, to: 8 });
-  assert.deepEqual(viewport.recentChartLogicalRange(10, 600), { from: -82, to: 18 });
-  assert.deepEqual(viewport.recentChartLogicalRange(600, 960), { from: 448, to: 608 });
-  assert.deepEqual(viewport.recentChartLogicalRange(600, 4000), { from: 288, to: 608 });
+  assert.deepEqual(viewport.recentChartLogicalRange(0, 300), { from: -40, to: 8 });
+  assert.deepEqual(viewport.recentChartLogicalRange(10, 600), { from: -42, to: 18 });
+  assert.deepEqual(viewport.recentChartLogicalRange(600, 960), { from: 512, to: 608 });
+  assert.deepEqual(viewport.recentChartLogicalRange(600, 4000), { from: 428, to: 608 });
   for (const [index, width] of [[NaN, 900], [Infinity, 900], [1, 0], [1, 1], [1, NaN]]) {
     assert.equal(viewport.recentChartLogicalRange(index, width), null);
   }

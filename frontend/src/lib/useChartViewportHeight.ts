@@ -53,7 +53,8 @@ function updateHeight(frame: HTMLDivElement | null) {
   const bottom = fixedNavigation ? Math.min(viewportHeight, navRect.top) : viewportHeight;
   // Adding the scroll offset keeps the height stable while visiting studies.
   const top = frame.getBoundingClientRect().top + (fullscreen ? fullscreen.scrollTop : window.scrollY);
-  const height = `${Math.round(Math.min(860, Math.max(160, bottom - top - 8)))}px`;
+  const minimumHeight = window.innerWidth <= 480 ? 260 : 320;
+  const height = `${Math.round(Math.min(860, Math.max(minimumHeight, bottom - top - 8)))}px`;
   if (frame.style.getPropertyValue("--chart-price-height") !== height) {
     frame.style.setProperty("--chart-price-height", height);
     frame.closest<HTMLElement>(".chart-stage")?.style.setProperty("--chart-price-height", height);

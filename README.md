@@ -117,3 +117,5 @@ The UI regression workflow uses Node.js 22 and the same backend virtual environm
 - [Security policy](SECURITY.md)
 
 Machine-readable UI inventories and certification records under `docs/` are test inputs. Keep them in sync with UI changes; they are not end-user documentation.
+
+For temporary UI inspection with populated accounts, trades, notes, replay reviews and synthetic market history, use the [disposable local demo data](backend/README.md#disposable-local-demo-data) helper. Run its API/frontend on separate ports; it does not seed the normal workspace or grant paid access.
