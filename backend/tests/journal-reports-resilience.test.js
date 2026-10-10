@@ -58,9 +58,9 @@ test("shared Journal summary formatting uses fraction semantics in en-US and de-
 test("zero Journal P&L is exposed as neutral breakeven, not profit", async () => {
   const { cleanup, module } = await bundle("frontend/src/components/journal/JournalNotesSurface.tsx");
   try {
-    assert.deepEqual(module.tradeResultState(42), { label: "profit", sign: "+", tone: "text-emerald-300" });
-    assert.deepEqual(module.tradeResultState(-42), { label: "loss", sign: "−", tone: "text-rose-300" });
-    assert.deepEqual(module.tradeResultState(0), { label: "breakeven", sign: "=", tone: "text-slate-300" });
+    assert.deepEqual(module.tradeResultState(42), { label: "profit", sign: "+", tone: "text-[var(--profit-text)]" });
+    assert.deepEqual(module.tradeResultState(-42), { label: "loss", sign: "−", tone: "text-[var(--loss-text)]" });
+    assert.deepEqual(module.tradeResultState(0), { label: "breakeven", sign: "=", tone: "text-[var(--text-secondary)]" });
   } finally { cleanup(); }
 });
 
