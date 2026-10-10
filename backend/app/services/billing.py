@@ -101,7 +101,10 @@ class BillingConfig:
         except ValueError:
             raise BillingError(503, "Billing requires a configured public origin.") from None
         local_test = self.mode == "test" and origin.scheme == "http" and origin.hostname in {"localhost", "127.0.0.1", "::1"}
-        if not self.enabled or self.mode not in {"test", "live"} or not self.secret_key.startswith("sk_" + self.mode + "_") or not self.webhook_secret.startswith("whsec_"):
+        key_prefixes = (f"sk_{self.mode}_", f"rk_{self.mode}_")
+        if self.mode == "test":
+            key_prefixes += ("rkcs_",)
+        if not self.enabled or self.mode not in {"test", "live"} or not self.secret_key.startswith(key_prefixes) or not self.webhook_secret.startswith("whsec_"):
             raise BillingError(503, "Paid checkout is not configured.")
         if not origin.hostname or origin.username or origin.password or origin.path or origin.query or origin.fragment or (origin.scheme != "https" and not local_test):
             raise BillingError(503, "Billing requires a configured public origin.")

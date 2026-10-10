@@ -1,5 +1,6 @@
 import copy
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 import hashlib
 import hmac
@@ -128,6 +129,64 @@ def test_unconfigured_catalog_status_and_checkout_are_honest(db):
     with pytest.raises(billing.BillingError, match="not configured"):
         billing.create_checkout(db, 1, "pro", "monthly", conf)
     assert db.scalar(select(BillingCustomer)) is None
+
+
+@pytest.mark.parametrize("mode,key", [
+    ("test", "sk_test_fixture"), ("test", "rk_test_fixture"), ("test", "rkcs_fixture"),
+    ("live", "sk_live_fixture"), ("live", "rk_live_fixture"),
+])
+def test_secret_and_restricted_keys_require_their_exact_mode(mode, key):
+    replace(config(mode), secret_key=key).require_ready()
+
+
+@pytest.mark.parametrize("mode,key", [
+    ("test", "sk_live_fixture"), ("test", "rk_live_fixture"),
+    ("live", "sk_test_fixture"), ("live", "rk_test_fixture"), ("live", "rkcs_fixture"),
+    ("test", "pk_test_fixture"), ("live", "pk_live_fixture"),
+    ("test", "rk_fixture"), ("test", ""), ("sandbox", "rkcs_fixture"),
+])
+def test_wrong_mode_or_unsupported_key_stays_unconfigured(mode, key):
+    with pytest.raises(billing.BillingError) as exc:
+        replace(config(mode), secret_key=key).require_ready()
+    assert exc.value.status_code == 503
+    assert exc.value.public_message == "Paid checkout is not configured."
+
+
+@pytest.mark.parametrize("key", ["rk_test_fixture", "rkcs_fixture"])
+def test_restricted_sandbox_checkout_and_paid_subscription_never_grant_workspace_access(db, key):
+    conf = replace(config("test"), secret_key=key)
+    provider = FakeProvider(conf)
+    assert billing.catalog(conf, provider)["checkout_available"] is True
+    billing.create_checkout(db, 1, "pro", "monthly", conf, provider)
+    db.commit()
+    cust = db.scalar(select(BillingCustomer))
+    assert cust.livemode is False
+    provider.subscriptions = [subscription(conf, cust)]
+    result = billing.status(db, 1, conf, provider)
+    db.commit()
+    assert result["configured"] is True and result["subscription_access"] is True
+    assert result["workspace_access"] is False
+    assert billing.workspace_access(db, 1, conf) is False
+    assert billing.refresh_workspace_access(db, 1, conf, provider) is False
+
+
+def test_claimable_sandbox_key_keeps_provider_and_webhook_mode_checks(db):
+    conf = replace(config("test"), secret_key="rkcs_fixture")
+    provider = FakeProvider(conf)
+    provider.prices[conf.monthly_price_id]["livemode"] = True
+    with pytest.raises(billing.BillingError, match="does not match"):
+        billing.create_checkout(db, 1, "pro", "monthly", conf, provider)
+    assert not any(call[0] == "customer" for call in provider.calls)
+    cust = customer(db, conf)
+    provider.subscriptions = [subscription(conf, cust)]
+    provider.subscriptions[0]["livemode"] = True
+    with pytest.raises(billing.BillingError, match="ownership"):
+        billing.status(db, 1, conf, provider)
+    db.rollback()
+    assert cust.verified_at is None
+    with pytest.raises(billing.BillingError):
+        billing.verify_event(*signed(event(conf, cust) | {"livemode": True}, conf), conf)
+    assert billing.workspace_access(db, 1, conf) is False
 
 
 @pytest.mark.parametrize("mutation", [
