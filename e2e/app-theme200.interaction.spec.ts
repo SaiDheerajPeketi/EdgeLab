@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { certifyUiState, expectCertifiedScreenshot } from "./support/app";
+import { FROZEN_TIME, certifyUiState, expectCertifiedScreenshot } from "./support/app";
 import { liveViewportSetup } from "./chart-viewport151.support";
 
 type Theme = "dark" | "light" | "system";
 async function setup(page: Page) {
   const errors: string[] = [];
   page.on("pageerror", error => { if (!error.message.includes("Service worker is disabled because the context is sandboxed")) errors.push(error.message); });
-  const transport = await liveViewportSetup(page);
+  const transport = await liveViewportSetup(page, false, "/app/live", true);
   await page.route("**/api/settings/chart", route => {
     const item = (key: string) => ({ namespace: "edgelab", key, value: transport.storage.get(key) ?? null, updated_at: "2026-10-10T00:00:00Z" });
     return route.fulfill({ json: { active: item("active-chart-settings-preset.v1"), presets: { ...item("chart-settings-presets.v1"), value: transport.storage.get("chart-settings-presets.v1") ?? [] } } });
@@ -238,6 +238,8 @@ for (const theme of ["light", "dark"] as const) {
       const more = page.getByRole("dialog", { name: "More workspace tools", exact: true });
       await expect(more).toBeVisible();
       await expect(more.getByRole("heading", { name: "More tools", exact: true })).toBeVisible();
+      await expect(more.getByText("Pro access", { exact: true })).toBeVisible();
+      await expect(more.getByText("Beta access", { exact: true })).toHaveCount(0);
       await captureCertificate(page, "real-" + theme + "-more-drawer.png", failures);
       await more.getByRole("button", { name: "Close more tools", exact: true }).click();
       await expect(more).toBeHidden();
@@ -246,7 +248,7 @@ for (const theme of ["light", "dark"] as const) {
       await transport.waitForAccountWrites();
       await page.route("https://data-api.binance.vision/**/ticker/24hr*", route => route.fulfill({ json: ["BTCUSDT", "ETHUSDT"].map(symbol => ({
         symbol, lastPrice: "67512", priceChange: "1", priceChangePercent: ".1", highPrice: "67600", lowPrice: "67400", volume: "1000",
-        quoteVolume: "67500000", openPrice: "67500", closeTime: Date.now() - 180_000,
+        quoteVolume: "67500000", openPrice: "67500", closeTime: Date.parse(FROZEN_TIME) - 180_000,
       })) }));
       await page.goto("/app/live");
       await resolvedTheme(page, "light", "light");

@@ -17,7 +17,7 @@ async function expectToken(locator: Locator, property: "backgroundColor" | "colo
   expect(proof.actual, `${property} follows ${token}`).toBe(proof.expected);
 }
 async function setup(page: Page) {
-  const transport = await liveViewportSetup(page);
+  const transport = await liveViewportSetup(page, false, "/app/live", true);
   await page.emulateMedia({ colorScheme: "light" });
   await page.route("**/api/settings/chart", route => {
     const item = (key: string) => ({ namespace: "edgelab", key, value: transport.storage.get(key) ?? null, updated_at: "2026-10-10T00:00:00Z" });

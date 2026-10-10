@@ -1,11 +1,11 @@
 import { expect, type Page } from "@playwright/test";
-import { AUTH_SESSION_KEY, betaSessionResponse, gotoStable, installDeterminism, seedChartLayout } from "./support/app";
+import { AUTH_SESSION_KEY, FROZEN_TIME, betaSessionResponse, gotoStable, installDeterminism, seedChartLayout } from "./support/app";
 import { fulfillReplayContext, replayState } from "./support/replay-context";
 
-// Only current-time auth/storage and provider transport are controlled. Chart,
+// Only fixture auth/storage, clock and provider transport are controlled. Chart,
 // range ownership, React lifecycle and actual live aggregation remain production.
-export async function liveViewportSetup(page: Page, delayedHistory = false, target: "/app/live" | "/app/replay" = "/app/live") {
-  const now = Date.now(), currentMinute = Math.floor(now / 60_000) * 60, origin = currentMinute - 600 * 60;
+export async function liveViewportSetup(page: Page, delayedHistory = false, target: "/app/live" | "/app/replay" = "/app/live", fixedClock = false) {
+  const now = fixedClock ? Date.parse(FROZEN_TIME) : Date.now(), currentMinute = Math.floor(now / 60_000) * 60, origin = currentMinute - 600 * 60;
   const history = Array.from({ length: 600 }, (_, index) => {
     const close = 67500 + Math.sin(index * .17) * 20 + index * .02;
     return { time: origin + index * 60, open: close - (index % 2 ? 1 : -1), high: close + 3, low: close - 3, close, volume: 10 + index % 13 };
@@ -45,7 +45,7 @@ export async function liveViewportSetup(page: Page, delayedHistory = false, targ
     socket.onMessage(() => socket.send(JSON.stringify({ type: "catalog", catalog })));
   });
   await page.addInitScript(() => { (window as any).__viewport151NativeSocket = WebSocket; });
-  await installDeterminism(page, { freezeTime: false, keepBinanceWebSocket: true });
+  await installDeterminism(page, { freezeTime: fixedClock, keepBinanceWebSocket: true });
   await page.addInitScript(() => {
     const Native = (window as any).__viewport151NativeSocket, Fixture = WebSocket;
     delete (window as any).__viewport151NativeSocket;
