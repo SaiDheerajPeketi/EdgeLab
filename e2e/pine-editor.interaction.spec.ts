@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AUTH_SESSION_KEY, betaSessionResponse, FROZEN_TIME, gotoStable } from "./support/app";
 import { bars, fulfillReplayContext, prepare } from "./support/replay-context";
+import { DEFAULT_CHART_VISUAL_SETTINGS } from "../frontend/src/lib/chartSettings";
 import type { PineExecutionResult, PineResponse } from "../frontend/src/lib/pineProtocol";
 
 const overlay = '//@version=5\nindicator("Native editor EMA", overlay=true)\nlength=input.int(3,"Length",minval=1,maxval=20)\nplot(ta.ema(close,length),"Native EMA",color=#ff00ff)';
@@ -219,7 +220,7 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   await reopened.getByRole("button", { name: "Add to chart", exact: true }).click();
   await reopened.getByRole("button", { name: "Close indicator editor", exact: true }).click();
   const outputs = page.locator(".chart-study-row details");
-  await expect(outputs.locator("summary")).toHaveText("64 outputs");
+  await expect(outputs.locator("summary")).toHaveText("Values");
   const edit = page.locator(".chart-study-row").getByRole("button", { name: String(saved.name), exact: true });
   await expect(edit).toBeVisible();
   await expect(outputs.locator("button.chart-study-pill")).toHaveCount(64);
@@ -246,7 +247,7 @@ for (const placement of ["overlay", "pane"]) test(`large packed ${placement} sav
   if (placement === "pane") {
     const pane = page.getByRole("region", { name: `${String(saved.name)} native Pine pane` });
     await expect(pane).toBeVisible();
-    await expect(pane.locator("details summary")).toHaveText("64 outputs");
+    await expect(pane.locator("details summary")).toHaveText("Plots");
     await expect(pane.locator("canvas").first()).toBeVisible();
     await pane.locator("details summary").focus(); await page.keyboard.press("Enter");
     const names = pane.locator("details p");
@@ -404,7 +405,7 @@ test("native overlay and oscillator reach real chart canvases", async ({ page },
     const headerValue = source === overlay
       ? bars.filter((bar) => bar.time <= last.time).reduce((ema, bar, index) => index === 0 ? bar.close : (bar.close + ema) / 2, 0)
       : last.value as number;
-    await expect(page.locator("button.chart-study-pill").filter({ hasText: result.name }).last()).toContainText(headerValue.toFixed(4));
+    await expect(page.locator("button.chart-study-pill").filter({ hasText: result.name }).last()).toContainText(headerValue.toFixed(DEFAULT_CHART_VISUAL_SETTINGS.pricePrecision));
   }
   await expect(page.getByText("Native editor EMA", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Native editor RSI", { exact: true }).first()).toBeVisible();

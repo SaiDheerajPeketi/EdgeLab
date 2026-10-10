@@ -1,9 +1,10 @@
 import { validatePineInputCondition, pineInputConditionReferences, pineInputActive } from "./pineInputActivation";
+import { canonicalPineDisplay, parsePineFormat, type PineValueFormat } from "./pineDisplay";
 import { validatePineAlertEvents, type PineAlertEvents } from "./pineAlertEvents";
 import { validatePineConditionSamples, type PineConditionSamples } from "./pineConditionSamples";
 import type { PineInputCondition } from "./pineInputActivation";
 import type { Candle } from "./api";
-import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
+import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions, pinePlotOptionSets } from "./pinePacked";
 import type { PinePlotPoint } from "./pinePacked";
 import { validatePineMarketData, type PineMarketDataConfig } from "./pineMarketProtocol";
 import { pineLiveObservationCutoff, validatePineLiveObservation, type PineLiveObservation } from "./pineLiveObservation";
@@ -41,6 +42,7 @@ export type PineCalculationInputs = {
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
   declaration: "indicator" | "strategy"; name: string; overlay: boolean; behindChart?: boolean;
+  format?: PineValueFormat; precision?: number;
   inputDefinitions: PineInputDefinition[]; diagnostics: PineDiagnostic[]; usesVisibleRange?: boolean;
   alertConditions?: PineAlertConditionDefinition[];
   calculationInputs?: PineCalculationInputs;
@@ -533,7 +535,9 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
-  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions", "calculationInputs", "conditionSamples"].includes(key))) fail("Unexpected Pine result field.");
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "behindChart", "format", "precision", "usesVisibleRange", "inputDefinitions", "diagnostics", "inputs", "plots", "lines", "lineFills", "boxes", "labels", "polylines", "tables", "strategy", "audit", "alertEvents", "alertConditions", "calculationInputs", "conditionSamples"].includes(key))) fail("Unexpected Pine result field.");
+  if (raw.format !== undefined && (parsePineFormat(raw.format) === undefined || parsePineFormat(raw.format) !== raw.format)) fail("Invalid declaration value format.");
+  if (raw.precision !== undefined && (typeof raw.precision !== "number" || !Number.isSafeInteger(raw.precision) || raw.precision < 0 || raw.precision > 16)) fail("Invalid declaration value precision.");
   if (raw.alertEvents !== undefined && (request.action !== "run" || request.mode !== "live")) fail("Pine alerts require an owned live update.");
   const alertEvents = raw.alertEvents === undefined ? undefined : validatePineAlertEvents(raw.alertEvents);
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
@@ -555,7 +559,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1 || !["warning", "error"].includes(String(entry.severity))) fail("Invalid Pine diagnostic.");
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
-  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(alertConditions !== undefined ? { alertConditions } : {}), ...(calculationInputs ? { calculationInputs } : {}) };
+  const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), ...(raw.format === undefined ? {} : { format: raw.format as PineValueFormat }), ...(raw.precision === undefined ? {} : { precision: raw.precision as number }), inputDefinitions, diagnostics, ...(raw.usesVisibleRange !== undefined ? { usesVisibleRange: bool(raw.usesVisibleRange) } : {}), ...(alertConditions !== undefined ? { alertConditions } : {}), ...(calculationInputs ? { calculationInputs } : {}) };
   if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);
@@ -585,6 +589,18 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     }) };
   });
   if (new Set(plots.map((plot) => plot.id)).size !== plots.length || plots.some((plot) => !plot.id)) fail("Missing or duplicate Pine plot ID.");
+  for (const plot of plots) {
+    const checkOptions = (options: Record<string, PineScalar>) => {
+      if (options.display !== undefined) {
+        const display = canonicalPineDisplay(options.display);
+        if (display === undefined || ["hline", "fill", "background", "barcolor"].includes(plot.style) && display !== "all" && display !== "none") fail("Invalid plot display destinations.");
+      }
+      if (options.format !== undefined && parsePineFormat(options.format) === undefined) fail("Invalid plot number format.");
+      if (options.precision !== undefined && (typeof options.precision !== "number" || !Number.isSafeInteger(options.precision) || options.precision < 0 || options.precision > 16)) fail("Invalid plot number precision.");
+    };
+    checkOptions(plot.options);
+    for (const options of pinePlotOptionSets(plot)) checkOptions(options);
+  }
   for (const plot of plots) if (plot.style === "fill") for (const key of ["plot1", "plot2"]) {
     const id = plot.options[key];
     if (typeof id !== "string" || !plots.some((candidate) => candidate.id === id && candidate.style !== "fill")) fail("Fill must reference existing numeric plot IDs.");

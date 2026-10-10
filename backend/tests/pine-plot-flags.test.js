@@ -14,7 +14,8 @@ const context = { symbol: "TEST", timeframe: "1", mintick: .01, pointvalue: 1 };
 const program = (body, version = 6, overlay = false) => `//@version=${version}\nindicator("Plot flags",overlay=${overlay})\n${body}`;
 const request = (source, inputs = {}, snapshot = bars) => ({ id: "plot-flags", action: "run", source, bars: snapshot, inputs, context });
 const native = (source, inputs = {}, snapshot = bars) => pine.executePineRequest(request(source, inputs, snapshot));
-const normalize = (options) => Object.fromEntries(Object.entries(options ?? {}).filter(([key]) => !key.startsWith("_")).map(([key, value]) => [key, value === undefined || typeof value === "number" && !Number.isFinite(value) ? null : value]));
+// Omitted native display fields now retain absence instead of a null sentinel.
+const normalize = (options) => Object.fromEntries(Object.entries(options ?? {}).filter(([key, value]) => !key.startsWith("_") && !(key === "display" && value === undefined)).map(([key, value]) => [key, value === undefined || typeof value === "number" && !Number.isFinite(value) ? null : value]));
 // Independent engine oracle uses named options, bypassing both the worker's
 // compatibility wrapper and the pinned positional join type typo.
 async function raw(source, inputs = {}, snapshot = bars) {

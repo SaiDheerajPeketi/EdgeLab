@@ -188,7 +188,7 @@ import { pineMarketScopeForFeed } from "../lib/pineMarketScope";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPersistentPineIndicator, isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
-import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
+import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, samplePineChartReadout, formatPineChartValue, type PineChartPlot, type PineChartReadout } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult, PineInputValue, PineViewport } from "../lib/pineProtocol";
@@ -323,12 +323,13 @@ type CustomRuntimeStudy = {
 type SnapshotRuntimeResults = {
   owner: ChartRuntimeOwner | null;
   studies: CustomRuntimeStudy[];
+  readouts: Record<string, readonly PineChartReadout[]>;
   warnings: Record<string, Omit<PineChartNoticeStudy, "id" | "name">>;
   markers: Record<string, SeriesMarker<UTCTimestamp>[]>;
   viewports: Record<string, PineViewport | null>;
 };
 
-const EMPTY_SNAPSHOT_RESULTS: SnapshotRuntimeResults = { owner: null, studies: [], warnings: {}, markers: {}, viewports: {} };
+const EMPTY_SNAPSHOT_RESULTS: SnapshotRuntimeResults = { owner: null, studies: [], readouts: {}, warnings: {}, markers: {}, viewports: {} };
 
 type DraftDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
@@ -564,7 +565,7 @@ export function TradingChart({
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const pineInstallationsRef = useRef(new Set<{ dispose(): void }>());
-  const pineOverlayStudiesRef = useRef(new Map<string, { plots: PineChartPlot[]; scale: string; anchorTime?: number; installation: { dispose(): void } }>());
+  const pineOverlayStudiesRef = useRef(new Map<string, { plots: PineChartPlot[]; readouts: readonly PineChartReadout[]; showValues: boolean; precision: number; scale: string; anchorTime?: number; installation: { dispose(): void } }>());
   const primarySeriesRef = useRef<PrimaryChartSeries | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
@@ -803,6 +804,17 @@ export function TradingChart({
           mode: indicatorRuntimeMode, symbol, timeframe, token: authSession?.token } } : {}) };
     });
   })], [snapshotRuntimeStudies, livePineAdapted, displayBars, indicatorInstances, runtimeIndicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession?.token]);
+  const pineReadouts = useMemo(() => ({
+    ...Object.fromEntries(Object.entries(ownedSnapshot.readouts).filter(([id]) =>
+      !(id in ownedSnapshot.viewports) || pineViewportMatches(ownedSnapshot.viewports[id], pineViewport))),
+    ...Object.fromEntries(livePineAdapted.flatMap(study => !study.error && study.adapted
+      ? [[study.sourceId, study.adapted.readouts]] : [])),
+  }), [ownedSnapshot, pineViewport, livePineAdapted]);
+  const pineReadoutGroups = useMemo(() => Object.entries(pineReadouts).flatMap(([id, readouts]) => {
+    const indicator = indicatorInstances.find(item => item.id === id && item.visible !== false);
+    return indicator ? [{ id, name: indicator.customScriptName ?? "Pine script", readouts,
+      semantics: indicator.customQuantSemantics }] : [];
+  }), [indicatorInstances, pineReadouts]);
   const customRuntimeWarnings = useMemo(() => ({ ...snapshotRuntimeWarnings,
     ...Object.fromEntries(livePineAdapted.flatMap(study => study.result && study.adapted ? [[study.sourceId,
       { diagnostics: study.result.diagnostics, adapterWarnings: study.adapted.adapterWarnings }]] : [])) }), [snapshotRuntimeWarnings, livePineAdapted]);
@@ -910,7 +922,7 @@ export function TradingChart({
   }, [customRuntimeStudies]);
   const customHeaderGroups = useMemo(() => {
     const groups = new Map<string, CustomRuntimeStudy[]>();
-    customRuntimeStudies.forEach((study) => groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study]));
+    customRuntimeStudies.filter(study => !study.pinePlot).forEach((study) => groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study]));
     return [...groups.values()];
   }, [customRuntimeStudies]);
   const customNoticeStudies = useMemo(() => Object.entries(customRuntimeWarnings).flatMap(([id, result]) => {
@@ -955,19 +967,20 @@ export function TradingChart({
       if (cache.size > 64) cache.delete(cache.keys().next().value!);
     };
     setSnapshotRuntimeResults({ ...EMPTY_SNAPSHOT_RESULTS, owner: capturedContext });
-    const publish = (id: string, studies: CustomRuntimeStudy[], warning?: SnapshotRuntimeResults["warnings"][string], markers?: SeriesMarker<UTCTimestamp>[], viewport?: PineViewport | null, ownsEntry = ownsResult) => {
+    const publish = (id: string, studies: CustomRuntimeStudy[], warning?: SnapshotRuntimeResults["warnings"][string], markers?: SeriesMarker<UTCTimestamp>[], viewport?: PineViewport | null, ownsEntry = ownsResult, nextReadouts?: readonly PineChartReadout[]) => {
       if (!ownsEntry()) return;
       setSnapshotRuntimeResults((previous) => {
         if (!ownsEntry()) return previous;
         const current = chartRuntimeOwnerMatches(previous.owner, capturedContext) ? previous : EMPTY_SNAPSHOT_RESULTS;
-        const warnings = { ...current.warnings }, nextMarkers = { ...current.markers }, viewports = { ...current.viewports };
-        delete warnings[id]; delete nextMarkers[id]; delete viewports[id];
+        const warnings = { ...current.warnings }, nextMarkers = { ...current.markers }, viewports = { ...current.viewports }, readouts = { ...current.readouts };
+        delete warnings[id]; delete nextMarkers[id]; delete viewports[id]; delete readouts[id];
+        if (nextReadouts) readouts[id] = nextReadouts;
         if (warning) warnings[id] = warning;
         if (markers) nextMarkers[id] = markers;
         if (viewport !== undefined) viewports[id] = viewport;
         return { owner: capturedContext,
           studies: [...current.studies.filter((study) => study.sourceId !== id), ...studies],
-          warnings, markers: nextMarkers, viewports };
+          warnings, readouts, markers: nextMarkers, viewports };
       });
     };
     const queueViewport = (entry: Entry) => {
@@ -1047,7 +1060,7 @@ export function TradingChart({
         publish(indicator.id, studies, adapted ? {
             diagnostics: nativeResult!.diagnostics,
             adapterWarnings: adapted.adapterWarnings,
-          } : undefined, adapted?.strategyMarkers, entry.dependent ? viewport : undefined, ownsEntry);
+          } : undefined, adapted?.strategyMarkers, entry.dependent ? viewport : undefined, ownsEntry, adapted?.readouts);
         reportRuntimeState(indicator.id, null);
       }).catch(async (failure) => {
         if (!ownsResult() || entries.get(indicator.id) !== entry || entry.generation !== generation
@@ -2365,12 +2378,20 @@ export function TradingChart({
     customRuntimeStudies.forEach(study => {
       if (study.overlay && study.pinePlot) groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study.pinePlot]);
     });
+    const overlayReadouts = new Map(Object.entries(pineReadouts).map(([id, values]) =>
+      [id, values.filter(value => value.overlay)] as const));
+    for (const [id, readouts] of overlayReadouts) {
+      if (readouts.some(value => value.destinations.includes("price_scale")) && !groups.has(id)) groups.set(id, []);
+    }
     const scale = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
     const installedStudies = pineOverlayStudiesRef.current;
     for (const [id, installed] of installedStudies) {
       const plots = groups.get(id);
       if (plots?.length === installed.plots.length && plots.every((plot, index) => plot === installed.plots[index])
-        && scale === installed.scale && latestDisplayBarTime === installed.anchorTime) {
+        && scale === installed.scale && latestDisplayBarTime === installed.anchorTime
+        && installed.showValues === chartSettings.indicatorValues && installed.precision === chartSettings.pricePrecision
+        && (overlayReadouts.get(id) ?? []).length === installed.readouts.length
+        && (overlayReadouts.get(id) ?? []).every((value, index) => value === installed.readouts[index])) {
         groups.delete(id);
         continue;
       }
@@ -2379,11 +2400,13 @@ export function TradingChart({
       installedStudies.delete(id);
     }
     groups.forEach((plots, id) => {
-      const installation = installPineChartPlots(chart, plots, scale, { allowFillOnlyScale: false, scaleAnchor: barsRef.current.at(-1) });
+      const readouts = overlayReadouts.get(id) ?? [];
+      const installation = installPineChartPlots(chart, plots, scale, { allowFillOnlyScale: false, scaleAnchor: barsRef.current.at(-1),
+        readouts: chartSettings.indicatorValues ? readouts : [], fallbackPrecision: chartSettings.pricePrecision });
       pineInstallationsRef.current.add(installation);
-      installedStudies.set(id, { plots, scale, anchorTime: latestDisplayBarTime, installation });
+      installedStudies.set(id, { plots, readouts, showValues: chartSettings.indicatorValues, precision: chartSettings.pricePrecision, scale, anchorTime: latestDisplayBarTime, installation });
     });
-  }, [customRuntimeStudies, chartSettings.scalePlacement, paneId, latestDisplayBarTime]);
+  }, [customRuntimeStudies, pineReadouts, chartSettings.scalePlacement, chartSettings.indicatorValues, chartSettings.pricePrecision, paneId, latestDisplayBarTime]);
 
   useEffect(() => {
     const series = primarySeriesRef.current;
@@ -3586,7 +3609,8 @@ export function TradingChart({
             )}
             {(chartSettings.chartValues ||
               chartSettings.barChangeValues ||
-              (chartSettings.volume && hasVolumeData)) && (
+              (chartSettings.volume && hasVolumeData) ||
+              (chartSettings.indicatorValues && pineReadoutGroups.some(group => group.readouts.some(readout => readout.destinations.includes("data_window"))))) && (
               <SubscribedOhlcvStrip
                 captureMode={captureMode}
                 chartSettings={chartSettings}
@@ -3596,6 +3620,7 @@ export function TradingChart({
                 showOhlc={chartSettings.chartValues}
                 showVolume={chartSettings.volume && hasVolumeData}
                 store={candleSnapshotStore}
+                pineGroups={pineReadoutGroups}
               />
             )}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
@@ -3716,6 +3741,9 @@ export function TradingChart({
                     )}
                   </button>
                 ))}
+                <SubscribedPineStatus groups={pineReadoutGroups} store={candleSnapshotStore} fallbackCandle={displayBars.at(-1) ?? null}
+                  captureMode={captureMode} chartSettings={chartSettings} selectedId={renderedSelectedIndicatorId}
+                  onOpenSettings={openIndicatorToolbar} />
                 {customHeaderGroups.map((studies) => {
                   const buttons = studies.map((study) => {
                     const semantics = indicatorInstances.find((indicator) => indicator.id === study.sourceId)?.customQuantSemantics;
@@ -3732,20 +3760,11 @@ export function TradingChart({
                       type="button"
                     >
                       <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
-                      {chartSettings.indicatorTitles && <span>{label}</span>}
+                      {chartSettings.indicatorTitles && <span className="min-w-0 max-w-full truncate">{label}</span>}
                       {chartSettings.indicatorValues && study.pinePlot?.kind !== "barcolor" && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
                     </button>;
                   });
-                  if (studies.length <= 4 || !studies.some((study) => study.pinePlot)) return buttons;
-                  const sourceId = studies[0].sourceId;
-                  const name = indicatorInstances.find((indicator) => indicator.id === sourceId)?.customScriptName ?? "Pine script";
-                  return <div className="flex min-w-0 basis-full flex-wrap items-start gap-2" key={`outputs-${sourceId}`}>
-                    <button aria-label={name} data-indicator-id={sourceId} className={`chart-study-pill max-md:min-h-11 ${renderedSelectedIndicatorId === sourceId ? "chart-study-pill-active" : ""}`} onClick={(event) => openIndicatorToolbar(sourceId, event)} title={`Edit ${name}`} type="button">{chartSettings.indicatorTitles ? name : <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />}</button>
-                    <details className="min-w-0 max-w-full text-slate-400">
-                      <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 max-md:min-h-11">{studies.length} outputs</summary>
-                      <div className="flex max-h-36 min-w-0 max-w-full flex-wrap gap-2 overflow-y-auto py-2 [&>button]:max-md:min-h-11">{buttons}</div>
-                    </details>
-                  </div>;
+                  return buttons;
                 })}
                 {indicatorInstances.filter((indicator) => indicator.visible !== false && indicator.customQuantSemantics != null && indicator.customQuantSemantics.probabilityPlotName == null).map((indicator) => (
                   <span className="chart-study-pill" key={`probability-${indicator.id}`} title={`${indicator.customQuantSemantics!.probabilitySemantics} · ${indicator.customQuantSemantics!.modelProvenance}`}>
@@ -4225,6 +4244,7 @@ export function TradingChart({
             const indicator = indicatorInstances.find((item) => item.id === sourceId && item.visible !== false);
             return indicator ? <NativePineStudyPanel key={indicator.id} label={indicator.customScriptName ?? "Pine script"} plots={plots} priceChart={chartRef.current} onOpenSettings={(event) => openIndicatorToolbar(indicator.id, event)} selected={!captureMode && drawingControlsActive && renderedSelectedIndicatorId === indicator.id}
               indicator={indicator} bars={displayBars} contextKey={inputOverlayContext} chartSettings={chartSettings}
+              readouts={pineReadouts[indicator.id] ?? EMPTY_PINE_READOUTS}
               pickInputId={inputAnchorPick?.indicatorId === indicator.id ? inputAnchorPick.inputId : undefined}
               onEndPick={endInputAnchorPick}
               onInputHost={(host, disposed) => setPineInputHosts(current => {
@@ -4285,6 +4305,68 @@ export function TradingChart({
   );
 }
 
+const EMPTY_PINE_READOUTS: readonly PineChartReadout[] = [];
+type PineReadoutGroup = { id: string; name: string; readouts: readonly PineChartReadout[];
+  semantics?: ChartIndicatorInstance["customQuantSemantics"] };
+
+function PineNumericValues({ readout, time, precision }: { readout: PineChartReadout; time?: number; precision: number }) {
+  const sample = time === undefined ? undefined : samplePineChartReadout(readout, time);
+  const labels = ["bar", "candle", "plotbar", "plotcandle"].includes(readout.source.style) ? ["O", "H", "L", "C"] : [""];
+  return <>{labels.map((label, index) => <span key={index} className="inline-flex shrink-0 items-baseline gap-1 whitespace-nowrap tabular-nums">
+    {label && <span className="text-[var(--text-secondary)]">{label}</span>}
+    <strong>{formatPineChartValue(readout, sample?.values[index] ?? null, precision)}</strong>
+  </span>)}</>;
+}
+
+function PineDataValues({ groups, time, precision, showTitles }: {
+  groups: readonly PineReadoutGroup[]; time?: number; precision: number; showTitles: boolean;
+}) {
+  const values = groups.flatMap(group => group.readouts.filter(readout => readout.destinations.includes("data_window"))
+    .map(readout => <span key={group.id + ":" + readout.id} data-indicator-id={group.id} data-pine-plot-id={readout.id}
+      data-pine-destination="data_window" aria-label={group.name + " · " + readout.name}
+      className="chart-ohlcv-item min-w-0 flex-wrap">
+      {showTitles && <span>{group.name} · {readout.name}</span>}
+      <PineNumericValues readout={readout} time={time} precision={precision} />
+    </span>));
+  if (values.length <= 4) return <>{values}</>;
+  return <details className="basis-full min-w-0">
+    <summary className="w-fit cursor-pointer rounded px-1 py-1 text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">Indicator values</summary>
+    <div className="flex max-h-36 flex-wrap gap-x-4 gap-y-2 overflow-y-auto py-2">{values}</div>
+  </details>;
+}
+
+function SubscribedPineStatus({ groups, store, fallbackCandle, captureMode, chartSettings, selectedId, onOpenSettings }: {
+  groups: readonly PineReadoutGroup[]; store: ChartCandleSnapshotStore; fallbackCandle: Candle | null; captureMode: boolean;
+  chartSettings: ChartVisualSettings; selectedId: string | null;
+  onOpenSettings: (id: string, event: MouseEvent<HTMLElement>) => void;
+}) {
+  const candle = useHeaderCandle(store, fallbackCandle, captureMode);
+  return <>{groups.map(group => {
+    const buttons = group.readouts.filter(readout => readout.destinations.includes("status_line")).map(readout => {
+      const semantics = group.semantics;
+      const label = semantics?.scorePlotName === readout.name ? semantics.scoreLabel
+        : semantics?.probabilityPlotName === readout.name ? semantics.probabilityLabel : group.name + " · " + readout.name;
+      return <button type="button" key={readout.id} data-indicator-id={group.id} data-pine-plot-id={readout.id}
+        data-pine-destination="status_line" aria-label={label} title={label}
+        className={"chart-study-pill h-auto min-h-6 max-w-full shrink-0 flex-wrap py-1 text-left max-md:min-h-11 " + (selectedId === group.id ? "chart-study-pill-active" : "")}
+        onClick={event => onOpenSettings(group.id, event)}>
+        {chartSettings.indicatorTitles && <span className="min-w-0 max-w-full truncate">{label}</span>}
+        {chartSettings.indicatorValues && <PineNumericValues readout={readout} time={candle?.time} precision={chartSettings.pricePrecision} />}
+      </button>;
+    });
+    const title = <button type="button" aria-label={group.name} data-indicator-id={group.id} title={"Edit " + group.name}
+      className={"chart-study-pill h-auto min-h-6 max-w-full shrink-0 flex-wrap py-1 text-left max-md:min-h-11 " + (selectedId === group.id ? "chart-study-pill-active" : "")}
+      onClick={event => onOpenSettings(group.id, event)}>{chartSettings.indicatorTitles ? <span className="min-w-0 max-w-full truncate">{group.name}</span> : <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />}</button>;
+    if (buttons.length <= 4) return <div key={group.id} className="contents">{buttons.length ? buttons : title}</div>;
+    return <div key={group.id} className="flex min-w-0 basis-full flex-wrap items-start gap-2">
+      {title}<details className="min-w-0 max-w-full text-[var(--text-secondary)]">
+        <summary className="cursor-pointer rounded px-1.5 py-1 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">Values</summary>
+        <div className="flex max-h-36 min-w-0 flex-wrap gap-2 overflow-y-auto py-2">{buttons}</div>
+      </details>
+    </div>;
+  })}</>;
+}
+
 function useHeaderCandle(
   store: ChartCandleSnapshotStore,
   fallbackCandle: Candle | null,
@@ -4325,6 +4407,7 @@ function SubscribedOhlcvStrip({
   showOhlc,
   showVolume,
   store,
+  pineGroups,
 }: {
   captureMode: boolean;
   chartSettings: ChartVisualSettings;
@@ -4334,6 +4417,7 @@ function SubscribedOhlcvStrip({
   showOhlc: boolean;
   showVolume: boolean;
   store: ChartCandleSnapshotStore;
+  pineGroups: readonly PineReadoutGroup[];
 }) {
   const candle = useHeaderCandle(store, fallbackCandle, captureMode);
   return (
@@ -4345,6 +4429,7 @@ function SubscribedOhlcvStrip({
       showOhlc={showOhlc}
       showVolume={showVolume}
       tone={candleChangeTone(candle)}
+      pineGroups={pineGroups}
     />
   );
 }
@@ -4375,6 +4460,7 @@ function OhlcvStrip({
   showOhlc,
   showVolume,
   tone,
+  pineGroups,
 }: {
   candle: Candle | null;
   chartSettings: ChartVisualSettings;
@@ -4383,6 +4469,7 @@ function OhlcvStrip({
   showOhlc: boolean;
   showVolume: boolean;
   tone: string;
+  pineGroups: readonly PineReadoutGroup[];
 }) {
   const change =
     candle == null || candle.open === 0
@@ -4427,6 +4514,8 @@ function OhlcvStrip({
           {change == null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
         </span>
       )}
+      {chartSettings.indicatorValues && <PineDataValues groups={pineGroups} time={candle?.time}
+        precision={pricePrecision} showTitles={chartSettings.indicatorTitles} />}
     </div>
   );
 }
@@ -6017,8 +6106,8 @@ function PineStudyInputAnchors({ indicator, chart, series, bars, contextKey, pla
 
 type PineInputHost = { plots: PineChartPlot[]; contextKey: string; price: boolean; time: boolean };
 
-function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected, indicator, bars, contextKey, chartSettings, onChange, pickInputId, onEndPick, onInputHost }: {
-  label: string; plots: PineChartPlot[]; priceChart: IChartApi | null;
+function NativePineStudyPanel({ label, plots, readouts, priceChart, onOpenSettings, selected, indicator, bars, contextKey, chartSettings, onChange, pickInputId, onEndPick, onInputHost }: {
+  label: string; plots: PineChartPlot[]; readouts: readonly PineChartReadout[]; priceChart: IChartApi | null;
   onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
   indicator: ChartIndicatorInstance; bars: readonly Candle[]; contextKey: string; chartSettings: ChartVisualSettings;
   onChange: (settings: Partial<IndicatorSettings>) => void; pickInputId?: string; onEndPick: () => void;
@@ -6052,7 +6141,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       handleScroll: false, handleScale: false,
     });
     paneChart.current = chart;
-    const installed = installPineChartPlots(chart, plots);
+    const installed = installPineChartPlots(chart, plots, "right", { readouts: chartSettings.indicatorValues ? readouts.filter(value => !value.overlay) : [], fallbackPrecision: chartSettings.pricePrecision });
     if (installed.series[0]) setInputTarget({ chart, series: installed.series[0] as ISeriesApi<"Line">, plots });
     const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
     const syncRange = () => {
@@ -6070,7 +6159,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       paneChart.current = null;
       chart.remove();
     };
-  }, [plots, priceChart, tableOnly]);
+  }, [plots, readouts, priceChart, tableOnly, chartSettings.indicatorValues, chartSettings.pricePrecision]);
   useLayoutEffect(() => {
     paneChart.current?.applyOptions({
       layout: { background: { type: ColorType.Solid, color: chartSettings.backgroundColor },
@@ -6080,13 +6169,13 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
         vertLines: { color: colorWithOpacity(chartSettings.gridColor, 0.22),
           visible: chartSettings.gridMode === "both" || chartSettings.gridMode === "vertical" } },
     });
-  }, [plots, priceChart, tableOnly, chartSettings.backgroundColor, chartSettings.textColor, chartSettings.textSize,
-    chartSettings.gridColor, chartSettings.gridMode]);
+  }, [plots, readouts, priceChart, tableOnly, chartSettings.indicatorValues, chartSettings.pricePrecision,
+    chartSettings.backgroundColor, chartSettings.textColor, chartSettings.textSize, chartSettings.gridColor, chartSettings.gridMode]);
   return <section className="border-t border-[var(--ui-border-subtle)] bg-[var(--ui-inset)] px-4 py-3" aria-label={`${label} native Pine pane`}>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
       <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
       <details className="min-w-0 max-w-full text-[var(--text-secondary)]">
-        <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">{plots.length} {plots.length === 1 ? "output" : "outputs"}</summary>
+        <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)] max-md:min-h-11">Plots</summary>
         <p role="region" aria-label={`${label} output names`} tabIndex={0} className="max-h-24 overflow-y-auto overscroll-contain break-words py-2 leading-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-focus)]">{plots.map((plot) => plot.name).join(" · ")}</p>
       </details>
     </div>

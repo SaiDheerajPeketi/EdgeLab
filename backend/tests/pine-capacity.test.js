@@ -28,7 +28,8 @@ const originals = [
 ];
 const originalSource = (name) => readFileSync(new URL(`../../frontend/public/catalog/pine/everget/0b164e1e4f2fb7b06524c6d0a26e6132228c9448/trailing_stops/${name}.pine`, import.meta.url), "utf8");
 const request = (source, snapshot = bars) => ({ id: "capacity-fixture", action: "run", source, bars: snapshot, context });
-const scalarOptions = (options = {}) => Object.fromEntries(Object.entries(options).filter(([key]) => !key.startsWith("_")).map(([key, value]) => [key, value == null || typeof value === "number" && !Number.isFinite(value) ? null : value]));
+// Preserve omitted display absence; all other raw-engine comparisons are unchanged.
+const scalarOptions = (options = {}) => Object.fromEntries(Object.entries(options).filter(([key, value]) => !key.startsWith("_") && !(key === "display" && value === undefined)).map(([key, value]) => [key, value == null || typeof value === "number" && !Number.isFinite(value) ? null : value]));
 
 // This oracle executes PineTS directly. It never calls EdgeLab's result packer,
 // response validator or chart adapter.

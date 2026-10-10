@@ -168,7 +168,8 @@ function overrides(definitions, settings) {
   }));
 }
 const settingsOf = (result) => Object.fromEntries(result.inputDefinitions.map((input) => [input.title ?? input.name, result.inputs[input.id]]));
-const options = (value, hline) => Object.fromEntries(Object.entries(value ?? {}).filter(([key, val]) => !key.startsWith("_") && (!hline || val !== undefined)).map(([key, val]) => [key, val == null || typeof val === "number" && !finite(val) ? null : val]));
+// Omitted native display fields retain absence; every other oracle field is unchanged.
+const options = (value, hline) => Object.fromEntries(Object.entries(value ?? {}).filter(([key, val]) => !key.startsWith("_") && (!hline || val !== undefined) && !(key === "display" && val === undefined)).map(([key, val]) => [key, val == null || typeof val === "number" && !finite(val) ? null : val]));
 const at = (plot, i) => pine.getPackedPinePlot(plot) ? pine.pointAtBar(plot, i) : plot.points[i];
 function rawCompare(result, oracle) {
   oracle.plots = Object.fromEntries(Object.entries(oracle.plots).filter(([,plot]) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style)));

@@ -3,6 +3,7 @@ import { aggregatePineHigherTimeframe, pineHigherTimeframeDuration } from "../li
 import { aggregatePineCalculationBars, pineCalculationCanAggregate, pineCalculationEnd } from "../lib/pineCalculationTimeframe";
 import { preparePineCalculationPrefix, selectPineCalculationSnapshot, type PineCalculationSnapshot } from "../lib/pineCalculationSnapshot";
 import { pineInputActive, validatePineInputCondition } from "../lib/pineInputActivation";
+import { canonicalPineDisplay, parsePineFormat } from "../lib/pineDisplay";
 import { PINE_ALERT_EVENT_LIMIT, PINE_ALERT_DROPPED_LIMIT, validatePineAlertEvent, type PineAlertEvents } from "../lib/pineAlertEvents";
 import { capturePineAlertPlots, type PineAlertPlotDefinition } from "../lib/pineAlertPlaceholders";
 import { PINE_CONDITION_SAMPLE_LIMIT, PINE_CONDITION_SAMPLE_BYTES, PINE_CONDITION_DROPPED_LIMIT, type PineConditionSamples } from "../lib/pineConditionSamples";
@@ -802,7 +803,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     // HlineHelper forwards omitted parameters as own undefined fields. Preserve absence
     // separately from explicit na (NaN), so a missing color does not hide a fixed level.
-    const plotFields = (value: object) => fields(["hline", "bar", "candle", "candles", "plotcandle"].includes(style) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
+    const plotFields = (value: object) => fields(Object.fromEntries(Object.entries(value).filter(([key, item]) => item !== undefined || !["hline", "bar", "candle", "candles", "plotcandle"].includes(style) && !["display", "format", "precision"].includes(key))));
     const points = function* (): Generator<PinePlotPoint> {
       for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: plotFields(point.options ?? {}) };
     };
@@ -832,6 +833,95 @@ function resolvedSetting(value: unknown): unknown {
   return value;
 }
 
+function destinationOptions(options: Record<string, unknown>, code: string, visualOnly = false) {
+  const display = canonicalPineDisplay(options.display);
+  if (display === undefined || visualOnly && display !== "all" && display !== "none") error(code, visualOnly ? "This visual supports display.all or display.none." : "Plot display must resolve to a complete valid destination set.");
+  if (options.display !== undefined) options.display = display;
+  if (options.format !== undefined) {
+    const format = parsePineFormat(options.format);
+    if (format === undefined) error(code, "Plot format must resolve to inherit, price, percent or volume.");
+    options.format = format;
+  }
+  if (options.precision !== undefined && (!Number.isSafeInteger(options.precision) || (options.precision as number) < 0 || (options.precision as number) > 16)) error(code, "Plot precision must be an integer from 0 to 16.");
+  return { display, format: options.format ?? "inherit", precision: options.precision };
+}
+
+/** Guard operands before the engine's permissive scanner can erase residue.
+ * Shadow this context's namespace; imported enum helpers remain untouched. */
+function bindDisplayArithmetic(context: Context) {
+  const pine = context.pine as unknown as Record<string, unknown>;
+  const descriptor = Object.getOwnPropertyDescriptor(pine, "display");
+  const namespace = descriptor?.value as Record<string, unknown> | undefined;
+  if (!descriptor?.writable || !namespace || typeof namespace !== "object") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot validate display arithmetic.");
+  const owned = Object.create(Object.getPrototypeOf(namespace), Object.getOwnPropertyDescriptors(namespace));
+  for (const key of ["__union", "__minus"]) {
+    const method = Object.getOwnPropertyDescriptor(namespace, key);
+    if (!method?.writable || typeof method.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot validate display arithmetic.");
+    const original = method.value;
+    Object.defineProperty(owned, key, { ...method, value: function(this: unknown, ...args: unknown[]) {
+      if (args.length !== 2) error("UNSUPPORTED_PLOT_OPTION", "Display arithmetic requires two destination sets.");
+      const values = args.map(argument => {
+        const value = resolvedSetting(argument);
+        const canonical = typeof value === "string" ? canonicalPineDisplay(value) : undefined;
+        if (canonical === undefined) error("UNSUPPORTED_PLOT_OPTION", "Display arithmetic operands must be complete valid destination sets.");
+        return canonical;
+      });
+      return Reflect.apply(original, this, values);
+    } });
+  }
+  Object.defineProperty(pine, "display", { ...descriptor, value: owned });
+}
+
+/** Native marker/candle helpers freeze their channel options on the first call.
+ * Validate authored destination/format settings on every real invocation. */
+function bindDestinationOptions(context: Context) {
+  const pine = context.pine as unknown as Record<string, unknown>;
+  const signatures: Record<string, string[]> = {
+    plotshape: "series title style location color offset text textcolor editable size show_last display format precision force_overlay".split(" "),
+    plotchar: "series title char location color offset text textcolor editable size show_last display format precision force_overlay".split(" "),
+    plotcandle: "open high low close title color wickcolor editable show_last bordercolor display format precision force_overlay".split(" "),
+  };
+  for (const [name, signature] of Object.entries(signatures)) {
+    const descriptor = Object.getOwnPropertyDescriptor(pine, name);
+    if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve plot destinations.");
+    const original = descriptor.value, constants = new WeakMap<object, ReturnType<typeof destinationOptions>>();
+    Object.defineProperty(pine, name, { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+      if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+      const last = args.at(-1) as { __callsiteId?: unknown } | undefined;
+      const sentinel = last && typeof last === "object" && typeof last.__callsiteId === "string" ? last : undefined;
+      const values = sentinel ? args.slice(0, -1) : args, fields: Record<string, unknown> = {};
+      values.forEach((argument, index) => {
+        if (argument && typeof argument === "object" && !Array.isArray(argument) && [Object.prototype, null].includes(Object.getPrototypeOf(argument))) {
+          if (index !== values.length - 1) error("UNSUPPORTED_PLOT_OPTION", "Named plot options must follow positional arguments.");
+          Object.assign(fields, argument);
+        } else if (argument !== undefined) {
+          if (index >= signature.length) error("UNSUPPORTED_PLOT_OPTION", "Plot received unsupported extra arguments.");
+          fields[signature[index]] = argument;
+        }
+      });
+      if (Object.keys(fields).some(key => !signature.includes(key))) error("UNSUPPORTED_PLOT_OPTION", "Plot received unsupported named options.");
+      const count = name === "plotcandle" ? 4 : 1;
+      const series = signature.slice(0, count).map(key => fields[key]);
+      for (const key of signature.slice(0, count)) delete fields[key];
+      for (const key of ["display", "format", "precision"]) if (fields[key] !== undefined) {
+        let value: unknown = fields[key];
+        for (let depth = 0; depth < 4; depth++) {
+          const scalar = value && typeof value === "object" && "__value" in value ? (value as { __value: unknown }).__value : value;
+          const resolved = resolvedSetting(scalar); if (resolved === value) break; value = resolved;
+        }
+        fields[key] = value;
+      }
+      const flags = destinationOptions(fields, "UNSUPPORTED_PLOT_OPTION");
+      const result = Reflect.apply(original, this, [...series, fields, ...(sentinel ? [sentinel] : [])]);
+      if (!result || typeof result !== "object") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the plot channel.");
+      const previous = constants.get(result);
+      if (previous && Object.keys(flags).some(key => !Object.is(flags[key as keyof typeof flags], previous[key as keyof typeof flags]))) error("UNSUPPORTED_PLOT_OPTION", "Plot destinations and number formatting must remain constant throughout the snapshot.");
+      if (!previous) constants.set(result, flags);
+      return result;
+    } });
+  }
+}
+
 /** Normalize this context's plot arguments around the pinned positional join type typo. */
 function bindPlotOptions(context: Context) {
   const namespace = context.pine.plot;
@@ -857,7 +947,15 @@ function bindPlotOptions(context: Context) {
     });
     // HlineHelper delegates to plot.any with its own linestyle/undefined fields.
     // Preserve that internal path byte-for-byte; it has a separate rendering contract.
-    if (resolvedSetting(options.style) === "hline") return Reflect.apply(original, this, args);
+    if (resolvedSetting(options.style) === "hline") {
+      const flags = destinationOptions({ display: resolvedSetting(options.display) }, "UNSUPPORTED_PLOT_OPTION", true);
+      const result = Reflect.apply(original, this, args);
+      if (!result || typeof result !== "object") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the hline channel.");
+      const previous = constantOptions.get(result);
+      if (previous && previous.display !== flags.display) error("UNSUPPORTED_PLOT_OPTION", "Hline display must remain constant throughout the snapshot.");
+      if (!previous) constantOptions.set(result, flags);
+      return result;
+    }
     if (!Object.prototype.hasOwnProperty.call(options, "series") || Object.keys(options).some((name) => !signature.includes(name))) error("UNSUPPORTED_PLOT_OPTION", "Plot requires a series and only supports its documented options.");
     const series = options.series;
     delete options.series;
@@ -877,7 +975,7 @@ function bindPlotOptions(context: Context) {
       if (name === "linestyle" && (typeof value !== "string" || !["linestyle_solid", "linestyle_dashed", "linestyle_dotted"].includes(value))) error("UNSUPPORTED_PLOT_OPTION", "Plot linestyle must be solid, dashed or dotted.");
       if (name === "color" && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string" && typeof value !== "function") error("UNSUPPORTED_PLOT_OPTION", "Plot color must resolve to a color or na.");
     }
-    const flags = { ...(Object.prototype.hasOwnProperty.call(options, "offset") ? { offset: options.offset } : {}), linestyle: options.linestyle ?? "linestyle_solid" };
+    const flags = { ...destinationOptions(options, "UNSUPPORTED_PLOT_OPTION"), ...(Object.prototype.hasOwnProperty.call(options, "offset") ? { offset: options.offset } : {}), linestyle: options.linestyle ?? "linestyle_solid" };
     const forwarded: unknown[] = [series, options];
     if (sentinel) forwarded.push(sentinel);
     const result = Reflect.apply(original, this, forwarded) as { options?: Record<string, unknown> };
@@ -933,6 +1031,7 @@ function bindArrowPlotOptions(context: Context) {
       if (["colorup", "colordown"].includes(name) && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string") error("UNSUPPORTED_ARROW_OPTION", `Arrow ${name} must resolve to a color or na.`);
       options[name] = value;
     }
+    destinationOptions(options, "UNSUPPORTED_ARROW_OPTION");
     const flags = Object.fromEntries(Object.entries(options).filter(([name]) => name !== "colorup" && name !== "colordown"));
     if (Number(options.maxheight ?? 100) < Number(options.minheight ?? 5)) error("UNSUPPORTED_ARROW_OPTION", "Arrow maxheight must be at least minheight.");
     const forwarded: unknown[] = [series, options];
@@ -986,11 +1085,10 @@ function bindBarPlotOptions(context: Context) {
       if (["editable", "force_overlay"].includes(name) && typeof value !== "boolean") error("UNSUPPORTED_BAR_OPTION", `OHLC bar ${name} must resolve to a boolean.`);
       if (["show_last", "precision"].includes(name) && (!Number.isSafeInteger(value) || (value as number) < 0 || (name === "precision" && (value as number) > 16))) error("UNSUPPORTED_BAR_OPTION", `OHLC bar ${name} must resolve to a valid nonnegative integer.`);
       if (name === "title" && (typeof value !== "string" || value.length > 4_096)) error("UNSUPPORTED_BAR_OPTION", "OHLC bar title must resolve to a bounded string.");
-      if (name === "display" && value !== "all" && value !== "none") error("UNSUPPORTED_BAR_OPTION", "OHLC bar display must resolve to display.all or display.none.");
-      if (name === "format" && !["price", "percent", "volume"].includes(String(value))) error("UNSUPPORTED_BAR_OPTION", "OHLC bar format must resolve to price, percent or volume.");
       if (name === "color" && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string") error("UNSUPPORTED_BAR_OPTION", "OHLC bar color must resolve to a color or na.");
       options[name] = value;
     }
+    destinationOptions(options, "UNSUPPORTED_BAR_OPTION");
     const ordinal = count++, flags = Object.fromEntries(Object.entries(options).filter(([name]) => name !== "color"));
     if (ordinal >= PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
     const plots = context.plots as Record<string, { _callsiteId?: string; _edgelabBarPlotOrder?: number; options?: Record<string, unknown> }>;
@@ -1204,6 +1302,10 @@ function bindGradientFillOptions(context: Context) {
     const namedIndex = values.findIndex((value) => value !== null && typeof value === "object" && gradientKeys.some((key) => Object.prototype.hasOwnProperty.call(value, key)));
     const positional = values.length >= 6 && typeof resolvedSetting(values[2]) === "number" && typeof resolvedSetting(values[3]) === "number";
     if (!positional && namedIndex < 0) {
+      const hlineReferences = values.slice(0, 2).every(value => (resolvedSetting(value) as { options?: { style?: string } } | null)?.options?.style === "hline");
+      let display = values[hlineReferences ? 6 : 7];
+      for (const value of values.slice(2)) if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "display")) display = (value as Record<string, unknown>).display;
+      destinationOptions({ display: resolvedSetting(display) }, "UNSUPPORTED_FILL_OPTION", true);
       const color = resolvedSetting(values[2]);
       if (values.length >= 3 && (color === null || (typeof color === "number" && Number.isNaN(color)))) {
         // Pinned FillHelper mistakes a positional na color for a numeric gradient anchor.
@@ -1276,6 +1378,7 @@ function bindGradientFillOptions(context: Context) {
 }
 
 /** Validate the resolved declaration on this context alone, before its plots or orders. */
+const declarationFormats = new WeakMap<Context, Pick<PinePrepareResult, "format" | "precision">>();
 function bindDeclarationLayer(context: Context, strategy: boolean) {
   const owner = strategy ? context.pine.strategy : context.pine;
   const key = strategy ? "any" : "indicator";
@@ -1283,6 +1386,7 @@ function bindDeclarationLayer(context: Context, strategy: boolean) {
   if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve declaration layers.");
   const original = descriptor.value;
   let previous: boolean | undefined;
+  let previousFormat: string | undefined, previousPrecision: number | undefined, checked = false;
   Object.defineProperty(owner, key, { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
     const config = Reflect.apply(original, this, args) as Record<string, unknown>;
     const resolved = resolvedSetting(config.behind_chart);
@@ -1290,6 +1394,20 @@ function bindDeclarationLayer(context: Context, strategy: boolean) {
     if (typeof value !== "boolean") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
     if (previous !== undefined && previous !== value) error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must remain constant throughout the snapshot.");
     previous = value; config.behind_chart = value;
+    const authored: Record<string, unknown> = {};
+    args.forEach((argument, index) => {
+      if (argument && typeof argument === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(argument))) {
+        for (const key of ["format", "precision"]) if (Object.prototype.hasOwnProperty.call(argument, key)) authored[key] = (argument as Record<string, unknown>)[key];
+      } else if (index === 3) authored.format = argument;
+      else if (index === 4) authored.precision = argument;
+    });
+    const format = parsePineFormat(resolvedSetting(authored.format) ?? "inherit");
+    const precision = resolvedSetting(authored.precision);
+    if (!format || precision !== undefined && (typeof precision !== "number" || !Number.isSafeInteger(precision) || precision < 0 || precision > 16)) error("UNSUPPORTED_DECLARATION_OPTION", "Declaration format and precision must be a supported format and an integer from 0 to 16.");
+    if (checked && (format !== previousFormat || precision !== previousPrecision)) error("UNSUPPORTED_DECLARATION_OPTION", "Declaration number formatting must remain constant throughout the snapshot.");
+    checked = true; previousFormat = format; previousPrecision = precision as number | undefined;
+    declarationFormats.set(context, { ...(authored.format === undefined && precision === undefined ? {} : { format: format === "inherit" && precision !== undefined ? "price" : format }),
+      ...(precision === undefined ? {} : { precision: precision as number }) });
     return config;
   } });
 }
@@ -1356,7 +1474,9 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       if (mainTimeframe) Object.defineProperty(context.pine.timeframe, "main_period", { get: () => context.pineVersion! >= 6 ? canonicalPineTimeframe(mainTimeframe) : canonicalPineTimeframe(mainTimeframe).replace(/^1([DWM])$/, "$1") });
       if (quantityStep !== undefined) Object.defineProperty(context, "_edgelabQuantityStep", { value: quantityStep });
       bindDeclarationLayer(context, strategyDeclaration);
+      bindDisplayArithmetic(context);
       bindPlotOptions(context);
+      bindDestinationOptions(context);
       bindArrowPlotOptions(context);
       barplots.set(context, bindBarPlotOptions(context));
       bindGradientFillOptions(context);
@@ -1559,7 +1679,15 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   if (parsedLayer === "na") error("UNSUPPORTED_DECLARATION_OPTION", "behind_chart must resolve to a constant boolean.");
   // Omitted declarations have the public schema default true; expressions can remain unresolved.
   const pendingLayer = typeof parsedLayer !== "boolean";
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, usesVisibleRange: dependency, inputDefinitions, alertConditions, ...(calculationInputs ? { calculationInputs } : {}), diagnostics: [
+  // The actual native declaration scan distinguishes an authored precision
+  // from Indicator.prop's schema default. Unresolved aliases are left for run.
+  const sourceArgs = Object.getOwnPropertyDescriptor(indicator, "_sourcePropArgs")?.value as Record<string, unknown> | undefined;
+  const declaredFormat = sourceArgs?.format === undefined ? undefined : parsePineFormat(sourceArgs.format);
+  const declaredPrecision = sourceArgs?.precision;
+  if (typeof declaredPrecision === "number" && (!Number.isSafeInteger(declaredPrecision) || declaredPrecision < 0 || declaredPrecision > 16)) error("UNSUPPORTED_DECLARATION_OPTION", "Declaration precision must be an integer from 0 to 16.");
+  const precision = typeof declaredPrecision === "number" ? declaredPrecision : undefined;
+  const format = (declaredFormat === undefined || declaredFormat === "inherit") && precision !== undefined ? "price" : declaredFormat;
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, ...(format ? { format } : {}), ...(precision === undefined ? {} : { precision }), usesVisibleRange: dependency, inputDefinitions, alertConditions, ...(calculationInputs ? { calculationInputs } : {}), diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
     ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "This run treats supplied bars as closed historical snapshots, including the final bar. It does not simulate realtime updates, realtime rollback or realtime varip tick persistence. Historical order-fill callbacks retain the final OHLCV values.")] : []),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Historical strategies calculate at candle close and can recalculate after order fills. Bar magnification uses covered loaded smaller candles; uncovered candles use the inferred chart OHLC path. Historical callbacks see final OHLCV values. Live strategies calculate at candle close, on each received update when calc_on_every_tick=true, and additionally after fills when calc_on_order_fills=true. Fills use received prices without reconstructing unreceived trades. Historical-tick recalculation and intrabar margin-liquidation with chronological fills remain unavailable.")] : []),
@@ -1682,7 +1810,7 @@ function executionResult(request: PineRequest, descriptor: PinePrepareResult, in
   const polylines = polylineResults(context.plots, overlay, diagnostics, request.bars!);
   const tables = tableResults(context.plots, overlay, diagnostics);
   const output = plotResults(calculationPlots(context, request, calculation, realtime, chartConfirmed), overlay, diagnostics, request.bars!);
-  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, ...(collectingAlerts ? { alertEvents: collectingAlerts } : {}), ...(collectingConditions ? { conditionSamples: collectingConditions } : {}), plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  const result = { ...descriptor, ...declarationFormats.get(context), kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, ...(collectingAlerts ? { alertEvents: collectingAlerts } : {}), ...(collectingConditions ? { conditionSamples: collectingConditions } : {}), plots: output.plots, ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_line") ? { lines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "linefill") ? { lineFills } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_box") ? { boxes } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "label") ? { labels } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "drawing_polyline") ? { polylines } : {}), ...(Object.values(context.plots).some(plot => (plot as { options?: { style?: string } }).options?.style === "table") ? { tables } : {}), ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
   return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
 }
 

@@ -331,14 +331,13 @@ for (const name of ["SuperTrend", "Chandelier Exit", "HalfTrend"]) {
     expect(result.source).toBe(original(entry));
     await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
     await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
-    await expect(page.locator(".chart-study-pill").filter({ hasText: result.plots.find((plot) => plot.style === "fill")!.name }).first()).toHaveCount(1);
-    const outputs = page.locator(".chart-study-row details");
-    if (await outputs.count()) await outputs.locator("summary").click();
     for (const fill of result.plots.filter((plot) => plot.style === "fill")) {
-      await expect(page.locator(".chart-study-pill").filter({ hasText: fill.name }).first()).toBeVisible();
+      // Fill geometry uses both genuine source channels; it has no scalar status value.
+      expect(fill.options.plot1).not.toBe(fill.options.plot2);
+      for (const id of [fill.options.plot1, fill.options.plot2]) expect(result.plots.some((plot) => plot.id === id)).toBe(true);
+      await expect(page.locator(".chart-study-pill").filter({ hasText: fill.name })).toHaveCount(0);
     }
     await expect(page.getByText(/Native fill output is not rendered|disconnected segments; this plot was omitted|Separate shape text color is not supported/)).toHaveCount(0);
-    if (await outputs.count()) await outputs.locator("summary").click();
     const captures = path.resolve(".artifacts/pine-visuals33/product");
     fs.mkdirSync(captures, { recursive: true });
     await page.locator(".chart-stage-header button:visible").first().focus();

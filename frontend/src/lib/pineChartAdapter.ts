@@ -1,6 +1,7 @@
 import type { Candle } from "./api";
 import type { PineExecutionResult, PineLabelDrawing, PineBoxDrawing, PineLineFillDrawing, PinePolylineDrawing, PineLineDrawing, PinePlot, PineScalar, PineTableDrawing } from "./pineProtocol";
 import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
+import { parsePineDisplay, canonicalPineDisplay, parsePineFormat, type PineDisplayDestination, type PineValueFormat } from "./pineDisplay";
 import { PineLinePrimitive } from "./pineLinePrimitive";
 import { PineTablePrimitive } from "./pineTablePrimitive";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
@@ -15,13 +16,51 @@ export type PineChartPlot = {
   table?: { tables: readonly PineTableDrawing[] };
   visual?: { linestyle?: "solid" | "dashed" | "dotted"; diamond?: { size: number }; arrow?: { minHeight: number; maxHeight: number; maxMagnitude: number }; pointStyle?: { size: number; join: boolean }; trackPrice?: { price: number; color: string }; histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot; upperOffset: number; lowerOffset: number } };
 };
-export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
+export type PineChartReadout = Readonly<{
+  id: string; name: string; source: PinePlot; bars: readonly Candle[]; overlay: boolean;
+  destinations: readonly PineDisplayDestination[]; color: string; format: PineValueFormat; precision?: number; showFrom: number;
+}>;
+export type PineChartResult = { plots: PineChartPlot[]; readouts: readonly PineChartReadout[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
 function color(value: PineScalar | undefined, fallback = FALLBACK_COLOR) {
   if (value === null) return "rgba(0,0,0,0)";
   return typeof value === "string" && /^(#[\da-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{1,24})$/i.test(value) ? value : fallback;
 }
 function number(value: PineScalar | undefined, fallback: number) { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
+
+/** Readouts retain original bar alignment: visual offsets do not move values.
+ * Missing/NA samples remain NA instead of reviving a preceding value. */
+export function samplePineChartReadout(readout: PineChartReadout, time: number): { time: number; values: (number | null)[]; color: string } | undefined {
+  let lo = 0, hi = readout.bars.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (readout.bars[mid].time < time) lo = mid + 1; else hi = mid; }
+  if (readout.bars[lo]?.time !== time) return undefined;
+  const ohlc = ["bar", "candle", "candles", "plotcandle"].includes(readout.source.style);
+  if (lo < readout.showFrom) return { time, values: Array(ohlc ? 4 : 1).fill(null), color: readout.color };
+  let point = pointAtBar(readout.source, lo);
+  if (!getPackedPinePlot(readout.source)) {
+    const points = readout.source.points;
+    let left = 0, right = points.length;
+    while (left < right) { const mid = (left + right) >>> 1; if (points[mid].time < time) left = mid + 1; else right = mid; }
+    point = points[left]?.time === time ? points[left] : undefined;
+  }
+  const raw = point?.value;
+  const numeric = (value: unknown): number | null => typeof value === "boolean" ? Number(value) : typeof value === "number" && Number.isFinite(value) ? value : null;
+  const values = ohlc ? Array.from({ length: 4 }, (_, index) => numeric(Array.isArray(raw) ? raw[index] : null)) : [numeric(raw)];
+  return { time, values, color: color(point?.options.color === undefined ? readout.source.options.color : point.options.color, readout.color) };
+}
+export function formatPineChartValue(readout: Pick<PineChartReadout, "format" | "precision">, value: number | null, fallbackPrecision = 2): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  if (readout.format === "volume") {
+    const unit = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]] as const;
+    const chosen = unit.find(([size]) => Math.abs(value) >= size);
+    return chosen ? (value / chosen[0]).toFixed(2).replace(/\.?0+$/, "") + chosen[1] : value.toFixed(0);
+  }
+  const precision = readout.precision ?? (readout.format === "inherit" && Number.isInteger(fallbackPrecision) && fallbackPrecision >= 0 && fallbackPrecision <= 16 ? fallbackPrecision : 2);
+  const [integer, fraction] = value.toFixed(precision).split(".");
+  const grouped = readout.format === "price" || readout.format === "percent" || readout.precision !== undefined
+    ? integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : integer;
+  return grouped + (fraction === undefined ? "" : "." + fraction) + (readout.format === "percent" ? "%" : "");
+}
 
 function* shownPoints(plot: PinePlot, time: number) {
   for (const point of plot.points) if (point.time >= time) yield point;
@@ -56,16 +95,31 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
   const warnings: string[] = [];
   const barsByTime = new Map(bars.map((bar) => [bar.time, bar]));
   const sources = new Map(result.plots.map((plot) => [plot.id, plot]));
+  const readouts: PineChartReadout[] = [];
   const hasOffset = (source: PinePlot) => number(source.options.offset, 0) !== 0 || pinePlotOptionSets(source).some((options) => number(options.offset, 0) !== 0);
   const smallProjection = result.plots.length * bars.length <= 4096;
   const plots = result.plots.flatMap((plot): PineChartPlot[] => {
     const plotWarnings = new Set<string>();
     const warn = (message: string) => { if (!plotWarnings.has(message)) { plotWarnings.add(message); warnings.push(`${plot.name}: ${message}`); } };
-    if (["none", "display_none"].includes(String(plot.options.display))) return [];
-    if (plot.options.display != null && !["all", "pane", "display_all", "display_pane"].includes(String(plot.options.display))) {
-      warn(`The ${String(plot.options.display)} display destination is not exposed by this chart adapter; this plot is not drawn.`);
-      return [];
+    const destinations = parsePineDisplay(plot.options.display);
+    if (!destinations) { warn("Invalid plot display destinations were omitted."); return []; }
+    const constantDisplay = pinePlotOptionSets(plot).every(options => options.display === undefined || canonicalPineDisplay(options.display) === canonicalPineDisplay(plot.options.display));
+    if (!constantDisplay) { warn("Changing plot display destinations were omitted."); return []; }
+    const numericChannel = !["hline", "fill", "background", "barcolor"].includes(plot.style);
+    if (!numericChannel && !["all", "none"].includes(canonicalPineDisplay(plot.options.display)!)) { warn("This visual supports only display.all or display.none."); return []; }
+    if (numericChannel && destinations.some(destination => destination !== "pane")) {
+      const format = parsePineFormat(plot.options.format ?? "inherit");
+      const precision = plot.options.precision;
+      if (!format || precision !== undefined && (typeof precision !== "number" || !Number.isSafeInteger(precision) || precision < 0 || precision > 16)
+        || !pinePlotOptionSets(plot).every(options => (options.format === undefined || parsePineFormat(options.format) === format) && (options.precision === undefined || options.precision === precision))) {
+        warn("Invalid or changing plot number formatting was omitted."); return [];
+      }
+      const effectiveFormat = format === "inherit" ? precision === undefined ? result.format ?? "inherit" : "price" : format;
+      readouts.push(Object.freeze({ id: plot.id, name: plot.name, source: plot, bars, overlay: plot.overlay, destinations, color: color(plot.options.color),
+        format: effectiveFormat, ...(precision === undefined && result.precision === undefined ? {} : { precision: (precision ?? result.precision) as number }),
+        showFrom: Math.max(0, bars.length - Math.max(0, Math.floor(number(plot.options.show_last, bars.length)))) }));
     }
+    if (!destinations.includes("pane")) return [];
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
     const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", stepline_diamond: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", cross: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers", char: "markers", plotchar: "markers", arrow: "markers", plotarrow: "markers" };
     const characterPlot = style === "char" || style === "plotchar";
@@ -368,7 +422,18 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       strategyMarkers.push({ time: time as UTCTimestamp, position: buy ? "belowBar" : "aboveBar", color: buy ? "#22c55e" : "#fb7185", shape: buy ? "arrowUp" : "arrowDown", text: `Pine ${leg} ${String(trade.entry_id ?? trade.id)}` });
     }
   }
-  return { plots, warnings: [...new Set([...diagnosticWarnings, ...warnings])], adapterWarnings: [...new Set(warnings)], strategyMarkers: strategyMarkers.sort((left, right) => Number(left.time) - Number(right.time)) };
+  if (readouts.some(readout => !readout.overlay && readout.destinations.includes("price_scale")
+    && !["shape", "plotshape", "char", "plotchar", "arrow", "plotarrow"].includes(readout.source.style))) {
+    const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value);
+    const hasBasis = plots.some(plot => !plot.overlay && (finite(latestPineChartPoint(plot)?.value)
+      || plot.segments.some(segment => segment.some(point => finite(point.value) || finite(point.low) || finite(point.high)))
+      || plot.drawing?.lines.some(line => finite(line.y1) || finite(line.y2))
+      || plot.drawing?.boxes?.some(box => finite(box.top) || finite(box.bottom))
+      || plot.drawing?.labels?.some(label => label.yloc === "price" && finite(label.y))
+      || plot.drawing?.polylines?.some(polyline => polyline.points.some(point => finite(point.y)))));
+    if (!hasBasis) warnings.push("Price-scale values need a pane with plotted prices. This study has no finite pane geometry; its selected Data Window and status values remain available.");
+  }
+  return { plots, readouts: Object.freeze(readouts), warnings: [...new Set([...diagnosticWarnings, ...warnings])], adapterWarnings: [...new Set(warnings)], strategyMarkers: strategyMarkers.sort((left, right) => Number(left.time) - Number(right.time)) };
 }
 
 /** Body-only overrides over real primary chart slots; no point-object projection or synthetic bars. */
@@ -441,7 +506,7 @@ function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, price
 
 
 /** A single owned host/primitive per placement keeps gaps and plot count independent of series count. */
-export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close"> } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; drawingPrimitive?: PineLinePrimitive; tablePrimitive?: PineTablePrimitive; dispose: () => void } {
+export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close">; readouts?: readonly PineChartReadout[]; fallbackPrecision?: number } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; drawingPrimitive?: PineLinePrimitive; tablePrimitive?: PineTablePrimitive; dispose: () => void } {
   const native = plots.filter((plot) => plot.kind !== "barcolor" && plot.kind !== "table" && !plot.visual && !plot.drawing).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
   const visual = plots.filter((plot) => plot.kind !== "barcolor" && plot.visual);
   const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => plot.kind !== "barcolor" && plot.kind !== "table" && !plot.visual && !plot.drawing), options) : undefined;
@@ -516,9 +581,42 @@ export function installPineChartPlots(chart: IChartApi, plots: readonly PineChar
     tableHost.setData([]); tableHost.attachPrimitive(tablePrimitive); native.push(tableHost);
   }
   let disposed = false;
+  // These hosts publish only labels. Their timestamps already belong to the
+  // owned chart, and a null range prevents readouts from changing autoscale.
+  const labelHosts = (options.readouts ?? []).filter(readout => readout.destinations.includes("price_scale")
+    && !["shape", "plotshape", "char", "plotchar", "arrow", "plotarrow"].includes(readout.source.style)).map(readout => {
+    const series = chart.addLineSeries({ priceScaleId, color: readout.color, lineVisible: false, pointMarkersVisible: false,
+      crosshairMarkerVisible: false, lastValueVisible: true, priceLineVisible: false, autoscaleInfoProvider: () => null,
+      priceFormat: { type: "custom", minMove: 10 ** -(readout.precision ?? (readout.format === "inherit" ? options.fallbackPrecision ?? 2 : 2)), formatter: (value: number) => formatPineChartValue(readout, value, options.fallbackPrecision) } });
+    native.push(series);
+    return { readout, series, endpoint: -1 };
+  });
+  const refreshLabels = () => {
+    if (disposed) return;
+    const visible = chart.timeScale().getVisibleRange();
+    const endTime = visible && typeof visible.to === "number" ? visible.to : Infinity;
+    for (const host of labelHosts) {
+      const { readout, series } = host;
+      let lo = 0, hi = readout.bars.length;
+      while (lo < hi) { const mid = (lo + hi) >>> 1; if (readout.bars[mid].time <= endTime) lo = mid + 1; else hi = mid; }
+      const endpoint = lo - 1;
+      if (endpoint === host.endpoint) continue;
+      host.endpoint = endpoint;
+      let sample: ReturnType<typeof samplePineChartReadout>;
+      for (let index = endpoint; index >= readout.showFrom; index--) {
+        const candidate = samplePineChartReadout(readout, readout.bars[index].time);
+        if (candidate?.values.at(-1) !== null && candidate?.values.at(-1) !== undefined) { sample = candidate; break; }
+      }
+      const value = sample?.values.at(-1);
+      series.applyOptions({ color: sample?.color ?? readout.color });
+      series.setData(typeof value === "number" && endpoint >= 0 ? [{ time: readout.bars[endpoint].time as UTCTimestamp, value }] : []);
+    }
+  };
+  if (labelHosts.length) { chart.timeScale().subscribeVisibleLogicalRangeChange(refreshLabels); refreshLabels(); }
   return { series: native, primitive, drawingPrimitive, tablePrimitive, dispose() {
     if (disposed) return;
     disposed = true;
+    if (labelHosts.length) chart.timeScale().unsubscribeVisibleLogicalRangeChange(refreshLabels);
     if (host && primitive) host.detachPrimitive(primitive);
     if (drawingHost && drawingPrimitive) drawingHost.detachPrimitive(drawingPrimitive);
     if (tableHost && tablePrimitive) tableHost.detachPrimitive(tablePrimitive);
