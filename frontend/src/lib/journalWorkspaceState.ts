@@ -17,7 +17,7 @@ export type JournalPanelPreferences = {
 };
 
 export type JournalDeepLink = {
-  surface: "dashboard" | "trades" | "calendar" | "notes" | "accounts" | "analytics";
+  surface: "dashboard" | "trades" | "calendar" | "notes" | "accounts" | "analytics" | "sessions" | "strategies" | "playbooks";
   tradeId: number | null;
   date: string | null;
   accountId: number | null;
@@ -129,7 +129,7 @@ export function journalDeepLink(link: JournalDeepLink) {
 }
 
 export function parseJournalDeepLink(hash: string): JournalDeepLink | null {
-  const match = hash.match(/^#journal\/(dashboard|trades|calendar|notes|accounts|analytics)(?:\?(.+))?$/);
+  const match = hash.match(/^#journal\/(dashboard|trades|calendar|notes|accounts|analytics|sessions|strategies|playbooks)(?:\?(.+))?$/);
   if (!match) return null;
   const query = new URLSearchParams(match[2] ?? "");
   return {

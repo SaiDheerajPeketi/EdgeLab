@@ -303,6 +303,8 @@ import { TradingChart } from "./TradingChart";
 const LiveIndicatorEditor = lazy(() => import("./IndicatorEditorPanel").then(module => ({ default: module.IndicatorEditorPanel })));
 import { TradeLog } from "./TradeLog";
 import { SettingsCenter } from "./settings/SettingsCenter";
+import { bindLocalDemoPanes, isLocalDemoSession } from "../lib/localDemoPreview";
+import { LocalDemoLivePage } from "./LocalDemoLivePage";
 import { RelationalJournalWorkspace } from "./journal/RelationalJournalWorkspace";
 import type { JournalChartFocusRequest } from "./journal/JournalReviewDrawer";
 import { applyJournalFocusDrawings, journalFocusMatchesSymbol, journalFocusVisibleRange } from "../lib/journalChartFocus";
@@ -934,8 +936,13 @@ export function EdgeLabWorkspace({
       return <FinanceTrackerPage journalAccounts={liveJournal.data.accounts} />;
     case "journal":
     case "journalTrades":
-      return <RelationalJournalWorkspace view={view} />;
+      return <RelationalJournalWorkspace view={view} sessions={sessions} playbooks={playbooks} onResumeSession={onResumeSession} />;
     case "live":
+      if (isLocalDemoSession(getStoredAuthSession()?.user)) return <LocalDemoLivePage sessions={sessions} renderChart={(bars, session) => <LiveChartStudio
+        bars={bars} runtimeContextKey={`synthetic-demo:${session.id}`} indicatorRuntimeMode="historical"
+        binanceInstruments={[]} connectionStatus="idle" feedIssue={null} journalChartFocus={null}
+        selectedSourceLabel="Synthetic offline dataset" symbol={session.symbol} symbolCode={session.symbol}
+        tickerChangeLabel="Synthetic demo" />} />;
       return <LiveMarketsPage journalChartFocus={journalChartFocus} />;
     case "orderFlow":
       return <OrderFlowWorkspace />;
@@ -949,7 +956,7 @@ export function EdgeLabWorkspace({
     case "journalReports":
     case "journalSessions":
     case "journalStrategies":
-      return <RelationalJournalWorkspace view={view} />;
+      return <RelationalJournalWorkspace view={view} sessions={sessions} playbooks={playbooks} onResumeSession={onResumeSession} />;
     case "journalSettings":
       return settingsCenter("journal");
     case "notebook":
@@ -4115,6 +4122,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   bars,
   runtimeContextKey,
   pineLiveFeed,
+  indicatorRuntimeMode = "live",
   feedProvider,
   binanceInstruments,
   connectionStatus,
@@ -4128,6 +4136,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   bars: Candle[];
   runtimeContextKey: string;
   pineLiveFeed?: PineLiveFeed;
+  indicatorRuntimeMode?: "historical" | "live";
   feedProvider?: LiveFeedProvider;
   binanceInstruments: BinanceInstrument[];
   connectionStatus: LiveConnectionStatus;
@@ -4138,12 +4147,17 @@ const LiveChartStudio = memo(function LiveChartStudio({
   symbolCode: string;
   tickerChangeLabel: string;
 }) {
+  const demoSource = indicatorRuntimeMode === "historical" && isLocalDemoSession(getStoredAuthSession()?.user);
+  function layoutPanes(layout: Partial<LiveChartLayout>) {
+    const panes = sanitizeLiveChartPanes(layout);
+    return demoSource ? bindLocalDemoPanes(panes, symbolCode || symbol) : panes;
+  }
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
     sanitizeChartPaneLayout(loadLiveChartLayout()?.paneLayout),
   );
   const [chartPanes, setChartPanes] = useState<LiveChartPaneState[]>(() =>
-    sanitizeLiveChartPanes(loadLiveChartLayout() ?? {}),
+    layoutPanes(loadLiveChartLayout() ?? {}),
   );
   const [chartSyncSettings, setChartSyncSettings] = useState<ChartSyncSettings>(() =>
     sanitizeChartSyncSettings(loadLiveChartLayout()?.syncSettings),
@@ -4325,7 +4339,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       (value) => {
         const layout = sanitizeLiveChartLayout(value);
         setChartPaneLayout(sanitizeChartPaneLayout(layout.paneLayout));
-        const panes = sanitizeLiveChartPanes(layout);
+        const panes = layoutPanes(layout);
         const syncSettings = sanitizeChartSyncSettings(layout.syncSettings);
         // Own saves notify this subscription too. Preserve equal state identities
         // so autosave cannot restart itself and every snapshot indicator worker.
@@ -4859,7 +4873,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
 
   function applyChartLayout(layout: Partial<LiveChartLayout>) {
     const nextLayout = sanitizeChartPaneLayout(layout.paneLayout);
-    const nextPanes = sanitizeLiveChartPanes(layout);
+    const nextPanes = layoutPanes(layout);
     const nextActivePane = nextPanes.find((pane) => pane.id === layout.activePaneId) ?? nextPanes[0];
     setChartPaneLayout(nextLayout);
     setChartPanes(nextPanes);
@@ -5028,7 +5042,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     drawings={scopedDrawings}
                     executions={[]}
                     indicatorInstances={pane.indicatorInstances}
-                    indicatorRuntimeMode="live"
+                    indicatorRuntimeMode={indicatorRuntimeMode}
                     pineLiveFeed={usesNativeFeed ? nativePane?.feed : paneUsesPrimaryFeed ? pineLiveFeed : undefined}
                     onIndicatorRuntimeState={(id, error) => updateChartPane(pane.id, current => ({ ...current,
                       indicatorInstances: current.indicatorInstances.map(indicator => indicator.id === id ? { ...indicator, runtimeError: error } : indicator),
@@ -5059,7 +5073,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     position={null}
                     pnlMultiplier={1}
                     replayFocusTrade={null}
-                    dataState={usesNativeFeed ? nativePane?.status === "loading" || !nativePane ? undefined : { status: nativePane.status === "error" ? "unavailable" : "available", detail: nativePane.detail } : paneUsesPrimaryFeed ? connectionStatus === "connecting" && !paneBars.length ? undefined : { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "No candles were returned for this symbol and timeframe." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
+                    dataState={usesNativeFeed ? nativePane?.status === "loading" || !nativePane ? undefined : { status: nativePane.status === "error" ? "unavailable" : "available", detail: nativePane.detail } : paneUsesPrimaryFeed ? connectionStatus === "connecting" && !paneBars.length ? undefined : { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? selectedSourceLabel : "No candles were returned for this symbol and timeframe." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}

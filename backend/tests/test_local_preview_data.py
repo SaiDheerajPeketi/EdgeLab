@@ -49,14 +49,15 @@ def test_real_models_populate_only_the_new_database_and_derived_csvs(tmp_path, m
         assert db.execute("SELECT count(*) FROM canonical_trade_tags JOIN journal_tags ON tag_id=journal_tags.id WHERE journal_tags.name='Demo data'").fetchone()[0] == 80
         assert count("backtest_sessions") == count("backtest_session_summaries") == 3
         assert db.execute("SELECT session_id,side,quantity FROM positions ORDER BY session_id").fetchall() == [
-            (1, "FLAT", 0), (2, "FLAT", 0), (3, "FLAT", 0)]
-        assert count("trades") == 24
+            (1, "LONG", 1), (2, "FLAT", 0), (3, "FLAT", 0)]
+        assert count("trades") == 25
         assert count("dataset_assets") == 3
         assert count("dataset_timeframes") == 12
         assert count("app_storage") == 12
         layout = json.loads(db.execute("SELECT value FROM app_storage WHERE key='chart-layout.v1'").fetchone()[0])
         assert layout["watchlistSelection"] == {"id": None, "symbol": "ES"}
-        assert count("orders") == count("executions") == count("beta_sessions") == 0
+        assert count("orders") == 4 and count("executions") == 1 and count("beta_sessions") == 0
+        assert db.execute("SELECT status,count(*) FROM orders GROUP BY status ORDER BY status").fetchall() == [("FILLED", 1), ("PENDING", 3)]
         assert count("billing_customers") == count("billing_subscriptions") == count("broker_orders") == 0
         assert count("market_instruments") == count("market_instrument_identifiers") == 1
         assert count("market_trade_ticks") == 720
@@ -113,6 +114,19 @@ def test_real_models_populate_only_the_new_database_and_derived_csvs(tmp_path, m
             # Genuine receipt completion on its separate connection must finish
             # while the replay request's read session is still open.
             app_data_operations.complete(1, key, 200)
+            # The seeded controls operate on genuine replay-engine state.
+            first = backtester.get_state(db, 1, 1)
+            assert first.position.side == "LONG" and first.position.quantity == 1
+            assert first.position.avg_price == first.current_candle.close
+            assert len(first.executions) == 1
+            pending = next(order for order in first.orders if order.status == "PENDING")
+            cancelled = backtester.cancel_order(db, 1, 1, pending.id)
+            assert next(order for order in cancelled.orders if order.id == pending.id).status == "CANCELLED"
+            assert not any(order.status == "PENDING" for order in cancelled.orders)
+            from app.schemas import OrderCreate
+            closed = backtester.place_order(db, 1, 1, OrderCreate(side="SELL", quantity=1, reduce_only=True))
+            assert closed.position.side == "FLAT" and closed.position.quantity == 0
+            assert len(closed.executions) == 2
             with factory() as receipt_db:
                 receipt = receipt_db.query(AppDataOperation).filter_by(operation_id=key).one()
                 assert receipt.status == "completed" and receipt.http_status == 200

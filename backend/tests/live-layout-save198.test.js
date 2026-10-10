@@ -14,7 +14,7 @@ const ast = ts.createSourceFile("EdgeLabWorkspace.tsx", source, ts.ScriptTarget.
 let studio;
 function findStudio(node) { if (ts.isFunctionExpression(node) && node.name?.text === "LiveChartStudio") studio = node; ts.forEachChild(node, findStudio); }
 findStudio(ast); assert.ok(studio);
-const roots = ["saveChartLayout", "buildLiveChartLayoutPayload", "loadNamedChartLayout", "deleteNamedChartLayout", "applyChartLayout", "markLayoutSaved"];
+const roots = ["saveChartLayout", "buildLiveChartLayoutPayload", "loadNamedChartLayout", "deleteNamedChartLayout", "applyChartLayout", "markLayoutSaved", "layoutPanes"];
 const handlers = studio.body.statements.filter(node => ts.isFunctionDeclaration(node) && roots.includes(node.name?.text));
 assert.equal(handlers.length, roots.length);
 const globals = new Map(ast.statements.filter(ts.isFunctionDeclaration).map(node => [node.name?.text, node]));
@@ -56,6 +56,7 @@ const moduleSource = `
   ${[...selectedFunctions.values()].map(node => node.getText(ast)).join("\n")}
   export function liveHandlers198() {
     let layoutName="Morning", availableLayouts=[], chartLayoutStatus=null, chartLayoutError=null, saveError=null;
+    const demoSource=false, symbolCode="ES", symbol="ES";
     let chartPaneLayout="single", chartSyncSettings={}, activeChartPaneId="live-chart-pane-1";
     let chartPanes=sanitizeLiveChartLayout({}).panes, activeChartPane=chartPanes[0];
     const setLayoutName=value=>{layoutName=value}, setAvailableLayouts=value=>{availableLayouts=value};

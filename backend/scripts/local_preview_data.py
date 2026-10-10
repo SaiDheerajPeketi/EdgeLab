@@ -2,7 +2,7 @@
 
 Run with PYTHONPATH=backend and --directory pointing to a nonexistent directory.
 The emitted preview.json contains paths and existing local-development settings;
-it grants no subscription, places no orders, and changes no security policy.
+it grants no subscription, places only simulated replay orders, and changes no security policy.
 """
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def create_preview(directory: Path, *, as_of: datetime | None = None) -> dict:
 
     # Models are imported only after the fresh-directory guard. Their default
     # engine is never connected; all writes use this explicit isolated engine.
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
     from app.db import Base
     from app.models import (AppStorageItem, BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe,
@@ -259,11 +259,30 @@ def create_preview(directory: Path, *, as_of: datetime | None = None) -> dict:
                 db.add(AppStorageItem(user_id=user.id, namespace="edgelab", key=key, value=value))
             order_flow = seed_preview_order_flow(db, user.id, now)
             db.commit()
+            # Populate the replay ticket through the real engine: one open
+            # simulated position and cancellable pending orders, never broker orders.
+            from sqlalchemy.orm import sessionmaker
+            from app.schemas import OrderCreate
+            from app.services.backtester import BacktestService
+            from app.services.datasets import DatasetCatalogService
+            replay = BacktestService(None, DatasetCatalogService(dataset_root, sessionmaker(bind=engine)))
+            preview_sessions = db.scalars(select(BacktestSession).where(BacktestSession.user_id == user.id).order_by(BacktestSession.id)).all()
+            for index, session in enumerate(preview_sessions):
+                price = replay_rows[session.current_offset]["Close"]
+                if index == 0:
+                    replay.place_order(db, user.id, session.id, OrderCreate(side="BUY", quantity=1,
+                        stop_loss=price - 25, take_profit=price + 50, playbook_id=session.playbook_id,
+                        strategy_name=session.strategy_name, notes="Synthetic preview position; not a broker order."))
+                replay.place_order(db, user.id, session.id, OrderCreate(side="BUY", order_type="LIMIT", quantity=1,
+                    limit_price=price - 40, stop_loss=price - 65, take_profit=price + 10,
+                    playbook_id=session.playbook_id, strategy_name=session.strategy_name,
+                    notes="Synthetic pending replay order. Edit or cancel to inspect the ticket."))
     finally:
         engine.dispose()
 
     manifest = {"demo": True, "database": str(database), "dataset_root": str(dataset_root),
                 "user": "developer@localhost.edgelab", "canonical_trades": 80, "replay_sessions": 3,
+                "replay_orders": 4, "replay_open_positions": 1,
                 "order_flow": order_flow,
                 "dataset_rows": counts, "start": start.isoformat(), "end": end.isoformat(),
                 "environment": {"DATABASE_URL": database_url, "EDGELAB_MARKET_DATA_DATABASE_URL": database_url,
