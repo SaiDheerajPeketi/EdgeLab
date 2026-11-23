@@ -6,7 +6,7 @@ This reference retains the detailed implemented behavior, formula caveats and re
 
 Google sign-in uses the official Better Auth client when the API reports `auth_provider=better-auth`. The client requests the Google authorization-code redirect with automatic redirect disabled, checks the still-owned account and latest fresh attempt, and opens only Google's HTTPS authorization host. The native service callback is `/api/better-auth/callback/google`; its validated return enters the existing one-use frontend callback and bridges the signed cookie through `/api/auth/better-auth/exchange`. The original account identity is retained in the local attempt, so a changed account cannot inherit an old sign-in destination. Tokens and shared destinations never enter the Google callback URL.
 
-Vite proxies `/api/better-auth` to loopback port 3002 and other API paths to 8000. Nginx uses the same public prefix in deployment. Better Auth is unavailable without its Google credentials; the frontend does not hide a failed Better Auth flow behind legacy sign-in. Local beta developer sign-in remains separate and cannot grant paid exports. See [backend configuration](../backend/README.md#authentication-and-access).
+Vite proxies `/api/better-auth` to loopback port 3002 and other API paths to 8000. Nginx uses the same public prefix in deployment. Better Auth is unavailable without its Google credentials; the frontend does not hide a failed Better Auth flow behind legacy sign-in. Local beta developer sign-in remains separate and cannot grant paid exports. See [backend guide](../backend/README.md).
 
 The **Indicators** library adds full Stochastic %K/%D, Stochastic RSI, Directional Movement Index (+DI, −DI, ADX), Parabolic SAR, and Ichimoku Cloud directly to the chart. Search a name, choose **Add**, then adjust its inputs in the study settings. Favorite quick-add uses the same isolated Pine preparation. A pending add is retired when its chart or account context changes; adding a built-in does not save a user script. The library retains the existing raw Stochastic %K and standalone ADX studies separately.
 
@@ -360,4 +360,4 @@ The indicator library includes an editable original Chaikin Oscillator with fast
 
 ## Deployment and monitoring
 
-Use the [frontend deployment guide](../frontend/README.md#deployment), [setup](setup-and-deployment.md), [capacity evidence](production-capacity.md), and [observability](observability.md) for CDN/private-cache, replica, proxy and collector contracts. Keep those descriptions canonical instead of copying image versions or operating defaults here.
+Use the [frontend guide](../frontend/README.md) and [setup](setup-and-deployment.md) for cache, proxy, and configuration contracts. Keep those descriptions canonical instead of copying image versions or operating defaults here.

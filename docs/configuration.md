@@ -3,10 +3,10 @@
 [`.env.example`](../.env.example) is the checked-in Compose template. Copy it to `.env` and replace development credentials before exposing a deployment:
 
 ```bash
-rtk proxy cp .env.example .env
+cp .env.example .env
 ```
 
-Compose reads that file for interpolation; native Python/Node processes read their process environment. Copying the file alone does not configure a native process. Settings are read at process startup, so restart the affected service after changing runtime values. Browser `VITE_*` values require a rebuild. See [setup](setup-and-deployment.md), [architecture](architecture.md), [maintenance](maintenance.md), and [observability](observability.md).
+Compose reads that file for interpolation; native Python/Node processes read their process environment. Copying the file alone does not configure a native process. Settings are read at process startup, so restart the affected service after changing runtime values. Browser `VITE_*` values require a rebuild. See [setup](setup-and-deployment.md), [architecture](architecture.md), and [maintenance](maintenance.md).
 
 Defaults below distinguish native code from Compose overrides. Numeric bounds are startup-validated for the SQL/admission, telemetry and read-model-cache controls listed here; do not assume every older application setting has the same validation policy.
 
@@ -65,8 +65,6 @@ Better Auth storage controls:
 
 The auth URL accepts only PostgreSQL schemes and supported TLS parameters, without arbitrary connection overrides. Remote connections should use `sslmode=verify-full` and the appropriate trusted root; TLS verification is not disabled. The adapter schema-qualifies tables instead of using session `search_path`. Migrations require schema/table creation permission and serialize on a direct transaction connection. Acquisition/connect waits are bounded to two seconds; the health probe has a one-second query timeout. All replicas need the same store/schema, secrets, Google configuration and public origin. Changing from SQLite neither copies its users nor preserves sessions automatically.
 
-Personal deployment also requires `EDGELAB_ENVIRONMENT=development`, loopback `EDGELAB_PUBLIC_ORIGIN` and CORS origins, and a private `EDGELAB_PERSONAL_PROXY_SECRET` of at least 32 characters. The personal helper creates and preserves signing/encryption/proxy keys outside tracked source; its Nginx overwrites the private proxy header. See [personal configuration and feeds](personal-self-hosting.md). Public production/beta authorization remains unchanged.
-
 ## Billing and secret vault
 
 | Variable | Meaning |
@@ -79,7 +77,7 @@ Personal deployment also requires `EDGELAB_ENVIRONMENT=development`, loopback `E
 | `EDGELAB_SECRET_VAULT_KEYS` | JSON key-ID map of URL-safe base64 32-byte encryption keys |
 | `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID` | Key for newly encrypted integration credentials |
 
-Use the exact public HTTPS origin for billing return URLs; local HTTP is accepted only for a loopback test origin. Provider objects must match the configured mode. Test billing cannot satisfy live workspace/export policy. Keep old vault keys until every stored credential using them is rotated. Credentials never belong in `VITE_*`, screenshots, logs, portable account bundles or matching source offers. See [billing contracts](api-reference.md#billing), [sandbox verification](stripe-sandbox.md), and [maintenance](maintenance.md) for activation and rotation.
+Use the exact public HTTPS origin for billing return URLs; local HTTP is accepted only for a loopback test origin. Provider objects must match the configured mode. Test billing cannot satisfy live workspace/export policy. Keep old vault keys until every stored credential using them is rotated. Credentials never belong in `VITE_*`, screenshots, logs, portable account bundles or matching source offers. See [billing contracts](api-reference.md#billing) and [maintenance](maintenance.md) for activation and rotation.
 
 ## SQL pools and asynchronous admission
 
@@ -116,7 +114,7 @@ Ordinary overflow waits in a finite FIFO event-loop queue without consuming work
 | `EDGELAB_EFFICIENT_PGBOUNCER_POOL_SIZE` / `EDGELAB_EFFICIENT_PGBOUNCER_RESERVE_POOL_SIZE` | `50` / `10` for the combined efficient pooler |
 | `EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS` / `EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS` | `600` / `15` |
 
-The launcher migrates and initializes candle tables before forking. PostgreSQL driver preparation is disabled for the bundled transaction-pooling path. Pooler clients are not all server connections; compare aggregate worker pools and measured active transactions before changing server budgets. Preserve graceful deadlines and validation headroom. See [capacity evidence](production-capacity.md).
+The launcher migrates and initializes candle tables before forking. PostgreSQL driver preparation is disabled for the bundled transaction-pooling path. Pooler clients are not all server connections; compare aggregate worker pools and measured active transactions before changing server budgets. Preserve graceful deadlines and validation headroom.
 
 ## Datasets, jobs and read-model cache
 
@@ -152,7 +150,7 @@ Redis read-model cache outages/OOM permit recomputation; configured rate-limit, 
 
 ## Observability
 
-Metrics are enabled by default; optional traces require `OTEL_EXPORTER_OTLP_ENDPOINT`. Read [observability](observability.md) for private monitoring setup, metrics meanings, retention and alerts.
+Metrics are enabled by default; optional traces require `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 | Variable | Default | Constraint / purpose |
 | --- | --- | --- |
@@ -174,9 +172,7 @@ Metrics are enabled by default; optional traces require `OTEL_EXPORTER_OTLP_ENDP
 
 Request duration/in-flight gauges cover the full ASGI call, including body streaming and dependency cleanup. Labels use finite methods and registered route templates, not raw paths, queries, account IDs or IPs. Logs retain safe correlation IDs; exception formatting omits sensitive messages/bound SQL values. OTLP strips URL/SQL/event/status payloads, vendor trace state and non-allowlisted resource attributes while retaining causal IDs/timing. It exports each batch once without redirect/retry/body logging; bounded shutdown drops remaining queued batches.
 
-Do not share/reuse `PROMETHEUS_MULTIPROC_DIR` across replicas or masters. The launcher and Gunicorn hooks initialize it before client imports, retire dead-worker live gauges and remove the master's private directory. Native single-process Uvicorn uses an in-memory registry. Do not add an external auto-initialized OpenTelemetry provider alongside the EdgeLab-owned sanitizer.
-
-The private `observability` profile (also available through `benchmark`) supplies Prometheus, Grafana, Loki, Tempo, Alloy and SQL exporters. Configure separate monitoring credentials first. Public Nginx blocks the API scrape; collector/API ports must remain private. Retention/image/log-rotation overrides and their disk-cost limits are documented in [observability](observability.md). No external paging destination is configured.
+Do not share/reuse `PROMETHEUS_MULTIPROC_DIR` across replicas or masters. Native single-process Uvicorn uses an in-memory registry. Do not add an external auto-initialized OpenTelemetry provider alongside the EdgeLab-owned sanitizer.
 
 ## Browser, UI and external providers
 

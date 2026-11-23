@@ -53,11 +53,9 @@ These are community implementations, not TradingView-owned source code.
 
 EdgeLab's corresponding application source for this build is available at /source/,
 with a downloadable archive, build instructions and SHA-256 file checksums.
-EdgeLab's original code is available under AGPL-3.0-only. When distributing a
-Pine-enabled build or serving it to users, provide its complete corresponding
-source under that licence, including local changes and scripts needed to build
-and run it. An upstream dependency link alone does not provide the corresponding
-source of your application. Do not include credentials, personal records or
+EdgeLab's original code is licensed under the Apache License, Version 2.0 with the
+Commons Clause Condition (Non-Commercial). Third-party vendor components (such as PineTS)
+retain their respective upstream licenses. Do not include credentials, personal records or
 market datasets in a source release.
 
 ## acorn

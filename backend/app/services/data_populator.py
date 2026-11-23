@@ -47,7 +47,7 @@ BINANCE_ARCHIVE_BASE_URL = "https://data.binance.vision/data/spot"
 DUKASCOPY_URL = "https://freeserv.dukascopy.com/2.0/index.php"
 DUKASCOPY_HEADERS = {
     "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
+    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1)",
     "Referer": "https://freeserv.dukascopy.com/2.0/?path=chart/index&instrument=EUR/USD",
 }
 NETWORK_RETRY_COUNT = 5

@@ -36,7 +36,7 @@ COPY scripts /app/scripts
 # Source offers capture the same application inputs used by both images.
 COPY backend /app/backend
 COPY docker /app/docker
-COPY LICENSE THIRD_PARTY_NOTICES.md .env.example .dockerignore docker-compose.yml docker-compose.local.yml docker-compose.efficient.yml docker-compose.personal.yml /app/
+COPY LICENSE THIRD_PARTY_NOTICES.md .env.example .dockerignore docker-compose.local.yml /app/
 # The build verifies the pinned Pine source map and copied source overrides.
 RUN npm run build \
     && find dist -type f \( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' -o -name '*.svg' \) \

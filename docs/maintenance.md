@@ -16,7 +16,7 @@ Use this playbook with the [architecture](architecture.md), [configuration](conf
 | Observability | `observability.py`, Gunicorn hooks, `docker/observability` | Bounds, redaction, image pins, rules, dashboards and docs | Multiworker lifecycle, full streaming timing, exporter failure/shutdown and live collector checks |
 | Documentation / comments | Canonical guide and owning boundary | Related links and source evidence | Local link/anchor/fence check; no behavioral regression invented for prose |
 
-Avoid unrelated refactors and duplicate authorities. API/runtime behavior wins over a stale README; correct the guide in the same iteration. A meaningful boundary change should include a short [architecture decision](decisions/README.md).
+Avoid unrelated refactors and duplicate authorities. API/runtime behavior wins over a stale README; correct the guide in the same iteration.
 
 ## Dependency upgrades
 
@@ -83,13 +83,11 @@ The existing GitHub UI workflow runs baseline and focused browser gates; the sec
 5. Deploy through the operator's configured mechanism. Check health/readiness, sign-in/session revocation, representative owned reads/writes, subscription/export decisions, cache invalidation, private/no-store routes and telemetry. A started container is not sufficient evidence of a successful release.
 6. Measure errors/latency/resources through the acceptance window. Record the commit/configuration/schema, evidence and rollback decision. Independent replicas must pass survivor/failover checks before HA claims.
 
-The existing `Jenkinsfile` is a legacy host-specific path: it hard-resets a deployment checkout, stops Compose, performs daemon-wide pruning, omits auth from its explicit build list, and lacks a complete backup/QA/readiness/rollback gate. Do not treat it as the approved production release playbook or run it on a shared Docker host. Replacing that pipeline requires a separately reviewed/tested deployment change; these documentation changes do not activate a new production deployment.
-
 ## Rollback and incidents
 
 An image rollback is safe only if the current schema/configuration remains compatible. Destructive migrations may require restoring a coordinated backup or a forward fix; blindly running an Alembic downgrade is not a rollback plan. Reconcile external Stripe/provider events that arrived after the backup point before re-enabling affected work.
 
-During overload retain validation/probe reserves, inspect admission and SQL/cache pressure, and reduce nonessential background work only through tested controls. Queue enlargement increases wait, not capacity. During telemetry failure preserve authorization and privacy; requests must not wait for collectors. Use the [observability runbook](observability.md) and the recorded [capacity/recovery limits](production-capacity.md).
+During overload retain validation/probe reserves, inspect admission and SQL/cache pressure, and reduce nonessential background work only through tested controls. Queue enlargement increases wait, not capacity. During telemetry failure preserve authorization and privacy; requests must not wait for collectors.
 
 Cleanup must target the owned Compose project/profile and intentionally preserve durable volumes. Avoid daemon-wide prune, `down -v`, hard reset of user changes, arbitrary metrics-directory deletion or copying private fixtures into source offers. Temporary resource coordination must be honored: do not restart another project's stopped VM or run reserved native workloads until resources are released.
 

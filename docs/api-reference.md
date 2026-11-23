@@ -39,7 +39,7 @@ Public `GET /api/better-auth/get-session` and `POST /api/better-auth/sign-out` r
 
 Production enrollment is public, but protected workspace routes require a current live paid plan. Explicit beta mode requires approval within its seat cap. Exact identity-only exceptions preserve account/session inspection, recovery, billing and selected removal/revocation operations after access is lost; [`ACCESS_EXEMPT`](../backend/app/services/app_data_operations.py) defines the list. New product routes require workspace authority by default. Data export always requires verified Google identity and a live active subscription, including beta mode. A successful Stripe test purchase or developer sign-in does not grant that authority.
 
-Legacy `POST /api/auth/google/exchange` remains available when configured. Manual beta access/developer bypass are disabled in production. Developer bypass in beta requires its flag, local origin/CORS and a loopback request. The distinct personal mode uses the same endpoint for its fixed local identity, after validated loopback/proxy admission; only that mode permits session-bound local exports. See [personal boundary](personal-self-hosting.md).
+Legacy `POST /api/auth/google/exchange` remains available when configured. Manual beta access/developer bypass are disabled in production. Developer bypass in beta requires its flag, local origin/CORS and a loopback request.
 
 ## Errors, caching and retry behavior
 
@@ -133,7 +133,7 @@ Billing is disabled until configured. `GET /api/billing/catalog` reports availab
 
 `POST /api/billing/webhook` verifies the raw Stripe signature for the pinned `2026-09-30.endive` API version. Event IDs are durably deduplicated; account-locked reconciliation reads current provider subscriptions rather than trusting delivery order. Checkout success URLs confer no entitlement. Workspace/export access needs a live provider snapshot newer than five minutes; failed refreshes cannot extend it. Refunds require explicit coordination with cancellation.
 
-Test/live keys, prices, objects and customers cannot cross modes. Anonymous sandbox `rkcs_` keys are accepted only in test mode; they do not unlock production workspace or exports. See [sandbox guide](stripe-sandbox.md). Billing admission uses shared configured Redis quotas and fails closed on its outage; process-local concurrency caps and owner/global window budgets return retry guidance without caching refusals.
+Test/live keys, prices, objects and customers cannot cross modes. Billing admission uses shared configured Redis quotas and fails closed on its outage; process-local concurrency caps and owner/global window budgets return retry guidance without caching refusals.
 
 ## Operational endpoints
 
@@ -145,6 +145,6 @@ Test/live keys, prices, objects and customers cannot cross modes. Anonymous sand
 | `GET /api/observability/metrics` | Private Prometheus scrape; excluded from admission and request traffic metrics; 404 when disabled |
 | Auth service `GET /health` | Auth session-table probe succeeds and the service is not draining |
 
-Nginx blocks the public metrics endpoint. Keep API/collector ports private; the scrape endpoint does not implement user authentication. Health/readiness use separately bounded immediate admission, so a busy response can indicate overload. Neither health response certifies Google/Stripe/provider reachability, backup recovery or failover. See [observability](observability.md) and [maintenance](maintenance.md).
+Nginx blocks the public metrics endpoint. Keep API/collector ports private; the scrape endpoint does not implement user authentication. Health/readiness use separately bounded immediate admission, so a busy response can indicate overload. Neither health response certifies Google/Stripe/provider reachability, backup recovery or failover. See [maintenance](maintenance.md).
 
 The compatibility Express API in `backend/index.js` is available only when started directly or through its explicit Compose profile. New integrations should use FastAPI.

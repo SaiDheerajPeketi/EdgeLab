@@ -1,5 +1,0 @@
-instance-snapshots/
-__pycache__/
-*.tar.gz
-client_secret_*.json
-google-oauth-client.json

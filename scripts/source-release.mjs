@@ -7,13 +7,13 @@ import { readPineEngineSources } from "./pine-engine.mjs";
 
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const exactFiles = new Set([
-  "LICENSE", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", ".env.example", ".dockerignore",
-  "docker-compose.yml", "docker-compose.local.yml", "docker-compose.efficient.yml", "docker-compose.personal.yml", "docker/nginx.personal.conf.template",
+  "LICENSE", "THIRD_PARTY_NOTICES.md", "CLA.md", "package.json", "package-lock.json", ".env.example", ".dockerignore",
+  "docker-compose.local.yml", "docker/nginx.conf",
   "frontend/package.json", "frontend/index.html", "frontend/Dockerfile", "frontend/vite.config.ts", "frontend/pineWorkerPlugin.ts",
   "frontend/tsconfig.json", "frontend/tsconfig.node.json", "frontend/tailwind.config.js", "frontend/postcss.config.js",
-  "scripts/dev.js", "scripts/personal.mjs", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",
-  "backend/scripts/import_personal_feeds.py", "backend/scripts/start_api.sh", "backend/scripts/gunicorn_config.py", "backend/scripts/migrate_sqlite_to_database.py", "backend/scripts/seed.py", "backend/scripts/import_market_data_to_db.py", "backend/scripts/refresh_session_summaries.py",
-  "backend/Dockerfile", "backend/Dockerfile.node", "backend/requirements.txt", "backend/requirements-dev.txt", "backend/alembic.ini", "backend/index.js", "backend/db.js",
+  "scripts/dev.js", "scripts/pine-engine.mjs", "scripts/pine-namespace-members101.mjs", "scripts/source-release.mjs", "scripts/purge-vite-cache.js", "scripts/refresh-pine-catalog.mjs",
+  "backend/scripts/import_personal_feeds.py", "backend/scripts/migrate_sqlite_to_database.py", "backend/scripts/seed.py", "backend/scripts/import_market_data_to_db.py", "backend/scripts/refresh_session_summaries.py",
+  "backend/Dockerfile", "backend/requirements.txt", "backend/requirements-dev.txt", "backend/alembic.ini", "backend/index.js", "backend/db.js",
   "backend/auth/package.json", "backend/auth/Dockerfile",
 ]);
 const trees = [

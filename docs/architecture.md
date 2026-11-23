@@ -2,8 +2,6 @@
 
 This guide describes the implemented system, its ownership boundaries, and why they matter when changing or deploying it. It does not promise every TradingView feature, external provider activation, Kubernetes support, or independently certified high availability. Start with the [documentation index](README.md); use [configuration](configuration.md) and [maintenance](maintenance.md) for operating procedures.
 
-The [personal local variant](personal-self-hosting.md) runs a separate loopback-only SQLite API, frontend proxy and real crypto history job. Its fixed local identity has session-bound workspace/export access; production/beta identity and paid export policies remain separate. Private keys and downloaded datasets are excluded from matching source.
-
 ## 1. System shape
 
 EdgeLab is a modular application with a React browser and one primary Python domain package. Production runs that package in two API services and background processes. The APIs are workload-isolated instances of the same FastAPI application, not separate independently versioned business microservices. Better Auth is a separate Node service because it owns the OAuth/session protocol. The older Node API is compatibility-only.
@@ -54,7 +52,7 @@ The diagram shows the base production stack. The efficient overlay directs marke
 | Durable model | [models.py](../backend/app/models.py), [market_data_db.py](../backend/app/market_data_db.py) | Tenant-owned relational records and optional candle engine |
 | Auth protocol | [auth.mjs](../backend/auth/auth.mjs), [server.mjs](../backend/auth/server.mjs) | Native Better Auth routes and fixed-key private introspection/revocation |
 | Background processes | [data_populator.py](../backend/app/data_populator.py), [analytics_worker.py](../backend/app/analytics_worker.py) | Scheduled ingestion and materialized summary refresh |
-| Deployment | [Compose](../docker-compose.yml), [Nginx](../docker/nginx.conf), [startup](../backend/scripts/start_api.sh) | Proxy partition, pools, startup order, workers and private telemetry |
+| Deployment | [Compose](../docker-compose.local.yml), [Nginx](../docker/nginx.conf), [Dockerfile](../backend/Dockerfile) | Proxy routing, environment configuration, and container lifecycle |
 
 Routes and models are currently large shared modules. Add new behavior to the existing owning service and contract rather than copying logic into UI handlers or the legacy API. Extract a module when a real domain boundary and regression coverage justify it; introducing additional network services is not automatically an improvement.
 
@@ -127,7 +125,7 @@ sequenceDiagram
     API-->>Browser: Server-owned entitlement decision
 ```
 
-Prices, secret keys and webhook verification are server-owned. Customer/subscription records separate test and live modes. Checkout/portal calls and stale access refreshes use bounded shared quotas; configured Redis failure fails closed for that provider admission. Webhook/customer reconciliation and current provider verification own access, not a browser redirect. See [Stripe sandbox](stripe-sandbox.md) and [backend billing](../backend/README.md).
+Prices, secret keys and webhook verification are server-owned. Customer/subscription records separate test and live modes. Checkout/portal calls and stale access refreshes use bounded shared quotas; configured Redis failure fails closed for that provider admission. Webhook/customer reconciliation and current provider verification own access, not a browser redirect. See [backend billing](../backend/README.md).
 
 Persisted integration secrets are authenticated/encrypted with the server keyring and bound metadata. Some live broker connections accept transient user-entered JWT/feed credentials in the browser and authenticated first WebSocket message. That supported transport is distinct from server-only persisted secrets. Use HTTPS/WSS and keep credentials out of URLs, logs, screenshots, source offers and shared snapshots.
 
@@ -190,7 +188,7 @@ Prometheus metrics aggregate all Gunicorn workers in a fresh per-master private 
 
 Success logs are sampled; failures and slow requests remain observable at the configured level. Exception logging retains type and stack locations instead of bound SQL values. OTLP export sanitizes attributes/events/resources, uses a bounded background queue and one HTTP attempt per batch, and bounds shutdown wait. Its custom SDK lifecycle code is pinned and upgrade-sensitive.
 
-The optional private profile provides Grafana, Prometheus, Alloy, Loki, Tempo and dedicated SQL exporters. Alloy discovers only this Compose project's app services; an isolated Docker API guard denies write/archive/exec APIs and synthesizes non-secret metadata rather than forwarding inspect environments. It remains a trusted log reader on a dedicated deployment host. Retention and container log rotation limit cost; filesystem log/trace retention is not an exact disk quota. Alerts are evaluated locally; external paging is not configured. Details and measured resource use are in [observability](observability.md).
+The optional private profile provides Grafana, Prometheus, Alloy, Loki, Tempo and dedicated SQL exporters. Alloy discovers only this Compose project's app services; an isolated Docker API guard denies write/archive/exec APIs and synthesizes non-secret metadata rather than forwarding inspect environments. It remains a trusted log reader on a dedicated deployment host. Retention and container log rotation limit cost; filesystem log/trace retention is not an exact disk quota. Alerts are evaluated locally; external paging is not configured.
 
 ## 11. Deployment, scale and latency
 
@@ -198,7 +196,7 @@ Nginx serves precompressed immutable assets and same-origin APIs. An external CD
 
 Horizontal app replicas need shared application SQL, optional shared auth SQL, common secrets/origin, bounded combined pooler/server connections and a load balancer that removes unhealthy/draining nodes. A second API container sharing the same host, writer or SQLite session file is not an independent failure domain. HA requires a tested writer/standby/failover plan, Redis/admission recovery, backups, and measured survivor capacity.
 
-Adding workers or queue depth does not create CPU, memory or database capacity. Global round-trip latency affects authentication introspection, provider calls, chart bootstrap and interaction. Keep latency-sensitive services close to their writer, deliver static assets near users, measure regional full-wall SLOs and avoid chatty large bootstrap responses. The [capacity report](production-capacity.md) separates local results and modeled network delay from cloud guarantees.
+Adding workers or queue depth does not create CPU, memory or database capacity. Global round-trip latency affects authentication introspection, provider calls, chart bootstrap and interaction. Keep latency-sensitive services close to their writer, deliver static assets near users, measure regional full-wall SLOs and avoid chatty large bootstrap responses.
 
 ## 12. Upgrade and extension rules
 

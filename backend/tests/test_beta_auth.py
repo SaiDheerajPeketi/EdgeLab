@@ -124,7 +124,7 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
             dev_auth_bypass_enabled=False,
             google_client_id="client-id",
             google_client_secret="client-secret",
-            google_redirect_uri="https://edgelab.co.in/auth/callback/google",
+            google_redirect_uri="https://auth.example.com/callback/google",
         ),
     )
 
@@ -132,7 +132,7 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
 
     assert response.google_enabled is True
     assert response.google_client_id == "client-id"
-    assert response.google_redirect_uri == "https://edgelab.co.in/auth/callback/google"
+    assert response.google_redirect_uri == "https://auth.example.com/callback/google"
     assert response.manual_access_enabled is False
     assert response.dev_auth_bypass_enabled is False
 
@@ -145,7 +145,7 @@ def test_google_token_exchange_rejects_unconfigured_redirect_uri(monkeypatch):
         deployment_mode="beta",
             google_client_id="client-id",
             google_client_secret="client-secret",
-            google_redirect_uri="https://edgelab.co.in/auth/callback/google",
+            google_redirect_uri="https://auth.example.com/callback/google",
         ),
     )
 
@@ -198,7 +198,7 @@ def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
             google_client_id="",
             google_client_secret="",
             google_redirect_uri="",
-            public_origin="https://edgelab.co.in",
+            public_origin="https://example.com",
             cors_origins=("http://localhost:5173",),
         ),
     )
@@ -240,7 +240,7 @@ def test_dev_auth_bypass_issues_session_only_for_loopback_request(monkeypatch):
     try:
         blocked_request = SimpleNamespace(
         deployment_mode="beta",
-            url=SimpleNamespace(hostname="edgelab.co.in"),
+            url=SimpleNamespace(hostname="example.com"),
             client=SimpleNamespace(host="203.0.113.10"),
         )
         with pytest.raises(HTTPException) as exc_info:

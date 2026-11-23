@@ -1,29 +1,89 @@
 # Contributing to EdgeLab
 
-Read the [architecture](docs/architecture.md), [maintenance guide](docs/maintenance.md), and component README before changing a boundary. [AGENTS.md](AGENTS.md) defines agent workflow and invariants; [SECURITY.md](SECURITY.md) defines private vulnerability reporting. Do not publish customer records, credentials or private test artifacts in issues or PRs.
+Thank you for your interest in contributing to EdgeLab! We welcome community contributions, bug fixes, improvements, and ideas.
 
-## Set up
+## Contributor License Agreement (CLA)
 
-Use Node.js 22.13+ and Python 3.12. Install the root npm workspace with `npm ci` and Python development requirements in `backend/.venv`. Follow [setup](docs/setup-and-deployment.md) for explicit database/auth/deployment settings; `.env.example` is a reference, not a production credential set. `npm run dev` does not load `.env` automatically.
+Before we can merge your pull requests, you must accept the [EdgeLab Contributor License Agreement](CLA.md). By submitting a pull request, you agree to the terms outlined in the CLA.
 
-## Make a focused change
+Please review [CLA.md](CLA.md) for full details.
 
-1. Identify the owning route, service, model, browser state or runtime adapter. Preserve existing conventions and tenant identity across asynchronous work.
-2. Make a small complete change; avoid unrelated formatting/refactors. Public availability states must reflect built capabilities and actual provider/data access.
-3. Add a meaningful regression check for changed behavior. Do not add tests that merely duplicate implementation or for wording/comment changes.
-4. Update the canonical documentation and all coupled configuration/build/source-offer inputs. Use the [change map](docs/maintenance.md#change-map).
-5. Run the applicable [validation tier](docs/maintenance.md#validation-tiers); report skips and unverified provider/deployment behavior precisely.
+---
 
-Comments explain intent, ordering, ownership, units or external constraints. They should not narrate obvious syntax, promise unavailable behavior, contain credentials or accumulate stale TODO roadmaps. Separate a new architectural decision from an old measurement; significant boundary/storage changes need a short decision record under `docs/decisions/` following its template.
+## Getting Started
 
-## Git workflow
+### Prerequisites
+- **Node.js**: 22.13.0 or later
+- **Python**: 3.12 or later
+- **Docker & Docker Compose** (optional, for containerized local dev)
 
-Keep each feature or maintenance iteration separate. Inspect the working tree first and stage explicit paths; do not absorb another contributor's local edits, data, generated output or private artifacts. Prefer short intent-focused commit subjects. Use `codex/` for agent-created branches unless the user requests another name. Main should receive reviewed, validated work under the repository owner's chosen workflow; do not force-push to resolve divergence.
+### Setting Up Local Development
 
-The optional `.githooks/post-commit` hook automatically pushes after a commit. Enabling it is a deliberate per-clone choice (`rtk git config --local core.hooksPath .githooks`), not an installation side effect. It can trigger remote CI. `CODEX_AUTO_PUSH=0` disables one intentional local-only commit. A failed push leaves the commit intact; fetch/review remote changes before retrying. Detached commits are preserved under `codex/preserve-detached-<commit>`.
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/SaiDheerajPeketi/EdgeLab.git
+   cd EdgeLab
+   ```
 
-Describe the concrete behavior, relevant validation, compatibility/data implications and real limitations in the [PR template](.github/PULL_REQUEST_TEMPLATE.md). Do not claim tests passed if they were skipped, unavailable or tested against a different checkout.
+2. **Install frontend and root dependencies:**
+   ```bash
+   npm ci
+   ```
 
-## Release-sensitive areas
+3. **Set up Python backend virtual environment:**
+   ```bash
+   python -m venv backend/.venv
+   # On Windows:
+   .\backend\.venv\Scripts\activate
+   # On macOS/Linux:
+   source backend/.venv/bin/activate
 
-Identity, billing/export access, account data replacement, persistent schema, source licenses, Pine sandboxing, live feed ownership and cache invalidation need review at their actual boundaries. Use disposable fixture stores for destructive migration/import/failover tests. Follow the [upgrade playbook](docs/maintenance.md) rather than replacing a volume, resetting a live checkout or pruning a shared Docker daemon.
+   pip install -r backend/requirements.txt
+   pip install -r backend/requirements-dev.txt
+   ```
+
+4. **Environment variables:**
+   Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+5. **Run the development servers:**
+   ```bash
+   npm run dev
+   ```
+   Or use Docker Compose for an isolated local environment:
+   ```bash
+   docker compose -f docker-compose.local.yml up --build
+   ```
+
+---
+
+## Development Workflow
+
+1. **Create a topic branch:**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Make focused, clear changes:**
+   - Keep commits focused on a single logical change.
+   - Write clear, descriptive commit messages.
+
+3. **Run tests before opening a pull request:**
+   ```bash
+   # Frontend and documentation checks
+   npm run check:docs
+   npm run build
+
+   # Backend tests
+   PYTHONPATH=backend pytest backend/tests
+
+   # Node unit tests
+   npm test
+   ```
+
+4. **Submit a Pull Request:**
+   - Push your branch to your fork on GitHub.
+   - Open a pull request against the `main` branch.
+   - Describe the changes made, the problem solved, and how to verify it.

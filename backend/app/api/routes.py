@@ -330,14 +330,14 @@ ANGELONE_EXCHANGE_TYPES = {
 }
 ANGELONE_HEADERS = {
     "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
+    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1)",
 }
 FOREX_FACTORY_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 FOREX_FACTORY_CACHE_TTL_SECONDS = 60
 FOREX_FACTORY_HEADERS = {
     "Accept": "application/json",
     "Referer": "https://www.forexfactory.com/calendar",
-    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
+    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1)",
 }
 forex_factory_calendar_cache: tuple[datetime, list[EconomicCalendarEvent]] | None = None
 angelone_instrument_cache: tuple[datetime, list[AngelOneInstrument]] | None = None
