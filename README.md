@@ -22,6 +22,16 @@ See the [system architecture diagram and service-ownership guide](docs/architect
 
 ---
 
+## Documentation
+
+Start with the [documentation index](docs/README.md), or use the guides below:
+
+- **Architecture & product**: [Architecture](docs/architecture.md), [Glossary](docs/glossary.md), and [Frontend Feature Reference](docs/frontend-feature-reference.md).
+- **Setup & operations**: [Setup & Deployment](docs/setup-and-deployment.md), [Performance Data Stack](docs/performance-data-stack.md), [Configuration](docs/configuration.md), [API Reference](docs/api-reference.md), and [Maintenance](docs/maintenance.md).
+- **Quality**: [UI Quality Contract](docs/ui-quality-contract.md) and [UI Surface Inventory](docs/ui-surface-inventory.md).
+
+---
+
 ## Quick Start
 
 ### Option 1: Docker Compose (Recommended)
