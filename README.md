@@ -146,7 +146,7 @@ npm test
 
 ## License & Contributing
 
-- **License**: EdgeLab is licensed under the [Apache License, Version 2.0 with the Commons Clause Condition](LICENSE) (Non-Commercial).
-- **Contributing**: We welcome community contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and note that all contributors must accept the [Contributor License Agreement (CLA)](CLA.md).
+- **License**: EdgeLab is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). You may use, modify, and distribute it, including commercially, provided you meet the AGPL's corresponding-source and network-interaction obligations.
+- **Contributing**: We welcome community contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and note that all contributors must accept the [Contributor License Agreement (CLA)](CLA.md). The CLA gives the Project Owner rights in accepted EdgeLab contributions, but it does not override third-party licenses such as PineTS.
 - **Security**: For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 - **Third-Party Notices**: See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details on third-party libraries and components.

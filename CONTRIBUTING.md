@@ -2,9 +2,13 @@
 
 Thank you for your interest in contributing to EdgeLab! We welcome community contributions, bug fixes, improvements, and ideas.
 
+EdgeLab is licensed under the GNU Affero General Public License v3.0 only
+(AGPL-3.0-only). Contributions accepted into the Project may be distributed
+under AGPL-3.0-only. Please read the [LICENSE](LICENSE) before contributing.
+
 ## Contributor License Agreement (CLA)
 
-Before we can merge your pull requests, you must accept the [EdgeLab Contributor License Agreement](CLA.md). By submitting a pull request, you agree to the terms outlined in the CLA.
+Before we can merge your pull requests, you must accept the [EdgeLab Contributor License Agreement](CLA.md). By submitting a pull request, you agree to the terms outlined in the CLA. The CLA preserves your ownership of your contribution while granting the Project Owner rights to maintain and relicense that contribution, subject to all applicable third-party licenses.
 
 Please review [CLA.md](CLA.md) for full details.
 

@@ -34,6 +34,8 @@ You hereby grant to the Project Owner a perpetual, worldwide, non-exclusive, no-
 
 You retain copyright ownership of Your individual Contribution, subject to the broad licenses granted herein.
 
+This CLA grants rights only in Your Contributions. It does not grant the Project Owner rights in third-party software. Any release that includes third-party material remains subject to the licenses and permissions for that material, including the AGPL-3.0-only terms applicable to PineTS in the current Project.
+
 ---
 
 ### 4. Grant of Patent License

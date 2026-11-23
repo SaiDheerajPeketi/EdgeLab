@@ -22,4 +22,4 @@ Welcome to the EdgeLab technical documentation.
 - [Contributing](../CONTRIBUTING.md): Guidelines for contributing code.
 - [Contributor License Agreement (CLA)](../CLA.md): Terms for external contributions.
 - [Security Policy](../SECURITY.md): Vulnerability reporting procedures.
-- [License](../LICENSE): Apache 2.0 with Commons Clause condition.
+- [License](../LICENSE): GNU Affero General Public License v3.0 only (AGPL-3.0-only).
