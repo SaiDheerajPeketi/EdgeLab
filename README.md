@@ -16,6 +16,12 @@ Built with a **React + Vite** frontend, a high-performance **FastAPI** backend, 
 
 ---
 
+## Architecture
+
+See the [system architecture diagram and service-ownership guide](docs/architecture.md#1-system-shape) for the browser, API, authentication, database, cache, market-data, and background-worker boundaries. It also explains the difference between the lightweight SQLite setup and the optional PostgreSQL/TimescaleDB/Redis performance stack.
+
+---
+
 ## Quick Start
 
 ### Option 1: Docker Compose (Recommended)
