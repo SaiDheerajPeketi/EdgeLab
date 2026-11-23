@@ -78,6 +78,15 @@ This starts:
 
 ---
 
+## Market Datasets
+
+To get started with historical replay and chart analysis, market CSV files should be placed inside the `datasets/` directory.
+
+- **Sample Dataset (Google Drive)**: You can download sample historical datasets from [Google Drive](https://drive.google.com/drive/folders/1sZrVhKQVX0CO2jK-WOqBNkektTN4b-XC?usp=sharing).
+- **Setup**: Download the folders or files from the link and place them under `datasets/` (e.g. `datasets/BTC_USDT/BTCUSDT_Daily.csv`). EdgeLab will automatically detect and index them in the catalog.
+
+---
+
 ## Verification & Testing
 
 Run the test suite across the project:
