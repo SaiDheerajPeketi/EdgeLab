@@ -20,11 +20,11 @@ Defaults below distinguish native code from Compose overrides. Numeric bounds ar
 | `EDGELAB_POSTGRES_HOST` | `127.0.0.1` | Compose selects `pgbouncer-postgres` |
 | `EDGELAB_POSTGRES_CONNECT_PORT` | `5432` | Compose connects to the pooler's `6432`; distinct from a host-published port |
 | `EDGELAB_MARKET_DATA_DATABASE_URL` | Explicit URL wins | Optional independent candle SQL store |
-| `EDGELAB_MARKET_DATA_POSTGRES_HOST` / `EDGELAB_MARKET_DATA_POSTGRES_PORT` | No host means application URL; with a host, port defaults to `6432` | Base Compose selects the Timescale pooler; efficient overlay selects the application pooler |
+| `EDGELAB_MARKET_DATA_POSTGRES_HOST` / `EDGELAB_MARKET_DATA_POSTGRES_PORT` | No host means application URL; with a host, port defaults to `6432` | The performance overlay selects the TimescaleDB pooler |
 
 Native development defaults to **PostgreSQL**, not SQLite. Select SQLite explicitly with a URL such as `sqlite:///./backend/edgelab-local.db`; use the same environment for Alembic and API startup. Leave the market URL/host unset to reuse that store, or set an explicit second SQLite URL. `docker-compose.local.yml` supplies both SQLite URLs in its `local-api-data` volume.
 
-Base Compose retains `postgres-data`, `timescaledb-data`, `api-data` and `auth-data`. The efficient overlay uses one PostgreSQL writer/pooler and keeps SQL imports and full historical ingestion enabled; it does not automatically migrate an existing Timescale store. It requires Compose 2.24.4+ for `!override`. Explicit full URLs override the overlay's host changes. Identical application/market URLs reuse one engine, and candle imports use the caller's transaction; distinct URLs create separate per-worker connection budgets.
+The local performance overlay retains `postgres-data` and `timescaledb-data` volumes while the base local Compose file retains its SQLite volumes. The overlay keeps SQL imports enabled and does not automatically migrate SQLite or existing TimescaleDB data. Explicit full URLs override its host changes. Identical application/market URLs reuse one engine, and candle imports use the caller's transaction; distinct URLs create separate per-worker connection budgets. See [Performance Data Stack](performance-data-stack.md) for the contributor workflow.
 
 Constructed PostgreSQL URLs escape credential characters. When supplying a full URL, URL-encode credentials yourself; native Python expects a SQLAlchemy driver such as `postgresql+psycopg`, whereas Better Auth expects `postgres://` or `postgresql://`. Back up each authoritative store before changing URLs or schema versions.
 
@@ -111,7 +111,6 @@ Ordinary overflow waits in a finite FIFO event-loop queue without consuming work
 | `EDGELAB_MIGRATION_MAX_ATTEMPTS` / `EDGELAB_MIGRATION_RETRY_SECONDS` | `12` positive attempts / `5` nonnegative seconds |
 | `EDGELAB_PGBOUNCER_MAX_CLIENT_CONN` | `400` |
 | `EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE` / `EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE` | `25` / `5` per base pooler |
-| `EDGELAB_EFFICIENT_PGBOUNCER_POOL_SIZE` / `EDGELAB_EFFICIENT_PGBOUNCER_RESERVE_POOL_SIZE` | `50` / `10` for the combined efficient pooler |
 | `EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS` / `EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS` | `600` / `15` |
 
 The launcher migrates and initializes candle tables before forking. PostgreSQL driver preparation is disabled for the bundled transaction-pooling path. Pooler clients are not all server connections; compare aggregate worker pools and measured active transactions before changing server budgets. Preserve graceful deadlines and validation headroom.

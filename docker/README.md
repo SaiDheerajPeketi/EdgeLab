@@ -2,6 +2,24 @@
 
 EdgeLab provides a self-contained local development environment powered by Docker Compose.
 
+## Optional performance data stack
+
+`docker-compose.local.yml` is the smallest contributor setup and uses SQLite.
+For PostgreSQL, TimescaleDB, Redis, and PgBouncer, layer the optional
+`docker-compose.performance.yml` file over it:
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.performance.yml up -d --build
+```
+
+The overlay keeps PostgreSQL, TimescaleDB, PgBouncer, and Redis on loopback-only
+host ports. The API connects through its internal poolers: PostgreSQL stores
+transactional data, TimescaleDB stores market candles, and Redis provides
+disposable shared cache and admission state. It is for development and
+single-host testing; configure credentials, backup, TLS, and resource limits
+before any public deployment. See the [Performance Data Stack guide](../docs/performance-data-stack.md)
+for service ownership, configuration, capacity guidance, and troubleshooting.
+
 ## Services
 
 The local configuration (`docker-compose.local.yml`) runs three containerized services:

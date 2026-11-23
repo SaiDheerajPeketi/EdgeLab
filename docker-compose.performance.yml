@@ -1,0 +1,109 @@
+# Optional development overlay for a production-like data path. Use with:
+# docker compose -f docker-compose.local.yml -f docker-compose.performance.yml up -d --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edgelab} -d ${POSTGRES_DB:-edgelab}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports: ["127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:2.16.1-pg16
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_stat_statements"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edgelab} -d ${POSTGRES_DB:-edgelab}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports: ["127.0.0.1:${EDGELAB_TIMESCALE_PORT:-5433}:5432"]
+    volumes: ["timescaledb-data:/var/lib/postgresql/data"]
+    restart: unless-stopped
+
+  pgbouncer-postgres:
+    build:
+      context: .
+      dockerfile: docker/pgbouncer/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &pgbouncer-environment
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_DB: ${POSTGRES_DB:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_PORT: 5432
+      EDGELAB_PGBOUNCER_LISTEN_PORT: 6432
+      EDGELAB_PGBOUNCER_MAX_CLIENT_CONN: ${EDGELAB_PGBOUNCER_MAX_CLIENT_CONN:-400}
+      EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE: ${EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE:-25}
+      EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE: ${EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS:-600}
+      EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS:-15}
+      EDGELAB_PGBOUNCER_TARGET_HOST: postgres
+    healthcheck: &pgbouncer-healthcheck
+      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql 'host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}' -c 'SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports: ["127.0.0.1:${EDGELAB_PGBOUNCER_POSTGRES_PORT:-6432}:6432"]
+    restart: unless-stopped
+
+  pgbouncer-timescaledb:
+    build:
+      context: .
+      dockerfile: docker/pgbouncer/Dockerfile
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      <<: *pgbouncer-environment
+      EDGELAB_PGBOUNCER_TARGET_HOST: timescaledb
+    healthcheck: *pgbouncer-healthcheck
+    ports: ["127.0.0.1:${EDGELAB_PGBOUNCER_TIMESCALE_PORT:-6433}:6432"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "${EDGELAB_REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "noeviction", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports: ["127.0.0.1:${EDGELAB_REDIS_PORT:-6379}:6379"]
+    restart: unless-stopped
+
+  api:
+    depends_on:
+      pgbouncer-postgres:
+        condition: service_healthy
+      pgbouncer-timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ""
+      EDGELAB_MARKET_DATA_DATABASE_URL: ""
+      EDGELAB_POSTGRES_HOST: pgbouncer-postgres
+      EDGELAB_POSTGRES_CONNECT_PORT: 6432
+      EDGELAB_MARKET_DATA_POSTGRES_HOST: pgbouncer-timescaledb
+      EDGELAB_MARKET_DATA_POSTGRES_PORT: 6432
+      EDGELAB_MARKET_DATA_IMPORT_ENABLED: 1
+      EDGELAB_REDIS_URL: redis://redis:6379/0
+
+volumes:
+  postgres-data:
+  timescaledb-data:

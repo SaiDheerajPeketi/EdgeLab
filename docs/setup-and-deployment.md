@@ -57,7 +57,29 @@ docker compose -f docker-compose.local.yml down -v
 
 ---
 
-## 2. Native Development Setup
+## 2. Optional Performance Data Stack
+
+The default Compose setup uses SQLite because it is the easiest way to begin
+contributing. For large market-candle imports, concurrent API work, or work on
+the SQL/cache paths, layer the performance data stack on top of the local file:
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.performance.yml up -d --build
+```
+
+This adds PostgreSQL for transactional data, TimescaleDB for candle data, two
+PgBouncer services for connection pooling, and Redis for shared cache and
+admission state. It keeps all of their host ports loopback-only and configures
+the API to use the services automatically. It starts with fresh SQL volumes;
+it does not migrate existing SQLite data. Use the same pair of Compose files
+for `logs`, `down`, and `down -v` commands.
+
+Read the [Performance Data Stack guide](performance-data-stack.md) before
+tuning capacity or deleting volumes.
+
+---
+
+## 3. Native Development Setup
 
 For actively modifying frontend and backend code with hot-reloading:
 
@@ -112,7 +134,7 @@ You can also run services independently:
 
 ---
 
-## 3. Market Datasets
+## 4. Market Datasets
 
 EdgeLab uses CSV files for market candle data and backtesting:
 - Place CSV dataset files under the `datasets/` directory.
@@ -121,7 +143,7 @@ EdgeLab uses CSV files for market candle data and backtesting:
 
 ---
 
-## 4. Verification
+## 5. Verification
 
 Run the verification suite to ensure everything is working:
 

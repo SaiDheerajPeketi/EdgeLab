@@ -78,6 +78,25 @@ This starts:
 
 ---
 
+## Optional Performance Data Stack
+
+The default local stack deliberately uses SQLite so contributors can get started quickly. For larger datasets, concurrent API work, or production-like development, EdgeLab includes an opt-in data-services overlay:
+
+- **PostgreSQL** stores transactional application data.
+- **TimescaleDB** stores and indexes time-series market candles as a hypertable.
+- **PgBouncer** pools application and candle-database connections independently.
+- **Redis** provides disposable shared read-model caching and distributed rate-limit/admission counters; it is not a durable account or market-data store.
+
+Start the application with the overlay:
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.performance.yml up -d --build
+```
+
+Database and Redis ports remain bound to `127.0.0.1`. The API uses the internal PgBouncer services, writes application data to PostgreSQL, writes candles to TimescaleDB, and uses Redis at `redis://redis:6379/0`. Persistent SQL data is stored in named Docker volumes. Use `docker-compose.local.yml` alone when SQLite is sufficient.
+
+---
+
 ## Market Datasets
 
 To get started with historical replay and chart analysis, market CSV files should be placed inside the `datasets/` directory.
@@ -117,6 +136,7 @@ npm test
 │   ├── alembic/          # Database migrations
 │   └── auth/             # Better Auth service
 ├── docker/               # Local Nginx reverse proxy configuration
+│   └── pgbouncer/        # Connection-pooler image and generated configuration
 ├── docs/                 # Architecture and setup documentation
 ├── datasets/             # Local market CSV datasets
 └── scripts/              # Development and verification utilities

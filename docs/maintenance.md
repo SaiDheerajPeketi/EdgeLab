@@ -44,7 +44,7 @@ Application migrations live in `backend/alembic`. Auth uses its native migration
 
 For compatibility-sensitive deployments prefer **expand → backfill → switch reads/writes → contract**. Keep old/new code compatible during overlap, bound backfill transactions and resource use, record completion, then remove old fields only after the rollback window. Review tenant scope, unique/index keys, lock ordering and idempotency. Rehearse against representative full history, not an empty database.
 
-Switching to the efficient overlay does not transfer an existing candle store. Preserve dataset/account identities and validate row counts, representative chronological windows, source hashes and replay results before directing reads to the new writer. Switching Better Auth SQLite to PostgreSQL does not transfer sessions automatically; migrate explicitly or require re-login, preserving application accounts and entitlements.
+Switching from the SQLite local stack to the performance data overlay does not transfer an existing candle store. Preserve dataset/account identities and validate row counts, representative chronological windows, source hashes and replay results before directing reads to the new writer. Switching Better Auth SQLite to PostgreSQL does not transfer sessions automatically; migrate explicitly or require re-login, preserving application accounts and entitlements.
 
 ## Backup and restore
 

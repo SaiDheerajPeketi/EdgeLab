@@ -30,12 +30,11 @@ flowchart TB
     Market --> Feeds[Supported market providers]
 ```
 
-The diagram shows the base production stack. The efficient overlay directs market traffic to the application PostgreSQL writer/pooler and omits the separate Timescale services. Local Compose uses one API and separate SQLite files. These are deliberate alternatives, not automatic migrations.
+The full data path is available to contributors through `docker-compose.performance.yml`, layered on `docker-compose.local.yml`. It provides PostgreSQL, TimescaleDB, Redis, and two PgBouncer services, while the default local file uses one API and separate SQLite files. These are deliberate alternatives, not automatic migrations.
 
 | Mode | Application data | Candle data | Auth sessions | Important boundary |
 | --- | --- | --- | --- | --- |
-| Base production Compose | PostgreSQL through PgBouncer | Separate TimescaleDB through its pooler | Auth SQLite unless explicitly configured for PG | Separate market and transactional workload budgets |
-| Base + efficient overlay | Same PostgreSQL writer/pooler | Indexed SQL candles on that writer | Same auth choices | New-install optimization; existing candle data must be migrated deliberately |
+| Performance Compose overlay | PostgreSQL through PgBouncer | Separate TimescaleDB through its pooler | Isolated auth SQLite volume | Separate market and transactional workload budgets for development/single-host testing |
 | Local Compose | `/var/lib/edgelab/edgelab.db` | `/var/lib/edgelab/market_data.db` | Isolated auth SQLite volume | Beta/development secrets and bypass; unsuitable as public production defaults |
 | Native development | Explicit `DATABASE_URL`, otherwise loopback PostgreSQL | Explicit market URL/host, otherwise app engine | Legacy auth unless Better Auth explicitly enabled | Environment must be supplied; `.env` is not automatically read by the dev launcher |
 
@@ -52,7 +51,7 @@ The diagram shows the base production stack. The efficient overlay directs marke
 | Durable model | [models.py](../backend/app/models.py), [market_data_db.py](../backend/app/market_data_db.py) | Tenant-owned relational records and optional candle engine |
 | Auth protocol | [auth.mjs](../backend/auth/auth.mjs), [server.mjs](../backend/auth/server.mjs) | Native Better Auth routes and fixed-key private introspection/revocation |
 | Background processes | [data_populator.py](../backend/app/data_populator.py), [analytics_worker.py](../backend/app/analytics_worker.py) | Scheduled ingestion and materialized summary refresh |
-| Deployment | [Compose](../docker-compose.local.yml), [Nginx](../docker/nginx.conf), [Dockerfile](../backend/Dockerfile) | Proxy routing, environment configuration, and container lifecycle |
+| Deployment | [Local Compose](../docker-compose.local.yml), [performance overlay](../docker-compose.performance.yml), [Nginx](../docker/nginx.conf), [Dockerfile](../backend/Dockerfile) | Proxy routing, environment configuration, and container lifecycle |
 
 Routes and models are currently large shared modules. Add new behavior to the existing owning service and contract rather than copying logic into UI handlers or the legacy API. Extract a module when a real domain boundary and regression coverage justify it; introducing additional network services is not automatically an improvement.
 

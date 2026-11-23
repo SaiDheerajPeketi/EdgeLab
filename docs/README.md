@@ -12,6 +12,7 @@ Welcome to the EdgeLab technical documentation.
 ## Setup & Operations
 
 - [Setup & Deployment](setup-and-deployment.md): Instructions for running EdgeLab natively or via Docker Compose.
+- [Performance Data Stack](performance-data-stack.md): Choosing, running, tuning, and troubleshooting the optional PostgreSQL, TimescaleDB, Redis, and PgBouncer overlay.
 - [Configuration](configuration.md): Environment variables and configuration options.
 - [API Reference](api-reference.md): REST and WebSocket API endpoints.
 - [Maintenance](maintenance.md): Database migrations, testing, and troubleshooting.
